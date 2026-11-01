@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-12 completado. Replicación cruzada P2P de catálogo, deltas de Kardex e imágenes locales implementada en `src/services/p2p-sync.service.ts` y `src/services/p2p-http.service.ts` (`POST /p2p/sync/deltas`, `syncWithPeer`, `getPendingEvents`, `markEventsReplicated`). Soporte completo para mutaciones de `PRODUCT` (UPSERT determinista con Last-Write-Wins sobre `updated_at` y DELETE lógico), movimientos de inventario `STOCK_MOVEMENT` (deltas conmutativos e inserción idempotente con 4 decimales exactos por UUIDv7) y replicación automática del archivo binario de imagen local en el `FileStore` del receptor. 74 tests pasando al 100% (13 suites) y typecheck TypeScript sin errores.
-* **Próxima tarea a ejecutar:** PR-13 (Repositorio CRUD Completo de Inventario, Categorías y Kardex con Outbox P2P).
+* **Estado actual:** PR-13 completado. Repositorio CRUD completo de inventario, categorías y Kardex con outbox P2P implementado en `src/database/repositories/product.repository.ts` (`insertProduct`, `updateProduct`, `setProductActive`, `getProductById`, `getProductByBarcode`, `getProductBySku`, `listCategories`, `listInventoryWithStock`, `addStockMovement`, `getProductKardex`). Validación estricta de unicidad de SKU y código de barras, precisión fija a 4 decimales (`Decimal`), alerta reactiva de stock bajo (`isLowStock`), baja lógica y encolado automático atómico de mutaciones y deltas de stock en `peer_sync_outbox`. 80 tests pasando al 100% (14 suites) y typecheck TypeScript sin errores.
+* **Próxima tarea a ejecutar:** PR-14 (Almacenamiento Local y Selector de Imágenes de Producto).
 
 ---
 
@@ -62,7 +62,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
   * *Criterio de éxito:* Crear/editar un producto con foto o registrar un movimiento de stock en la Caja 1 se replica de forma idempotente (datos + archivo de imagen local) en la Caja 2.
 
 ### Fase 6: Inventario Real End-to-End (CRUD, Imágenes Locales y Lector HID)
-- [ ] **PR-13: Repositorio CRUD Completo de Inventario, Categorías y Kardex con Outbox P2P**
+- [x] **PR-13: Repositorio CRUD Completo de Inventario, Categorías y Kardex con Outbox P2P**
   * *Descripción:* Ampliar `src/database/repositories/product.repository.ts` con operaciones completas: `updateProduct` (nombre, SKU, `barcode`, categoría, `price_usd`, `cost_usd`, `tax_rate`, `min_stock`), `setProductActive` (baja lógica), `getProductById`, `getProductByBarcode`, `getProductBySku`, `listCategories`, `listInventoryWithStock` (consulta enriquecida sobre `v_product_current_stock` con búsqueda por nombre/SKU/`barcode`) y `getProductKardex` (historial de `stock_movements`). Toda mutación de producto o ajuste de stock (`RESTOCK`, `ADJUSTMENT`) encola atómicamente su evento en `peer_sync_outbox`.
   * *Criterio de éxito:* Tests unitarios de creación, edición, validación de unicidad de SKU/`barcode`, ajuste de stock con precisión fija (4 decimales) y generación automática de eventos en `peer_sync_outbox`.
 - [ ] **PR-14: Almacenamiento Local y Selector de Imágenes de Producto (`FileStore` + Compresor)**
