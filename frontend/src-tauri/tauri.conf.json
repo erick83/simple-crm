@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bisync POS",
+  "version": "0.1.0",
+  "identifier": "com.bisync.pos",
+  "build": {
+    "beforeDevCommand": "npm run web",
+    "devUrl": "http://localhost:8081",
+    "beforeBuildCommand": "npm run web:build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Bisync POS — Terminal P2P Local-First",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}
+

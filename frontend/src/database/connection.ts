@@ -48,3 +48,31 @@ export function createOpSqliteDriver(dbName = "bisync_pos.db"): SqlDriver {
   };
 }
 
+/**
+ * Crea e inicializa el SqlDriver adecuado según la plataforma:
+ * - Android / iOS nativo: @op-engineering/op-sqlite (JSI C++)
+ * - Windows Desktop (Tauri) / Web: createWebDesktopSqliteDriver con semilla inicial
+ */
+export function createDefaultSqlDriver(
+  opts: { dbName?: string; tenantId?: string; terminalId?: string; seedIfEmpty?: boolean } = {},
+): SqlDriver {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createWebDesktopSqliteDriver, seedInitialPosData } = require("./web-sqlite-driver") as typeof import("./web-sqlite-driver");
+
+  let driver: SqlDriver;
+  try {
+    driver = createOpSqliteDriver(opts.dbName);
+  } catch {
+    driver = createWebDesktopSqliteDriver();
+  }
+
+  if (opts.seedIfEmpty !== false) {
+    seedInitialPosData(driver, {
+      tenantId: opts.tenantId,
+      terminalId: opts.terminalId,
+    });
+  }
+
+  return driver;
+}
+

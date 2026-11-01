@@ -12,6 +12,7 @@ import {
 import { MemoryFileStore, resolveProductImageUri } from "../src/services/image-compressor.service";
 import { P2pSyncService } from "../src/services/p2p-sync.service";
 import { formatFixed4, toDecimal } from "../src/utils/decimal";
+import { createDefaultSqlDriver } from "../src/database/connection";
 import App from "../src/App";
 import type { AppProps } from "../src/App";
 import { InventoryScreen } from "../src/screens/InventoryScreen";
@@ -306,5 +307,31 @@ describe("PR-16: Pantalla Táctil de Inventario, Gestión de Productos y Ajustes
     const screenElement = React.createElement(InventoryScreen, screenProps);
     expect(screenElement).toBeDefined();
     expect(screenElement.props.db).toBe(db);
+  });
+
+  it("createDefaultSqlDriver inicializa el driver de escritorio/web con semilla automática y permite operaciones CRUD", () => {
+    const defaultDb = createDefaultSqlDriver({
+      tenantId: TENANT_A,
+      terminalId: TERMINAL_1,
+    });
+
+    const seededItems = listInventoryWithStock(defaultDb, { tenantId: TENANT_A });
+    expect(seededItems.length).toBeGreaterThanOrEqual(6);
+
+    const har = seededItems.find((i) => i.sku === "HAR-01");
+    expect(har).toBeDefined();
+    expect(har?.currentStock).toBe("24.0000");
+
+    // Ajustar stock en el driver de escritorio/web
+    addStockMovement(defaultDb, {
+      productId: har!.id,
+      terminalId: TERMINAL_1,
+      delta: "6.0000",
+      type: "RESTOCK",
+    });
+
+    const updatedItems = listInventoryWithStock(defaultDb, { tenantId: TENANT_A });
+    const harUpdated = updatedItems.find((i) => i.sku === "HAR-01");
+    expect(harUpdated?.currentStock).toBe("30.0000");
   });
 });

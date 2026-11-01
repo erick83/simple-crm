@@ -8,6 +8,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "web": "expo start --web",
+    "web:build": "expo export --platform web",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "gen:schema": "node scripts/gen-schema.mjs"
@@ -26,6 +29,7 @@
     "react-native-web": "~0.19.13"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20.14.0",
     "@types/react": "~18.3.12",
