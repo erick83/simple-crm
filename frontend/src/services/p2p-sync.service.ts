@@ -1,12 +1,7 @@
 import type { SqlDriver } from "../database/connection";
 import { uuidv7 } from "../utils/uuid7";
 
-export interface SyncPeer {
-  terminalId: string;
-  ip: string;
-  port: number;
-  lastSeen: number;
-}
+export * from "./p2p-discovery.service";
 
 export interface OutboxItem {
   id: string;

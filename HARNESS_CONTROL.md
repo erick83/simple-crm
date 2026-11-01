@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-08 completado. Consultas de agregación contable en SQLite para balance periódico y mensual (totalización de ingresos USD/VES por método de pago, COGS, margen bruto comercial y ranking de productos). Los 49 tests unitarios e integrados pasan al 100% y typecheck limpio.
-* **Próxima tarea a ejecutar:** PR-09 (Validador de Licencia en App, Verificación Ed25519 y Guardia de Reloj Monótono).
+* **Estado actual:** PR-10 completado. Implementación del motor de descubrimiento mDNS P2P en red Wi-Fi local para el servicio `_cajapos._tcp` (`P2pDiscoveryService`, `MdnsTransport`, `InMemoryMdnsHub`). Anuncio automático, intercambio de IPs privadas entre terminales, resolución rápida de consultas mDNS, heartbeat periódico, detección de despedida inmediata (`goodbye`), expiración de peers caídos por TTL y suscripción reactiva (`onPeersChange`). 62 tests pasando al 100% (11 suites) y typecheck TypeScript sin errores.
+* **Próxima tarea a ejecutar:** PR-11 (Servidor HTTP Embebido para Consultas On-Demand).
 
 ---
 
@@ -46,12 +46,12 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
   * *Criterio de éxito:* Reporte mensual calcula exactamente las sumatorias por moneda y método de cobro.
 
 ### Fase 4: Licenciamiento Criptográfico Offline-First
-- [ ] **PR-09: Validador de Licencia en App y Guardia de Reloj Monótono**
+- [x] **PR-09: Validador de Licencia en App y Guardia de Reloj Monótono**
   * *Descripción:* Verificación en la app usando la llave pública Ed25519, chequeo de coincidencia con el `HWID` local y bloqueo si `last_recorded_timestamp` detecta atraso de fecha.
   * *Criterio de éxito:* App activa el cobro con licencia válida; se bloquea si el HWID difiere o el reloj es manipulado.
 
 ### Fase 5: Red Local y Sincronización Wi-Fi P2P
-- [ ] **PR-10: Descubrimiento de Cajas por mDNS en Red Wi-Fi**
+- [x] **PR-10: Descubrimiento de Cajas por mDNS en Red Wi-Fi**
   * *Descripción:* Anuncio y detección de terminales en la red local (`_cajapos._tcp`).
   * *Criterio de éxito:* Dos cajas en la misma Wi-Fi intercambian sus IPs privadas automáticamente.
 - [ ] **PR-11: Servidor HTTP Embebido para Consultas On-Demand**

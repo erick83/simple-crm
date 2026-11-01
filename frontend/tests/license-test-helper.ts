@@ -29,3 +29,4 @@ export function createSignedLicenseToken(
 
   return JSON.stringify(envelope);
 }
+

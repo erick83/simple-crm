@@ -255,3 +255,4 @@ describe("PR-09: Validador de Licencia en App, Verificación Ed25519 y Guardia d
     expect(row?.status).toBe("TAMPERED");
   });
 });
+
