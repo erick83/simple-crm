@@ -5,10 +5,11 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 ---
 
 ## 1. Estado de la Última Sesión (Handoff)
-* **Fecha:** 2026-10-31
-* **Arquitectura:** POS P2P Local-First con SQLite (`op-sqlite`), React Native / Desktop, $0 Cloud.
-* **Módulos Core:** Facturación bimoneda (USD/VES), Arqueos X/Z, Catálogo con fotos locales, Lector HID y Sync Wi-Fi P2P.
-* **Próxima tarea a ejecutar:** PR-05 (Precios Bimoneda Reactivos en Catálogo).
+* **Fecha:** 2026-11-01
+* **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
+* **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
+* **Estado actual:** Estructura completa de `/frontend` implementada (theme, components, screens, database, repositories, services, utils). Los 34 tests unitarios e integración pasan en verde y typecheck 100% limpio.
+* **Próxima tarea a ejecutar:** PR-05 (Precios Bimoneda Reactivos en Catálogo y conexión con SQLite).
 
 ---
 

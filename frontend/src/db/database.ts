@@ -1,11 +1,8 @@
 import type { SqlDriver } from "./driver";
+import { migrateDatabase } from "../database/migrations";
 
-/**
- * Aplica el DDL base (docs/database_schema.sql). El DDL es idempotente
- * (CREATE ... IF NOT EXISTS), por lo que es seguro invocarlo en cada arranque.
- * El texto del esquema lo provee el llamador (bundler en RN, fs en tests/desktop).
- */
-export function initDatabase(driver: SqlDriver, schemaSql: string): void {
-  driver.exec(schemaSql);
+export { migrateDatabase };
+
+export function initDatabase(driver: SqlDriver, schemaSql?: string): void {
+  migrateDatabase(driver, schemaSql);
 }
-
