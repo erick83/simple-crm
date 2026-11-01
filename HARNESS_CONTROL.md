@@ -8,7 +8,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-10-31
 * **Arquitectura:** POS P2P Local-First con SQLite (`op-sqlite`), React Native / Desktop, $0 Cloud.
 * **Módulos Core:** Facturación bimoneda (USD/VES), Arqueos X/Z, Catálogo con fotos locales, Lector HID y Sync Wi-Fi P2P.
-* **Próxima tarea a ejecutar:** PR-04 (Módulo de Tasa BCV y Fallback Manual).
+* **Próxima tarea a ejecutar:** PR-05 (Precios Bimoneda Reactivos en Catálogo).
 
 ---
 
@@ -26,7 +26,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
   * *Criterio de éxito:* Emulación de escaneo añade el producto al carrito de cobro en <10 ms.
 
 ### Fase 2: Módulo Cambiario y Multimoneda (Venezuela)
-- [ ] **PR-04: Módulo de Tasa BCV y Fallback Manual**
+- [x] **PR-04: Módulo de Tasa BCV y Fallback Manual**
   * *Descripción:* Tabla `exchange_rates`. Extractor HTTP hacia la tasa oficial del BCV con timeout estricto y fallback para registro manual auditado al abrir turno.
   * *Criterio de éxito:* Si hay internet, captura la tasa oficial del día; si está offline, permite el ingreso manual validando precisión decimal.
 - [ ] **PR-05: Precios Bimoneda Reactivos en Catálogo**
