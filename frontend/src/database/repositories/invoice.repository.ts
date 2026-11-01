@@ -31,6 +31,17 @@ export interface CreateInvoiceInput {
 
 export function createInvoice(db: SqlDriver, input: CreateInvoiceInput, now: number = Date.now()): string {
   return db.transaction(() => {
+    const [shift] = db.all<{ status: string }>(
+      "SELECT status FROM cash_shifts WHERE id = ?",
+      [input.shiftId],
+    );
+    if (!shift) {
+      throw new Error(`Turno no encontrado: ${input.shiftId}`);
+    }
+    if (shift.status !== "OPEN") {
+      throw new Error(`El turno ${input.shiftId} está cerrado. No se pueden emitir facturas.`);
+    }
+
     const invoiceId = uuidv7(now);
 
     db.run(

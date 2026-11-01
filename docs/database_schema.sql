@@ -107,8 +107,8 @@ CREATE TABLE IF NOT EXISTS cash_shifts (
     opened_at INTEGER NOT NULL,                -- Timestamp Unix de apertura
     closed_at INTEGER,                         -- Timestamp Unix de cierre (NULL si abierto)
     exchange_rate_applied TEXT NOT NULL,       -- Tasa de cambio fijada para el turno
-    initial_cash_usd TEXT NOT NULL DEFAULT '0.00', -- Fondo inicial en USD
-    initial_cash_ves TEXT NOT NULL DEFAULT '0.00', -- Fondo inicial en Bolívares
+    initial_cash_usd TEXT NOT NULL DEFAULT '0.0000', -- Fondo inicial en USD
+    initial_cash_ves TEXT NOT NULL DEFAULT '0.0000', -- Fondo inicial en Bolívares
     expected_cash_usd TEXT,                    -- Calculado por el sistema
     expected_cash_ves TEXT,
     declared_cash_usd TEXT,                    -- Declarado por cajero (Arqueo ciego)
