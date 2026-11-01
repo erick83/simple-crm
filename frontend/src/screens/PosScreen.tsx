@@ -1,11 +1,28 @@
-import React, { useState } from "react";
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useState, useEffect } from "react";
+import {
+  FlatList,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 import { ButtonHero } from "../components/ButtonHero";
 import { TouchStepper } from "../components/TouchStepper";
-import { formatUsd, formatVes, convertUsdToVes, toDecimal, formatFixed4 } from "../utils/decimal";
+import {
+  formatUsd,
+  formatVes,
+  convertUsdToVes,
+  toDecimal,
+  formatFixed4,
+} from "../utils/decimal";
+import type { SqlDriver } from "../database/connection";
+import { getCatalogWithBimonetaryPrices } from "../services/catalog.service";
+import { registerManualRate } from "../services/bcv-exchange.service";
 
 export interface PosProductItem {
   id: string;
@@ -24,23 +41,55 @@ export interface PosTicketItem {
   lineTotalUsd: string;
 }
 
-interface PosScreenProps {
-  exchangeRate?: string; // Tasa activa del día a VES
+export interface PosScreenProps {
+  db?: SqlDriver;
+  initialExchangeRate?: string;
+  initialProducts?: PosProductItem[];
+  onRateChange?: (newRate: string) => void;
 }
 
-export const PosScreen: React.FC<PosScreenProps> = ({
-  exchangeRate = "36.5000",
-}) => {
-  const [catalog] = useState<PosProductItem[]>([
-    { id: "1", sku: "HAR-01", name: "Harina PAN 1kg", priceUsd: "1.2500", category: "Víveres" },
-    { id: "2", sku: "ARR-02", name: "Arroz Primor 1kg", priceUsd: "1.5000", category: "Granos" },
-    { id: "3", sku: "ACE-03", name: "Aceite Mazeite 1L", priceUsd: "3.8000", category: "Aceites" },
-    { id: "4", sku: "CAF-04", name: "Café Fama de América 500g", priceUsd: "4.2000", category: "Bebidas" },
-    { id: "5", sku: "PAS-05", name: "Pasta Primor Corta 1kg", priceUsd: "1.7500", category: "Víveres" },
-    { id: "6", sku: "AZU-06", name: "Azúcar Montalbán 1kg", priceUsd: "1.3500", category: "Víveres" },
-  ]);
+const DEFAULT_PRODUCTS: PosProductItem[] = [
+  { id: "1", sku: "HAR-01", name: "Harina PAN 1kg", priceUsd: "1.2500", category: "Víveres" },
+  { id: "2", sku: "ARR-02", name: "Arroz Primor 1kg", priceUsd: "1.5000", category: "Granos" },
+  { id: "3", sku: "ACE-03", name: "Aceite Mazeite 1L", priceUsd: "3.8000", category: "Aceites" },
+  { id: "4", sku: "CAF-04", name: "Café Fama de América 500g", priceUsd: "4.2000", category: "Bebidas" },
+  { id: "5", sku: "PAS-05", name: "Pasta Primor Corta 1kg", priceUsd: "1.7500", category: "Víveres" },
+  { id: "6", sku: "AZU-06", name: "Azúcar Montalbán 1kg", priceUsd: "1.3500", category: "Víveres" },
+];
 
+export const PosScreen: React.FC<PosScreenProps> = ({
+  db,
+  initialExchangeRate = "36.5000",
+  initialProducts,
+  onRateChange,
+}) => {
+  const [exchangeRate, setExchangeRate] = useState<string>(initialExchangeRate);
+  const [catalog, setCatalog] = useState<PosProductItem[]>(initialProducts ?? DEFAULT_PRODUCTS);
   const [ticketItems, setTicketItems] = useState<PosTicketItem[]>([]);
+
+  // Estado del modal de actualización de tasa
+  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+  const [newRateInput, setNewRateInput] = useState("");
+  const [rateReasonInput, setRateReasonInput] = useState("");
+  const [rateError, setRateError] = useState<string | null>(null);
+
+  // Carga reactiva de catálogo y tasa desde SQLite si el driver está presente
+  useEffect(() => {
+    if (db) {
+      const result = getCatalogWithBimonetaryPrices(db, initialExchangeRate);
+      if (result.products.length > 0) {
+        setCatalog(
+          result.products.map((p) => ({
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            priceUsd: p.priceUsd,
+          })),
+        );
+      }
+      setExchangeRate(result.activeRate);
+    }
+  }, [db, initialExchangeRate]);
 
   const addToCart = (product: PosProductItem) => {
     setTicketItems((prev) => {
@@ -84,6 +133,33 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     });
   };
 
+  const handleApplyRate = () => {
+    try {
+      setRateError(null);
+      const parsed = toDecimal(newRateInput, "Tasa");
+      if (parsed.lte(0)) throw new Error("La tasa debe ser mayor a cero");
+      const formatted = parsed.toFixed(4);
+
+      if (db) {
+        const todayIso = new Date().toISOString().split("T")[0]!;
+        registerManualRate(db, {
+          rateDate: todayIso,
+          rate: formatted,
+          reason: rateReasonInput.trim() || "Ajuste operativo en pantalla de caja",
+        });
+      }
+
+      setExchangeRate(formatted);
+      onRateChange?.(formatted);
+      setIsRateModalOpen(false);
+      setNewRateInput("");
+      setRateReasonInput("");
+    } catch (err) {
+      setRateError((err as Error).message);
+    }
+  };
+
+  // Cálculo reactivo en vivo de totales
   const totalUsd = ticketItems
     .reduce((acc, item) => acc.plus(toDecimal(item.lineTotalUsd)), toDecimal("0"))
     .toFixed(4);
@@ -96,9 +172,24 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       <View style={styles.catalogColumn}>
         <View style={styles.catalogHeader}>
           <Text style={styles.sectionTitle}>Catálogo de Productos</Text>
-          <Text style={styles.rateNotice}>
-            Tasa activa: <Text style={typography.tabularNumeric}>{formatVes(exchangeRate)}</Text>
-          </Text>
+
+          {/* Botón táctil para ver/ajustar la tasa de cambio reactiva */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              setNewRateInput(exchangeRate);
+              setRateReasonInput("");
+              setRateError(null);
+              setIsRateModalOpen(true);
+            }}
+            style={styles.ratePill}
+          >
+            <Text style={styles.ratePillLabel}>Tasa Oficial:</Text>
+            <Text style={[styles.ratePillValue, typography.tabularNumeric]}>
+              {formatVes(exchangeRate)}
+            </Text>
+            <Text style={styles.ratePillEdit}>✎</Text>
+          </TouchableOpacity>
         </View>
 
         <FlatList
@@ -107,6 +198,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           numColumns={2}
           contentContainerStyle={styles.catalogGrid}
           renderItem={({ item }) => {
+            // Conversión instantánea reactiva: nunca altera item.priceUsd
             const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
             return (
               <TouchableOpacity
@@ -147,201 +239,369 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           data={ticketItems}
           keyExtractor={(item) => item.productId}
           style={styles.ticketList}
-          renderItem={({ item }) => (
-            <View style={styles.ticketLine}>
-              <View style={styles.ticketLineInfo}>
-                <Text style={styles.ticketLineName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={[styles.ticketLineUnit, typography.tabularNumeric]}>
-                  {formatUsd(item.unitPriceUsd)} c/u
-                </Text>
-              </View>
+              renderItem={({ item }) => {
+                const lineVes = convertUsdToVes(item.lineTotalUsd, exchangeRate).toFixed(4);
+                return (
+                  <View style={styles.ticketLine}>
+                    <View style={styles.ticketLineInfo}>
+                      <Text style={styles.ticketLineName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={[styles.ticketLineUnit, typography.tabularNumeric]}>
+                        {formatUsd(item.unitPriceUsd)} c/u
+                      </Text>
+                    </View>
 
-              <TouchStepper
-                value={toDecimal(item.quantity).toFixed(0)}
-                onIncrement={() => updateQuantity(item.productId, 1)}
-                onDecrement={() => updateQuantity(item.productId, -1)}
-              />
+                    <TouchStepper
+                      value={toDecimal(item.quantity).toFixed(0)}
+                      onIncrement={() => updateQuantity(item.productId, 1)}
+                      onDecrement={() => updateQuantity(item.productId, -1)}
+                    />
 
-              <View style={styles.ticketLineTotalContainer}>
-                <Text style={[styles.ticketLineTotal, typography.tabularNumeric]}>
-                  {formatUsd(item.lineTotalUsd)}
-                </Text>
-              </View>
-            </View>
-          )}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No hay productos en el ticket</Text>
-              <Text style={styles.emptySubText}>
-                Escanee con la pistola HID o seleccione del catálogo
-              </Text>
-            </View>
-          }
+                      <View style={styles.ticketLineTotalContainer}>
+                        <Text style={[styles.ticketLineTotal, typography.tabularNumeric]}>
+                          {formatUsd(item.lineTotalUsd)}
+                        </Text>
+                        <Text style={[styles.ticketLineTotalVes, typography.tabularNumeric]}>
+                          {formatVes(lineVes)}
+                        </Text>
+                      </View>
+                    </View>
+            );
+          }}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No hay productos en el ticket</Text>
+                  <Text style={styles.emptySubText}>
+                    Escanee con la pistola HID o seleccione del catálogo
+                  </Text>
+                </View>
+              }
         />
 
-        {/* Botón Maestro de Cobro */}
-        <View style={styles.checkoutFooter}>
-          <ButtonHero
-            label="COBRAR TICKET"
-            totalFormatted={formatUsd(totalUsd)}
-            secondaryFormatted={`≈ ${formatVes(totalVes)}`}
-            disabled={ticketItems.length === 0}
-            onPress={() => {
-              // PR-07: Integración con persistencia de invoices y kardex delta
-            }}
-          />
-        </View>
+              {/* Botón Maestro de Cobro */}
+              <View style={styles.checkoutFooter}>
+                <ButtonHero
+                  label="COBRAR TICKET"
+                  totalFormatted={formatUsd(totalUsd)}
+                  secondaryFormatted={`≈ ${formatVes(totalVes)}`}
+                  disabled={ticketItems.length === 0}
+                  onPress={() => {
+                    // PR-07: Emisión de facturas con inmutabilidad cambiaria
+                  }}
+                />
+              </View>
+            </View>
+
+      {/* Modal Táctil de Actualización de Tasa */}
+      <Modal visible={isRateModalOpen} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Actualizar Tasa BCV / Moneda</Text>
+              <Text style={styles.modalNotice}>
+                Al modificar la tasa, todos los precios mostrados en Bolívares (VES) se
+                recalcularán reactivamente al instante sin alterar los precios base en USD.
+              </Text>
+
+              {rateError ? <Text style={styles.errorText}>{rateError}</Text> : null}
+
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.inputLabel}>Nueva Tasa a VES (ej. 42.5000):</Text>
+                <TextInput
+                  style={[styles.modalInput, typography.tabularNumeric]}
+                  keyboardType="decimal-pad"
+                  placeholder="0.0000"
+                  placeholderTextColor={colors.dark.textMuted}
+                  value={newRateInput}
+                  onChangeText={setNewRateInput}
+                />
+              </View>
+
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.inputLabel}>Motivo del cambio (Auditoría obligatoria):</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Ej. Actualización vespertina oficial BCV"
+                  placeholderTextColor={colors.dark.textMuted}
+                  value={rateReasonInput}
+                  onChangeText={setRateReasonInput}
+                />
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setIsRateModalOpen(false)}
+                  style={styles.cancelBtn}
+                >
+                  <Text style={styles.cancelBtnText}>Cancelar</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={handleApplyRate}
+                  style={styles.applyBtn}
+                >
+                  <Text style={styles.applyBtnText}>APLICAR TASA</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
-    </View>
-  );
+      );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    flexDirection: "row",
-    backgroundColor: colors.dark.surfaceBase,
+      const styles = StyleSheet.create({
+        container: {
+        flex: 1,
+      flexDirection: "row",
+      backgroundColor: colors.dark.surfaceBase,
   },
-  catalogColumn: {
-    flex: 3,
-    padding: spacing.md,
-    borderRightWidth: 1,
-    borderRightColor: colors.dark.border,
+      catalogColumn: {
+        flex: 3,
+      padding: spacing.md,
+      borderRightWidth: 1,
+      borderRightColor: colors.dark.border,
   },
-  catalogHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: spacing.md,
+      catalogHeader: {
+        flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: spacing.md,
   },
-  sectionTitle: {
-    fontSize: typography.sizes.titleMd,
-    fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+      sectionTitle: {
+        fontSize: typography.sizes.titleMd,
+      fontWeight: typography.weights.bold,
+      color: colors.dark.textPrimary,
   },
-  rateNotice: {
-    fontSize: typography.sizes.subText,
-    color: colors.dark.textSecondary,
+      ratePill: {
+        flexDirection: "row",
+      alignItems: "center",
+      height: spacing.touchTargetMin, // 48px mínimo táctil
+      backgroundColor: colors.dark.surfaceContainerLow,
+      paddingHorizontal: spacing.md,
+      borderRadius: spacing.radiusFull,
+      borderWidth: 1,
+      borderColor: colors.dark.primaryGlow,
+      gap: spacing.xs,
   },
-  catalogGrid: {
-    gap: spacing.md,
+      ratePillLabel: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.textSecondary,
+      fontWeight: typography.weights.medium,
   },
-  productCard: {
-    flex: 1,
-    margin: spacing.xs,
-    minHeight: 120,
-    backgroundColor: colors.dark.surfaceContainer,
-    borderRadius: spacing.radiusLg,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.dark.border,
-    justifyContent: "space-between",
+      ratePillValue: {
+        fontSize: typography.sizes.subText,
+      fontWeight: typography.weights.bold,
+      color: colors.dark.primaryGlow,
   },
-  badge: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.dark.surfaceContainerHighest,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: spacing.radiusSm,
+      ratePillEdit: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.primaryGlow,
+      marginLeft: 4,
   },
-  badgeText: {
-    fontSize: typography.sizes.caption,
-    color: colors.dark.primaryGlow,
-    fontWeight: typography.weights.bold,
+      catalogGrid: {
+        gap: spacing.md,
   },
-  productName: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-    color: colors.dark.textPrimary,
-    marginVertical: spacing.xs,
+      productCard: {
+        flex: 1,
+      margin: spacing.xs,
+      minHeight: 120,
+      backgroundColor: colors.dark.surfaceContainer,
+      borderRadius: spacing.radiusLg,
+      padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.dark.border,
+      justifyContent: "space-between",
   },
-  priceRow: {
-    marginTop: spacing.xs,
+      badge: {
+        alignSelf: "flex-start",
+      backgroundColor: colors.dark.surfaceContainerHighest,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: spacing.radiusSm,
   },
-  priceUsd: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+      badgeText: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.primaryGlow,
+      fontWeight: typography.weights.bold,
   },
-  priceVes: {
-    fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+      productName: {
+        fontSize: typography.sizes.body,
+      fontWeight: typography.weights.semibold,
+      color: colors.dark.textPrimary,
+      marginVertical: spacing.xs,
   },
-  ticketColumn: {
-    flex: 2,
-    backgroundColor: colors.dark.surfaceContainerLow,
-    display: "flex",
-    flexDirection: "column",
+      priceRow: {
+        marginTop: spacing.xs,
   },
-  ticketHeader: {
-    padding: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+      priceUsd: {
+        fontSize: typography.sizes.body,
+      fontWeight: typography.weights.bold,
+      color: colors.dark.textPrimary,
   },
-  itemCountText: {
-    fontSize: typography.sizes.subText,
-    color: colors.dark.textSecondary,
-    fontWeight: typography.weights.medium,
+      priceVes: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.textSecondary,
   },
-  ticketList: {
-    flex: 1,
-    padding: spacing.md,
+      ticketColumn: {
+        flex: 2,
+      backgroundColor: colors.dark.surfaceContainerLow,
+      display: "flex",
+      flexDirection: "column",
   },
-  ticketLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
-    gap: spacing.sm,
+      ticketHeader: {
+        padding: spacing.lg,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.dark.border,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
   },
-  ticketLineInfo: {
-    flex: 1,
+      itemCountText: {
+        fontSize: typography.sizes.subText,
+      color: colors.dark.textSecondary,
+      fontWeight: typography.weights.medium,
   },
-  ticketLineName: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.semibold,
-    color: colors.dark.textPrimary,
+      ticketList: {
+        flex: 1,
+      padding: spacing.md,
   },
-  ticketLineUnit: {
-    fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+      ticketLine: {
+        flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.dark.border,
+      gap: spacing.sm,
   },
-  ticketLineTotalContainer: {
-    minWidth: 80,
-    alignItems: "flex-end",
+      ticketLineInfo: {
+        flex: 1,
   },
-  ticketLineTotal: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+      ticketLineName: {
+        fontSize: typography.sizes.body,
+      fontWeight: typography.weights.semibold,
+      color: colors.dark.textPrimary,
   },
-  emptyContainer: {
-    flex: 1,
-    paddingVertical: 60,
-    alignItems: "center",
-    justifyContent: "center",
+      ticketLineUnit: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.textSecondary,
   },
-  emptyText: {
-    fontSize: typography.sizes.titleMd,
-    color: colors.dark.textSecondary,
-    fontWeight: typography.weights.medium,
+      ticketLineTotalContainer: {
+        minWidth: 80,
+      alignItems: "flex-end",
   },
-  emptySubText: {
-    fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
-    marginTop: spacing.xs,
+      ticketLineTotal: {
+        fontSize: typography.sizes.body,
+      fontWeight: typography.weights.bold,
+      color: colors.dark.textPrimary,
   },
-  checkoutFooter: {
-    padding: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.dark.border,
-    backgroundColor: colors.dark.surfaceContainerLow,
+      ticketLineTotalVes: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.textSecondary,
+  },
+      emptyContainer: {
+        flex: 1,
+      paddingVertical: 60,
+      alignItems: "center",
+      justifyContent: "center",
+  },
+      emptyText: {
+        fontSize: typography.sizes.titleMd,
+      color: colors.dark.textSecondary,
+      fontWeight: typography.weights.medium,
+  },
+      emptySubText: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.textMuted,
+      marginTop: spacing.xs,
+  },
+      checkoutFooter: {
+        padding: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.dark.border,
+      backgroundColor: colors.dark.surfaceContainerLow,
+  },
+      modalOverlay: {
+        flex: 1,
+      backgroundColor: colors.dark.surfaceDim,
+      justifyContent: "center",
+      alignItems: "center",
+      padding: spacing.xl,
+  },
+      modalCard: {
+        width: "100%",
+      maxWidth: 520,
+      backgroundColor: colors.dark.surfaceContainerLow,
+      borderRadius: spacing.radiusXl,
+      padding: spacing.xl,
+      borderWidth: 1,
+      borderColor: colors.dark.border,
+  },
+      modalTitle: {
+        fontSize: typography.sizes.titleLg,
+      fontWeight: typography.weights.bold,
+      color: colors.dark.textPrimary,
+      marginBottom: spacing.xs,
+  },
+      modalNotice: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.textSecondary,
+      marginBottom: spacing.md,
+  },
+      errorText: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.error,
+      fontWeight: typography.weights.bold,
+      marginBottom: spacing.sm,
+  },
+      modalInputGroup: {
+        marginBottom: spacing.md,
+  },
+      inputLabel: {
+        fontSize: typography.sizes.caption,
+      color: colors.dark.textSecondary,
+      marginBottom: spacing.xs,
+  },
+      modalInput: {
+        height: spacing.touchTargetMin, // 48px
+      backgroundColor: colors.dark.surfaceContainerHigh,
+      borderRadius: spacing.radiusMd,
+      paddingHorizontal: spacing.md,
+      color: colors.dark.textPrimary,
+      fontSize: typography.sizes.body,
+      borderWidth: 1,
+      borderColor: colors.dark.border,
+  },
+      modalActions: {
+        flexDirection: "row",
+      justifyContent: "flex-end",
+      gap: spacing.md,
+      marginTop: spacing.md,
+  },
+      cancelBtn: {
+        height: spacing.touchTargetMin,
+      paddingHorizontal: spacing.lg,
+      justifyContent: "center",
+      alignItems: "center",
+      borderRadius: spacing.radiusMd,
+  },
+      cancelBtnText: {
+        fontSize: typography.sizes.body,
+      color: colors.dark.textSecondary,
+  },
+      applyBtn: {
+        height: spacing.touchTargetMin,
+      backgroundColor: colors.dark.primary,
+      paddingHorizontal: spacing.xl,
+      justifyContent: "center",
+      alignItems: "center",
+      borderRadius: spacing.radiusMd,
+  },
+      applyBtnText: {
+        fontSize: typography.sizes.body,
+      fontWeight: typography.weights.bold,
+      color: colors.dark.textPrimary,
   },
 });
-

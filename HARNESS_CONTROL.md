@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** Estructura completa de `/frontend` implementada (theme, components, screens, database, repositories, services, utils). Los 34 tests unitarios e integración pasan en verde y typecheck 100% limpio.
-* **Próxima tarea a ejecutar:** PR-05 (Precios Bimoneda Reactivos en Catálogo y conexión con SQLite).
+* **Estado actual:** PR-05 completado. Catálogo bimoneda reactivo conectado con SQLite, recálculo instantáneo a VES sin mutar USD base. Los 38 tests unitarios e integrados pasan al 100% y typecheck limpio.
+* **Próxima tarea a ejecutar:** PR-06 (Turnos de Caja Bimoneda: Arqueo X y Z con conteo ciego discriminado por USD y VES).
 
 ---
 
@@ -30,7 +30,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-04: Módulo de Tasa BCV y Fallback Manual**
   * *Descripción:* Tabla `exchange_rates`. Extractor HTTP hacia la tasa oficial del BCV con timeout estricto y fallback para registro manual auditado al abrir turno.
   * *Criterio de éxito:* Si hay internet, captura la tasa oficial del día; si está offline, permite el ingreso manual validando precisión decimal.
-- [ ] **PR-05: Precios Bimoneda Reactivos en Catálogo**
+- [x] **PR-05: Precios Bimoneda Reactivos en Catálogo**
   * *Descripción:* Catálogo con precios base en USD y conversión dinámica en pantalla a VES según la tasa del día.
   * *Criterio de éxito:* Actualizar la tasa del día recalcula los precios mostrados en VES sin alterar los precios base en USD.
 
