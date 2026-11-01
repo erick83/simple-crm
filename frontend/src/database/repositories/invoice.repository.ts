@@ -2,6 +2,7 @@ import type { SqlDriver } from "../connection";
 import { uuidv7 } from "../../utils/uuid7";
 import { toDecimal, formatFixed4, Decimal, convertUsdToVes } from "../../utils/decimal";
 import { addStockMovement, getCurrentStock } from "./product.repository";
+import { LicenseValidatorService } from "../../services/license-validator.service";
 
 export interface InvoiceItemInput {
   productId: string;
@@ -92,8 +93,22 @@ export function createInvoice(
     throw new Error("No se puede emitir una factura sin items");
   }
 
+  // 1. Guardia de reloj monótono y estado de licencia (previo a la transacción para persistir TAMPERED si hay fraude)
+  const [lic] = db.all<{ status: string }>(
+    "SELECT status FROM license_state WHERE id = 'current_license'",
+  );
+  if (lic) {
+    if (lic.status === "TAMPERED" || lic.status === "EXPIRED") {
+      throw new Error(`Operación de cobro bloqueada: licencia ${lic.status.toLowerCase()}`);
+    }
+    const clock = LicenseValidatorService.verifyMonotonicClock(db, now);
+    if (!clock.valid) {
+      throw new Error("Operación de cobro bloqueada: el reloj del dispositivo fue atrasado.");
+    }
+  }
+
   return db.transaction(() => {
-    // 1. Validar que el turno exista y esté ABIERTO
+    // 2. Validar que el turno exista y esté ABIERTO
     const [shift] = db.all<{ status: string }>(
       "SELECT status FROM cash_shifts WHERE id = ?",
       [input.shiftId],
