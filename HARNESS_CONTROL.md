@@ -8,7 +8,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-10-31
 * **Arquitectura:** POS P2P Local-First con SQLite (`op-sqlite`), React Native / Desktop, $0 Cloud.
 * **Módulos Core:** Facturación bimoneda (USD/VES), Arqueos X/Z, Catálogo con fotos locales, Lector HID y Sync Wi-Fi P2P.
-* **Próxima tarea a ejecutar:** PR-03 (Listener Global para Lector de Código de Barras HID).
+* **Próxima tarea a ejecutar:** PR-04 (Módulo de Tasa BCV y Fallback Manual).
 
 ---
 
@@ -21,7 +21,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-02: Procesamiento y Almacenamiento Local de Imágenes**
   * *Descripción:* Implementar la compresión de fotos (WebP/JPEG 600x600 px, <80 KB) en el cliente y persistencia de la ruta en SQLite.
   * *Criterio de éxito:* Carga de imagen optimizada asociada correctamente al producto.
-- [ ] **PR-03: Listener Global para Lector de Código de Barras (HID)**
+- [x] **PR-03: Listener Global para Lector de Código de Barras (HID)**
   * *Descripción:* Hook/servicio global que intercepta pulsaciones de teclado rápidas (<30 ms) que terminen en `Enter` y busque el ítem en SQLite por `barcode`.
   * *Criterio de éxito:* Emulación de escaneo añade el producto al carrito de cobro en <10 ms.
 
