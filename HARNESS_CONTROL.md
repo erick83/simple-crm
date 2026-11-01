@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-07 completado. Emisión de facturas con inmutabilidad cambiaria permanente, congelamiento de totales USD/VES, descuento atómico en Kardex delta conmutativo y modal táctil de cobro conectado. Los 47 tests unitarios e integrados pasan al 100% y typecheck limpio.
-* **Próxima tarea a ejecutar:** PR-08 (Módulo de Balance Periódico y Cierre Mensual con agregaciones contables en SQLite).
+* **Estado actual:** PR-08 completado. Consultas de agregación contable en SQLite para balance periódico y mensual (totalización de ingresos USD/VES por método de pago, COGS, margen bruto comercial y ranking de productos). Los 49 tests unitarios e integrados pasan al 100% y typecheck limpio.
+* **Próxima tarea a ejecutar:** PR-09 (Validador de Licencia en App, Verificación Ed25519 y Guardia de Reloj Monótono).
 
 ---
 
@@ -41,7 +41,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-07: Emisión de Ventas e Inmutabilidad Cambiaria**
   * *Descripción:* Flujo de cobro que persiste `invoices`, `invoice_items` y agrega los deltas correspondientes en `stock_movements`.
   * *Criterio de éxito:* Venta congela la tasa y los totales en ambas monedas de forma inmutable; descuenta el inventario atómicamente.
-- [ ] **PR-08: Módulo de Balance Periódico y Cierre Mensual**
+- [x] **PR-08: Módulo de Balance Periódico y Cierre Mensual**
   * *Descripción:* Consultas agregadas en SQLite para totalizar ingresos por método de pago, volumen y margen para cualquier rango de fechas.
   * *Criterio de éxito:* Reporte mensual calcula exactamente las sumatorias por moneda y método de cobro.
 
