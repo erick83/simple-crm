@@ -1,8 +1,10 @@
 import Decimal from "decimal.js";
 import type { SqlDriver } from "../database/connection";
-import { getRateForDate, insertRate, StoredRate } from "../database/repositories/exchange.repository";
+import { getRateForDate, insertRate } from "../database/repositories/exchange.repository";
+import type { StoredRate } from "../database/repositories/exchange.repository";
 
-export { getRateForDate, insertRate, type StoredRate };
+export { getRateForDate, insertRate };
+export type { StoredRate };
 
 export const BCV_URL = "https://www.bcv.org.ve/";
 export const BCV_TIMEOUT_MS = 5000;

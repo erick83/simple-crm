@@ -1,25 +1,65 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { colors } from "./theme/colors";
 import { spacing } from "./theme/spacing";
 import { typography } from "./theme/typography";
 import { SyncBadge } from "./components/SyncBadge";
+import type { SyncState } from "./components/SyncBadge";
 import { PosScreen } from "./screens/PosScreen";
 import { ShiftsScreen } from "./screens/ShiftsScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { MonthlyBalanceScreen } from "./screens/MonthlyBalanceScreen";
+import type { SqlDriver } from "./database/connection";
+import { createDefaultFileStore } from "./services/image-compressor.service";
+import type { FileStore } from "./services/image-compressor.service";
+import { P2pSyncService } from "./services/p2p-sync.service";
 
 type NavTab = "pos" | "inventory" | "shifts" | "balance";
 
-export default function App() {
+export interface AppProps {
+  initialDb?: SqlDriver;
+  tenantId?: string;
+  terminalId?: string;
+  fileStore?: FileStore;
+  [key: string]: unknown;
+}
+
+export const App: React.FC<AppProps> = ({
+  initialDb,
+  tenantId = "TENANT-001",
+  terminalId = "TERM-01",
+  fileStore: customFileStore,
+}) => {
   const [currentTab, setCurrentTab] = useState<NavTab>("pos");
+  const [db] = useState<SqlDriver | undefined>(initialDb);
+  const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
+  const [pendingCount, setPendingCount] = useState<number>(() =>
+    db ? P2pSyncService.getPendingCount(db) : 0,
+  );
+  const [syncState] = useState<SyncState>("online");
+
+  useEffect(() => {
+    if (!db) return;
+    try {
+      setPendingCount(P2pSyncService.getPendingCount(db));
+    } catch {
+      // Ignorar si db aún no inicializada
+    }
+  }, [currentTab, db]);
 
   const renderScreen = () => {
     switch (currentTab) {
       case "pos":
-        return <PosScreen />;
+        return <PosScreen db={db} terminalId={terminalId} />;
       case "inventory":
-        return <InventoryScreen />;
+        return (
+          <InventoryScreen
+            db={db}
+            tenantId={tenantId}
+            terminalId={terminalId}
+            fileStore={fileStore}
+          />
+        );
       case "shifts":
         return <ShiftsScreen />;
       case "balance":
@@ -78,7 +118,11 @@ export default function App() {
               <Text style={styles.locationText}>📍 Sede Principal — Maracaibo</Text>
             </View>
             <View style={styles.headerRight}>
-              <SyncBadge state="online" pendingCount={0} lastSyncText="hace 1m" />
+              <SyncBadge
+                state={syncState}
+                pendingCount={pendingCount}
+                lastSyncText="hace 1m"
+              />
             </View>
           </View>
 
@@ -207,4 +251,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
+export default App;
 

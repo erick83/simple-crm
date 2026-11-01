@@ -506,37 +506,45 @@ export function addStockMovement(
   db: SqlDriver,
   args: {
     productId: string;
-    terminalId: string;
-    delta: string;
-    type: "SALE" | "RETURN" | "RESTOCK" | "ADJUSTMENT";
+    terminalId?: string;
+    delta?: string;
+    quantityDelta?: string;
+    type?: "SALE" | "RETURN" | "RESTOCK" | "ADJUSTMENT";
+    movementType?: "SALE" | "RETURN" | "RESTOCK" | "ADJUSTMENT";
     referenceId?: string;
+    tenantId?: string;
+    costUsdSnapshot?: string;
+    notes?: string;
   },
   now: number = Date.now(),
 ): string {
-  const delta = toDecimal(args.delta, "delta");
+  const rawDelta = args.delta ?? args.quantityDelta;
+  const rawType = args.type ?? args.movementType ?? "ADJUSTMENT";
+  const terminalId = args.terminalId ?? "TERM-01";
+  const delta = toDecimal(rawDelta ?? "0", "delta");
   const id = uuidv7(now);
   const deltaStr = delta.toFixed(4);
 
   db.run(
     `INSERT INTO stock_movements (id, product_id, terminal_id, quantity_delta, movement_type, reference_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, args.productId, args.terminalId, deltaStr, args.type, args.referenceId ?? null, now],
+    [id, args.productId, terminalId, deltaStr, rawType, args.referenceId ?? args.notes ?? null, now],
   );
 
   P2pSyncService.enqueueEvent(
     db,
     {
-      originTerminalId: args.terminalId,
+      originTerminalId: terminalId,
       entityType: "STOCK_MOVEMENT",
       entityId: id,
       action: "UPSERT",
       payload: {
         id,
         productId: args.productId,
-        terminalId: args.terminalId,
+        terminalId,
         quantityDelta: deltaStr,
-        movementType: args.type,
-        referenceId: args.referenceId ?? null,
+        movementType: rawType,
+        referenceId: args.referenceId ?? args.notes ?? null,
         createdAt: now,
       },
     },
@@ -601,8 +609,9 @@ export function getAllActiveProducts(db: SqlDriver): ProductEntity[] {
 /** Lista el inventario con cálculo de stock actual por Kardex y filtro de búsqueda */
 export function listInventoryWithStock(
   db: SqlDriver,
-  options?: { search?: string; categoryId?: string; tenantId?: string },
+  options?: string | { search?: string; categoryId?: string; tenantId?: string },
 ): InventoryItemWithStock[] {
+  const opts = typeof options === "string" ? { tenantId: options } : options;
   let sql = `
     SELECT
       p.id, p.tenant_id, p.sku, p.barcode, p.name, p.category_id,
@@ -616,13 +625,13 @@ export function listInventoryWithStock(
   `;
   const params: (string | number)[] = [];
 
-  if (options?.tenantId) {
+  if (opts?.tenantId) {
     sql += " AND p.tenant_id = ?";
-    params.push(options.tenantId);
+    params.push(opts.tenantId);
   }
-  if (options?.categoryId) {
+  if (opts?.categoryId) {
     sql += " AND p.category_id = ?";
-    params.push(options.categoryId);
+    params.push(opts.categoryId);
   }
 
   sql += " GROUP BY p.id ORDER BY p.name ASC";
@@ -645,8 +654,8 @@ export function listInventoryWithStock(
     current_stock_e4: number;
   }>(sql, params);
 
-  if (options?.search) {
-    const q = options.search.trim().toLowerCase();
+  if (opts?.search) {
+    const q = opts.search.trim().toLowerCase();
     rows = rows.filter(
       (r) =>
         r.name.toLowerCase().includes(q) ||
