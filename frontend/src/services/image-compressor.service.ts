@@ -11,6 +11,7 @@ export interface ImageEncoder {
 export interface FileStore {
   writeFile(relativePath: string, data: Uint8Array): Promise<void>;
   deleteFile(relativePath: string): Promise<void>;
+  readFile?(relativePath: string): Promise<Uint8Array | null>;
 }
 
 export class ImageTooLargeError extends Error {

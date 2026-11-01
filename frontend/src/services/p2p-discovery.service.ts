@@ -145,6 +145,7 @@ export interface P2pDiscoveryConfig {
   ip: string;
   port: number;
   transport: MdnsTransport;
+  tenantId?: string;
   heartbeatIntervalMs?: number;
   peerTtlMs?: number;
   txtRecord?: Record<string, string>;
@@ -160,11 +161,16 @@ export class P2pDiscoveryService {
   private isRunning: boolean = false;
 
   constructor(config: P2pDiscoveryConfig) {
+    const txt = { ...(config.txtRecord ?? {}) };
+    if (config.tenantId) {
+      txt.tenantId = config.tenantId;
+    }
     this.config = {
       ...config,
+      tenantId: config.tenantId ?? "",
       heartbeatIntervalMs: config.heartbeatIntervalMs ?? 5000,
       peerTtlMs: config.peerTtlMs ?? 15000,
-      txtRecord: config.txtRecord ?? {},
+      txtRecord: txt,
     };
   }
 
@@ -299,26 +305,31 @@ export class P2pDiscoveryService {
     }
   }
 
-  getPeers(): SyncPeer[] {
-    return Array.from(this.peers.values());
-  }
+    getPeers(tenantId ?: string): SyncPeer[] {
+      const list = Array.from(this.peers.values());
+      if (!tenantId) return list;
+      return list.filter((p) => p.txtRecord?.tenantId === tenantId);
+    }
 
-  getOnlinePeers(): SyncPeer[] {
-    const now = Date.now();
-    return Array.from(this.peers.values()).filter(
-      (p) => p.status === "ONLINE" && now - p.lastSeen <= this.config.peerTtlMs,
-    );
-  }
+      getOnlinePeers(tenantId ?: string): SyncPeer[] {
+        const now = Date.now();
+        return Array.from(this.peers.values()).filter(
+          (p) =>
+            p.status === "ONLINE" &&
+            now - p.lastSeen <= this.config.peerTtlMs &&
+            (!tenantId || p.txtRecord?.tenantId === tenantId),
+        );
+      }
 
-  getPeer(terminalId: string): SyncPeer | undefined {
-    return this.peers.get(terminalId);
-  }
+      getPeer(terminalId: string): SyncPeer | undefined {
+        return this.peers.get(terminalId);
+      }
 
-  onPeersChange(callback: (peers: SyncPeer[]) => void): () => void {
-    this.peerListeners.add(callback);
-    callback(this.getPeers());
-    return () => this.peerListeners.delete(callback);
-  }
+      onPeersChange(callback: (peers: SyncPeer[]) => void): () => void {
+        this.peerListeners.add(callback);
+        callback(this.getPeers());
+        return() => this.peerListeners.delete(callback);
+      }
 
   private notifyListeners(): void {
     const list = this.getPeers();

@@ -2,6 +2,7 @@ import type { SqlDriver } from "../database/connection";
 import { uuidv7 } from "../utils/uuid7";
 
 export * from "./p2p-discovery.service";
+export * from "./p2p-http.service";
 
 export interface OutboxItem {
   id: string;

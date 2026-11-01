@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-10 completado. Implementación del motor de descubrimiento mDNS P2P en red Wi-Fi local para el servicio `_cajapos._tcp` (`P2pDiscoveryService`, `MdnsTransport`, `InMemoryMdnsHub`). Anuncio automático, intercambio de IPs privadas entre terminales, resolución rápida de consultas mDNS, heartbeat periódico, detección de despedida inmediata (`goodbye`), expiración de peers caídos por TTL y suscripción reactiva (`onPeersChange`). 62 tests pasando al 100% (11 suites) y typecheck TypeScript sin errores.
-* **Próxima tarea a ejecutar:** PR-11 (Servidor HTTP Embebido para Consultas On-Demand).
+* **Estado actual:** PR-11 completado. Servidor HTTP P2P embebido y aislamiento por cuenta (`tenant_id`) implementado en `src/services/p2p-http.service.ts` (`P2pHttpServer`, `P2pHttpClient`, `InMemoryP2pNetwork`, `FetchP2pHttpDispatcher`). Endpoints operativos: `GET /p2p/stock` (con stock en tiempo real desde `v_product_current_stock`), `GET /p2p/exchange-rate` y `GET /p2p/images` (transferencia local en Base64 con protección anti-traversal). Aislamiento criptográfico/lógico estricto: rechazo con 403 Forbidden a cuentas distintas y filtrado de peers por `tenant_id` en `P2pDiscoveryService`. 71 tests pasando al 100% (12 suites) y typecheck TypeScript sin errores.
+* **Próxima tarea a ejecutar:** PR-12 (Replicación Cruzada P2P de Catálogo, Deltas de Kardex e Imágenes).
 
 ---
 
@@ -54,9 +54,23 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-10: Descubrimiento de Cajas por mDNS en Red Wi-Fi**
   * *Descripción:* Anuncio y detección de terminales en la red local (`_cajapos._tcp`).
   * *Criterio de éxito:* Dos cajas en la misma Wi-Fi intercambian sus IPs privadas automáticamente.
-- [ ] **PR-11: Servidor HTTP Embebido para Consultas On-Demand**
-  * *Descripción:* Mini-servidor HTTP local en la app para responder endpoints: `GET /p2p/stock?sku=XYZ` y `GET /p2p/exchange-rate`.
-  * *Criterio de éxito:* La Caja 2 consulta el inventario en tiempo real de la Caja 1 en <15 ms.
-- [ ] **PR-12: Replicación Cruzada y Respaldo P2P de Deltas**
-  * *Descripción:* Endpoint `POST /p2p/sync/deltas` que recibe lotes de `peer_sync_outbox`, los persiste de forma idempotente y actualiza el inventario local.
-  * *Criterio de éxito:* Las ventas de la Caja 1 quedan respaldadas automáticamente en la Caja 2.
+- [x] **PR-11: Servidor HTTP P2P Embebido y Aislamiento por Cuenta (`tenant_id`)**
+  * *Descripción:* Mini-servidor/transporte HTTP local en la app con validación de misma cuenta (`tenant_id` en cabeceras y `txtRecord` mDNS) para responder endpoints: `GET /p2p/stock?sku=XYZ`, `GET /p2p/exchange-rate` y `GET /p2p/images/:imagePath` (transferencia binaria/base64 de imágenes locales de productos).
+  * *Criterio de éxito:* La Caja 2 consulta el inventario e imágenes de la Caja 1 en <15 ms solo si comparten el mismo `tenant_id`; rechaza peticiones de cuentas distintas.
+- [ ] **PR-12: Replicación Cruzada P2P de Catálogo, Deltas de Kardex e Imágenes**
+  * *Descripción:* Endpoint `POST /p2p/sync/deltas` y worker de sincronización que intercambia lotes de `peer_sync_outbox` entre equipos de la misma red y cuenta (`tenant_id`). Aplica `PRODUCT` (UPSERT/DELETE con resolución determinista `updated_at`), `STOCK_MOVEMENT` (deltas conmutativos idempotentes por UUIDv7) y descarga automáticamente en el `FileStore` local las imágenes nuevas/actualizadas de productos.
+  * *Criterio de éxito:* Crear/editar un producto con foto o registrar un movimiento de stock en la Caja 1 se replica de forma idempotente (datos + archivo de imagen local) en la Caja 2.
+
+### Fase 6: Inventario Real End-to-End (CRUD, Imágenes Locales y Lector HID)
+- [ ] **PR-13: Repositorio CRUD Completo de Inventario, Categorías y Kardex con Outbox P2P**
+  * *Descripción:* Ampliar `src/database/repositories/product.repository.ts` con operaciones completas: `updateProduct` (nombre, SKU, `barcode`, categoría, `price_usd`, `cost_usd`, `tax_rate`, `min_stock`), `setProductActive` (baja lógica), `getProductById`, `getProductByBarcode`, `getProductBySku`, `listCategories`, `listInventoryWithStock` (consulta enriquecida sobre `v_product_current_stock` con búsqueda por nombre/SKU/`barcode`) y `getProductKardex` (historial de `stock_movements`). Toda mutación de producto o ajuste de stock (`RESTOCK`, `ADJUSTMENT`) encola atómicamente su evento en `peer_sync_outbox`.
+  * *Criterio de éxito:* Tests unitarios de creación, edición, validación de unicidad de SKU/`barcode`, ajuste de stock con precisión fija (4 decimales) y generación automática de eventos en `peer_sync_outbox`.
+- [ ] **PR-14: Almacenamiento Local y Selector de Imágenes de Producto (`FileStore` + Compresor)**
+  * *Descripción:* Implementar los adaptadores concretos de `FileStore` (`expo-file-system` con directorio persistente local `images/products/` y fallback para entorno web/tests) e `ImageEncoder` (`expo-image-manipulator`), permitiendo seleccionar una imagen desde el dispositivo, comprimirla a WebP/JPEG (máx. 600×600 px, <80 KB), guardarla localmente, limpiar el archivo anterior al reemplazarla y encolar la actualización del producto en `peer_sync_outbox`.
+  * *Criterio de éxito:* Al asociar o cambiar la foto de un producto, el archivo optimizado se guarda en el almacenamiento local del dispositivo, actualiza `image_path` en SQLite y expone la URI local lista para renderizar.
+- [ ] **PR-15: Integración Reactiva del Lector de Código de Barras (HID) en Inventario y POS**
+  * *Descripción:* Crear el hook `useBarcodeScanner` sobre `barcode-scanner.service.ts` (<30 ms entre pulsaciones finalizadas en `Enter`) e integrarlo en `InventoryScreen` y `PosScreen`. En Inventario: (1) si el modal de producto está abierto, asigna el código leído por el lector directamente al campo `barcode`; (2) si está en la lista, busca el código escaneado y abre el producto o propone crear uno nuevo con ese `barcode` precargado. En POS: añade el producto escaneado al ticket al instante.
+  * *Criterio de éxito:* Tests de integración simulando ráfagas HID que autocompletan el `barcode` en el alta/edición de producto, filtran en el catálogo o agregan al carrito en <10 ms sin interferir con la escritura manual normal.
+- [ ] **PR-16: Pantalla de Inventario Conectada a SQLite (UI Táctil CRUD + Carga de Imagen + Ajuste de Kardex)**
+  * *Descripción:* Conectar `InventoryScreen.tsx` y `App.tsx` al motor SQLite real y al estado de sincronización P2P. Incorporar: (1) listado reactivo desde `v_product_current_stock` con miniatura de imagen local, código de barras, SKU, precio USD/VES y badge de stock bajo; (2) modal táctil de Crear/Editar Producto con selector de imagen local y captura de `barcode` por lector HID o teclado; (3) modal táctil de Entrada/Ajuste de Stock (`RESTOCK` / `ADJUSTMENT`) con historial de movimientos.
+  * *Criterio de éxito:* Flujo completo verificable en tests y UI: crear producto con código de barras e imagen local, editar precios/costos, ajustar existencias por Kardex y visualizar el estado de sincronización P2P.
