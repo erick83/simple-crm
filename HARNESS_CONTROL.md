@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-11 completado. Servidor HTTP P2P embebido y aislamiento por cuenta (`tenant_id`) implementado en `src/services/p2p-http.service.ts` (`P2pHttpServer`, `P2pHttpClient`, `InMemoryP2pNetwork`, `FetchP2pHttpDispatcher`). Endpoints operativos: `GET /p2p/stock` (con stock en tiempo real desde `v_product_current_stock`), `GET /p2p/exchange-rate` y `GET /p2p/images` (transferencia local en Base64 con protección anti-traversal). Aislamiento criptográfico/lógico estricto: rechazo con 403 Forbidden a cuentas distintas y filtrado de peers por `tenant_id` en `P2pDiscoveryService`. 71 tests pasando al 100% (12 suites) y typecheck TypeScript sin errores.
-* **Próxima tarea a ejecutar:** PR-12 (Replicación Cruzada P2P de Catálogo, Deltas de Kardex e Imágenes).
+* **Estado actual:** PR-12 completado. Replicación cruzada P2P de catálogo, deltas de Kardex e imágenes locales implementada en `src/services/p2p-sync.service.ts` y `src/services/p2p-http.service.ts` (`POST /p2p/sync/deltas`, `syncWithPeer`, `getPendingEvents`, `markEventsReplicated`). Soporte completo para mutaciones de `PRODUCT` (UPSERT determinista con Last-Write-Wins sobre `updated_at` y DELETE lógico), movimientos de inventario `STOCK_MOVEMENT` (deltas conmutativos e inserción idempotente con 4 decimales exactos por UUIDv7) y replicación automática del archivo binario de imagen local en el `FileStore` del receptor. 74 tests pasando al 100% (13 suites) y typecheck TypeScript sin errores.
+* **Próxima tarea a ejecutar:** PR-13 (Repositorio CRUD Completo de Inventario, Categorías y Kardex con Outbox P2P).
 
 ---
 
@@ -57,7 +57,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-11: Servidor HTTP P2P Embebido y Aislamiento por Cuenta (`tenant_id`)**
   * *Descripción:* Mini-servidor/transporte HTTP local en la app con validación de misma cuenta (`tenant_id` en cabeceras y `txtRecord` mDNS) para responder endpoints: `GET /p2p/stock?sku=XYZ`, `GET /p2p/exchange-rate` y `GET /p2p/images/:imagePath` (transferencia binaria/base64 de imágenes locales de productos).
   * *Criterio de éxito:* La Caja 2 consulta el inventario e imágenes de la Caja 1 en <15 ms solo si comparten el mismo `tenant_id`; rechaza peticiones de cuentas distintas.
-- [ ] **PR-12: Replicación Cruzada P2P de Catálogo, Deltas de Kardex e Imágenes**
+- [x] **PR-12: Replicación Cruzada P2P de Catálogo, Deltas de Kardex e Imágenes**
   * *Descripción:* Endpoint `POST /p2p/sync/deltas` y worker de sincronización que intercambia lotes de `peer_sync_outbox` entre equipos de la misma red y cuenta (`tenant_id`). Aplica `PRODUCT` (UPSERT/DELETE con resolución determinista `updated_at`), `STOCK_MOVEMENT` (deltas conmutativos idempotentes por UUIDv7) y descarga automáticamente en el `FileStore` local las imágenes nuevas/actualizadas de productos.
   * *Criterio de éxito:* Crear/editar un producto con foto o registrar un movimiento de stock en la Caja 1 se replica de forma idempotente (datos + archivo de imagen local) en la Caja 2.
 

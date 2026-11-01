@@ -42,6 +42,21 @@ export interface P2pImageData {
   base64: string;
 }
 
+export interface SyncDeltaItem {
+  id: string; // id del evento outbox
+  originTerminalId: string;
+  entityType: "PRODUCT" | "STOCK_MOVEMENT" | "INVOICE";
+  entityId: string;
+  action: "UPSERT" | "DELETE";
+  payload: Record<string, unknown>;
+  createdAt: number;
+}
+
+export interface SyncDeltasResponse {
+  appliedCount: number;
+  ackIds: string[];
+}
+
 export interface P2pHttpServerConfig {
   ip: string;
   port: number;
@@ -89,6 +104,11 @@ export class P2pHttpServer {
     // 4. GET /p2p/images
     if (req.method === "GET" && (path === "/p2p/images" || path.startsWith("/p2p/images/"))) {
       return this.handleGetImage(req);
+    }
+
+    // 5. POST /p2p/sync/deltas
+    if (req.method === "POST" && path === "/p2p/sync/deltas") {
+      return this.handleSyncDeltas(req);
     }
 
     return {
@@ -212,6 +232,142 @@ export class P2pHttpServer {
     };
   }
 
+  private async handleSyncDeltas(req: P2pHttpRequest): Promise<P2pHttpResponse<SyncDeltasResponse>> {
+    const body = req.body as { deltas?: SyncDeltaItem[] } | undefined;
+    const deltas = body?.deltas;
+    if (!Array.isArray(deltas)) {
+      return { status: 400, error: "El cuerpo debe contener un array 'deltas'" };
+    }
+
+    const ackIds: string[] = [];
+    const imagesToWrite: Array<{ path: string; bytes: Uint8Array }> = [];
+
+    this.config.db.transaction(() => {
+      for (const item of deltas) {
+        if (item.entityType === "PRODUCT") {
+          const p = item.payload as Record<string, unknown>;
+          if (item.action === "UPSERT") {
+            const [existing] = this.config.db.all<{ updated_at: number }>(
+              "SELECT updated_at FROM products WHERE id = ?",
+              [item.entityId],
+            );
+
+            const incomingUpdatedAt = Number(p.updatedAt ?? p.updated_at ?? item.createdAt);
+            const price = new Decimal(String(p.priceUsd ?? p.price_usd ?? "0")).toFixed(4);
+            const cost = new Decimal(String(p.costUsd ?? p.cost_usd ?? "0")).toFixed(4);
+            const tax = new Decimal(String(p.taxRate ?? p.tax_rate ?? "0.1600")).toFixed(4);
+            const minStock = new Decimal(String(p.minStock ?? p.min_stock ?? "5.0000")).toFixed(4);
+            const imagePath = (p.imagePath ?? p.image_path ?? null) as string | null;
+
+            if (!existing) {
+              this.config.db.run(
+                `INSERT INTO products (
+                   id, tenant_id, category_id, barcode, sku, name, price_usd, cost_usd,
+                   tax_rate, image_path, min_stock, is_active, created_at, updated_at
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  item.entityId,
+                  this.tenantId,
+                  (p.categoryId ?? p.category_id ?? null) as string | null,
+                  (p.barcode ?? null) as string | null,
+                  String(p.sku),
+                  String(p.name),
+                  price,
+                  cost,
+                  tax,
+                  imagePath,
+                  minStock,
+                  p.isActive !== undefined ? (p.isActive ? 1 : 0) : ((p.is_active as number) ?? 1),
+                  Number(p.createdAt ?? p.created_at ?? item.createdAt),
+                  incomingUpdatedAt,
+                ],
+              );
+            } else if (incomingUpdatedAt >= existing.updated_at) {
+              this.config.db.run(
+                `UPDATE products SET
+                   category_id = ?, barcode = ?, sku = ?, name = ?, price_usd = ?, cost_usd = ?,
+                   tax_rate = ?, image_path = ?, min_stock = ?, is_active = ?, updated_at = ?
+                 WHERE id = ?`,
+                [
+                  (p.categoryId ?? p.category_id ?? null) as string | null,
+                  (p.barcode ?? null) as string | null,
+                  String(p.sku),
+                  String(p.name),
+                  price,
+                  cost,
+                  tax,
+                  imagePath,
+                  minStock,
+                  p.isActive !== undefined ? (p.isActive ? 1 : 0) : ((p.is_active as number) ?? 1),
+                  incomingUpdatedAt,
+                  item.entityId,
+                ],
+              );
+            }
+
+            const imageBase64 = (p.imageBase64 ?? p.image_base64) as string | undefined;
+            if (imagePath && imageBase64) {
+              imagesToWrite.push({
+                path: imagePath,
+                bytes: Uint8Array.from(Buffer.from(imageBase64, "base64")),
+              });
+            }
+          } else if (item.action === "DELETE") {
+            this.config.db.run(
+              "UPDATE products SET is_active = 0, updated_at = ? WHERE id = ?",
+              [item.createdAt, item.entityId],
+            );
+          }
+        } else if (item.entityType === "STOCK_MOVEMENT") {
+          const sm = item.payload as Record<string, unknown>;
+          const [existing] = this.config.db.all<{ id: string }>(
+            "SELECT id FROM stock_movements WHERE id = ?",
+            [item.entityId],
+          );
+          if (!existing) {
+            const rawDelta = String(sm.quantityDelta ?? sm.quantity_delta ?? "0");
+            const deltaDecimal = new Decimal(rawDelta);
+            const deltaStr = deltaDecimal.toFixed(4);
+
+            this.config.db.run(
+              `INSERT INTO stock_movements (
+                 id, product_id, terminal_id, quantity_delta, movement_type, reference_id, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [
+                item.entityId,
+                String(sm.productId ?? sm.product_id),
+                String(sm.terminalId ?? sm.terminal_id ?? item.originTerminalId),
+                deltaStr,
+                String(sm.movementType ?? sm.movement_type),
+                (sm.referenceId ?? sm.reference_id ?? null) as string | null,
+                Number(sm.createdAt ?? sm.created_at ?? item.createdAt),
+              ],
+            );
+          }
+        }
+        ackIds.push(item.id);
+      }
+    });
+
+    if (this.config.fileStore?.writeFile && imagesToWrite.length > 0) {
+      for (const img of imagesToWrite) {
+        try {
+          await this.config.fileStore.writeFile(img.path, img.bytes);
+        } catch {
+          // Fallback silencioso si falla escritura de imagen individual
+        }
+      }
+    }
+
+    return {
+      status: 200,
+      data: {
+        appliedCount: ackIds.length,
+        ackIds,
+      },
+    };
+  }
+
   private getHeader(headers: Record<string, string>, target: string): string | undefined {
     const targetLower = target.toLowerCase();
     for (const [k, v] of Object.entries(headers)) {
@@ -310,6 +466,18 @@ export class P2pHttpClient {
       path: "/p2p/images",
       headers: this.getHeaders(),
       query: { path: imagePath },
+    });
+  }
+
+  async sendDeltas(
+    peer: { ip: string; port: number },
+    deltas: SyncDeltaItem[],
+  ): Promise<P2pHttpResponse<SyncDeltasResponse>> {
+    return this.config.dispatcher.dispatch<SyncDeltasResponse>(peer.ip, peer.port, {
+      method: "POST",
+      path: "/p2p/sync/deltas",
+      headers: this.getHeaders(),
+      body: { deltas },
     });
   }
 }
