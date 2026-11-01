@@ -8,7 +8,14 @@
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src", "tests", "index.ts"]
+  "include": [
+    "src",
+    "tests",
+    "index.ts"
+  ],
+  "extends": "expo/tsconfig.base"
 }

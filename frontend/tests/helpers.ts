@@ -13,8 +13,48 @@ export function betterSqliteDriver(db: Database.Database): SqlDriver {
   };
 }
 
+function createInMemoryDriver(): SqlDriver {
+  try {
+    return betterSqliteDriver(new Database(":memory:"));
+  } catch {
+    // Fallback a node:sqlite nativo (Node 22.5+ / Node 24+) cuando better-sqlite3
+    // fue compilado para un NODE_MODULE_VERSION distinto al Node activo en consola.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { DatabaseSync } = require("node:sqlite") as {
+      DatabaseSync: new (path: string) => {
+        exec(sql: string): void;
+        prepare(sql: string): {
+          run(...params: (string | number | null)[]): unknown;
+          all(...params: (string | number | null)[]): Record<string, unknown>[];
+        };
+      };
+    };
+    const db = new DatabaseSync(":memory:");
+    return {
+      exec: (sql) => void db.exec(sql),
+      run: (sql, params = []) => void db.prepare(sql).run(...params),
+      all: <T>(sql: string, params: (string | number | null)[] = []) =>
+        db
+          .prepare(sql)
+          .all(...params)
+          .map((row) => ({ ...row })) as T[],
+      transaction: <T>(fn: () => T): T => {
+        db.exec("BEGIN");
+        try {
+          const res = fn();
+          db.exec("COMMIT");
+          return res;
+        } catch (txErr) {
+          db.exec("ROLLBACK");
+          throw txErr;
+        }
+      },
+    };
+  }
+}
+
 export function createTestDb(): SqlDriver {
-  const driver = betterSqliteDriver(new Database(":memory:"));
+  const driver = createInMemoryDriver();
   const schema = readFileSync(resolve(__dirname, "../../docs/database_schema.sql"), "utf8");
   initDatabase(driver, schema);
   return driver;
