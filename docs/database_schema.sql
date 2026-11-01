@@ -44,9 +44,23 @@ CREATE INDEX IF NOT EXISTS idx_exchange_rates_date ON exchange_rates(rate_date);
 -- -----------------------------------------------------------------------------
 -- 3. CATÁLOGO DE PRODUCTOS E IMÁGENES
 -- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS categories (
+    id TEXT PRIMARY KEY,                       -- UUIDv7
+    name TEXT NOT NULL UNIQUE,                 -- Nombre de la categoría
+    created_at INTEGER NOT NULL                -- Timestamp Unix
+);
+
+-- Metadatos de la app (country_code, terminal_id, versión de esquema, etc.)
+CREATE TABLE IF NOT EXISTS app_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,                       -- UUIDv7
     tenant_id TEXT NOT NULL,                   -- UUIDv7 de aislamiento
+    category_id TEXT REFERENCES categories(id) ON DELETE SET NULL, -- Categoría opcional
     barcode TEXT UNIQUE,                       -- EAN-13, UPC o Code128 (Lectores HID)
     sku TEXT UNIQUE NOT NULL,                  -- Código interno del producto
     name TEXT NOT NULL,                        -- Descripción comercial
@@ -54,7 +68,7 @@ CREATE TABLE IF NOT EXISTS products (
     cost_usd TEXT NOT NULL,                    -- Costo de reposición en USD (decimal)
     tax_rate TEXT NOT NULL DEFAULT '0.16',     -- Alícuota de impuesto (ej. '0.16' para 16%)
     image_path TEXT,                           -- Ruta relativa al filesystem local (WebP <80KB)
-    min_stock TEXT NOT NULL DEFAULT '5.00',    -- Umbral para alerta de agotamiento
+    min_stock TEXT NOT NULL DEFAULT '5.0000',  -- Umbral para alerta de agotamiento
     is_active INTEGER NOT NULL DEFAULT 1,      -- 1=Activo, 0=Deshabilitado
     created_at INTEGER NOT NULL,               -- Timestamp Unix
     updated_at INTEGER NOT NULL                -- Timestamp Unix para reconciliación
@@ -62,6 +76,7 @@ CREATE TABLE IF NOT EXISTS products (
 
 CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_updated ON products(updated_at);
 
 -- -----------------------------------------------------------------------------
@@ -71,7 +86,8 @@ CREATE TABLE IF NOT EXISTS stock_movements (
     id TEXT PRIMARY KEY,                       -- UUIDv7
     product_id TEXT NOT NULL,                  -- UUIDv7 referenciando a products
     terminal_id TEXT NOT NULL,                 -- Caja que originó el movimiento
-    quantity_delta TEXT NOT NULL,              -- Delta con signo (ej. '-1.00', '+10.00')
+    quantity_delta TEXT NOT NULL               -- Delta con signo y 4 decimales exactos (ej. '-1.0000', '10.0000')
+        CHECK (quantity_delta NOT GLOB '*[^0-9.+-]*' AND quantity_delta GLOB '*[0-9].[0-9][0-9][0-9][0-9]'),
     movement_type TEXT NOT NULL,               -- 'SALE', 'RETURN', 'RESTOCK', 'ADJUSTMENT'
     reference_id TEXT,                         -- UUID de factura o ajuste
     created_at INTEGER NOT NULL,               -- Timestamp Unix
@@ -163,17 +179,21 @@ CREATE INDEX IF NOT EXISTS idx_sync_outbox_created ON peer_sync_outbox(created_a
 -- -----------------------------------------------------------------------------
 -- 8. VISTA DE CONSULTA RÁPIDA: STOCK ACTUAL POR MOVIMIENTOS
 -- -----------------------------------------------------------------------------
-CREATE VIEW IF NOT EXISTS v_product_current_stock AS
+-- Aritmética 100% entera: cada delta tiene exactamente 4 decimales (CHECK), por lo que
+-- quitar el punto lo convierte en diezmilésimas enteras. Sin REAL. Dividir entre 10000 en la app (decimal.js).
+DROP VIEW IF EXISTS v_product_current_stock;
+CREATE VIEW v_product_current_stock AS
 SELECT 
     p.id AS product_id,
     p.sku,
     p.barcode,
     p.name,
+    p.category_id,
     p.price_usd,
     p.cost_usd,
     p.min_stock,
     p.image_path,
-    COALESCE(SUM(CAST(sm.quantity_delta AS REAL)), 0.0) AS current_stock
+    COALESCE(SUM(CAST(REPLACE(sm.quantity_delta, '.', '') AS INTEGER)), 0) AS current_stock_e4
 FROM products p
 LEFT JOIN stock_movements sm ON p.id = sm.product_id
 WHERE p.is_active = 1

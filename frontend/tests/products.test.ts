@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTestDb } from "./helpers";
-import { addStockMovement, getCurrentStock, insertProduct } from "../src/db/products";
+import { addStockMovement, createCategory, getCurrentStock, insertProduct } from "../src/db/products";
 import { uuidv7 } from "../src/lib/uuidv7";
 
 const TENANT = uuidv7();
@@ -44,11 +44,33 @@ describe("productos y stock", () => {
   it("calcula stock vía v_product_current_stock", () => {
     const db = createTestDb();
     const id = insertProduct(db, base);
-    expect(getCurrentStock(db, id)?.currentStock).toBe("0.00");
+    expect(getCurrentStock(db, id)?.currentStock).toBe("0.0000");
     addStockMovement(db, { productId: id, terminalId: "C01", delta: "10", type: "RESTOCK" });
     addStockMovement(db, { productId: id, terminalId: "C01", delta: "-3", type: "SALE" });
     addStockMovement(db, { productId: id, terminalId: "C02", delta: "-0.5", type: "ADJUSTMENT" });
-    expect(getCurrentStock(db, id)?.currentStock).toBe("6.50");
+    addStockMovement(db, { productId: id, terminalId: "C02", delta: "0.0001", type: "ADJUSTMENT" });
+    expect(getCurrentStock(db, id)?.currentStock).toBe("6.5001");
+  });
+
+  it("el esquema rechaza deltas que no tengan 4 decimales exactos", () => {
+    const db = createTestDb();
+    const id = insertProduct(db, base);
+    const ins = (d: string) =>
+      db.run(
+        "INSERT INTO stock_movements (id, product_id, terminal_id, quantity_delta, movement_type, created_at) VALUES (?, ?, 'C01', ?, 'ADJUSTMENT', 1)",
+        [uuidv7(), id, d],
+      );
+    for (const bad of ["1", "1.5", "1.00", "abc", "1e3"]) expect(() => ins(bad)).toThrow();
+    expect(() => ins("-1.0000")).not.toThrow();
+  });
+
+  it("asigna categoría al producto", () => {
+    const db = createTestDb();
+    const cat = createCategory(db, "Víveres");
+    const id = insertProduct(db, { ...base, categoryId: cat });
+    const [row] = db.all<{ category_id: string }>("SELECT category_id FROM products WHERE id = ?", [id]);
+    expect(row?.category_id).toBe(cat);
+    expect(() => createCategory(db, "Víveres")).toThrow();
   });
 });
 

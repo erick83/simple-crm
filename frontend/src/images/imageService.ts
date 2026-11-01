@@ -3,7 +3,7 @@ import type { SqlDriver } from "../db/driver";
 export const MAX_DIMENSION = 600;
 export const MAX_BYTES = 80 * 1024;
 /** Calidades WebP probadas en orden descendente hasta caber en MAX_BYTES. */
-export const QUALITY_STEPS = [80, 70, 60, 50, 40, 30, 20] as const;
+export const QUALITY_STEPS = [75, 65, 55, 45, 35, 25] as const;
 
 /** Codificador de imagen específico de plataforma (RN: manipulador nativo; tests: sharp). */
 export interface ImageEncoder {

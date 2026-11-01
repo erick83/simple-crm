@@ -10,6 +10,7 @@ export interface NewProduct {
   priceUsd: string;
   costUsd: string;
   barcode?: string;
+  categoryId?: string;
   taxRate?: string;
   minStock?: string;
 }
@@ -18,7 +19,7 @@ export interface StockRow {
   productId: string;
   sku: string;
   name: string;
-  /** Decimal exacto con 2 decimales (cantidades). */
+  /** Decimal exacto con 4 decimales (cantidades). */
   currentStock: string;
 }
 
@@ -41,18 +42,19 @@ export function insertProduct(db: SqlDriver, p: NewProduct, now: number = Date.n
 
   const id = uuidv7(now);
   db.run(
-    `INSERT INTO products (id, tenant_id, barcode, sku, name, price_usd, cost_usd, tax_rate, min_stock, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO products (id, tenant_id, category_id, barcode, sku, name, price_usd, cost_usd, tax_rate, min_stock, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       p.tenantId,
+      p.categoryId ?? null,
       p.barcode ?? null,
       p.sku,
       p.name,
       price.toFixed(4),
       cost.toFixed(4),
       dec(p.taxRate ?? "0.16", "taxRate").toFixed(4),
-      dec(p.minStock ?? "5", "minStock").toFixed(2),
+      dec(p.minStock ?? "5", "minStock").toFixed(4),
       now,
       now,
     ],
@@ -71,15 +73,15 @@ export function addStockMovement(
   db.run(
     `INSERT INTO stock_movements (id, product_id, terminal_id, quantity_delta, movement_type, reference_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, args.productId, args.terminalId, delta.toFixed(2), args.type, args.referenceId ?? null, now],
+    [id, args.productId, args.terminalId, delta.toFixed(4), args.type, args.referenceId ?? null, now],
   );
   return id;
 }
 
 /** Lee stock vigente desde la vista `v_product_current_stock`. */
 export function getCurrentStock(db: SqlDriver, productId: string): StockRow | undefined {
-  const [row] = db.all<{ product_id: string; sku: string; name: string; current_stock: number }>(
-    "SELECT product_id, sku, name, current_stock FROM v_product_current_stock WHERE product_id = ?",
+  const [row] = db.all<{ product_id: string; sku: string; name: string; current_stock_e4: number }>(
+    "SELECT product_id, sku, name, current_stock_e4 FROM v_product_current_stock WHERE product_id = ?",
     [productId],
   );
   if (!row) return undefined;
@@ -87,7 +89,13 @@ export function getCurrentStock(db: SqlDriver, productId: string): StockRow | un
     productId: row.product_id,
     sku: row.sku,
     name: row.name,
-    currentStock: new Decimal(row.current_stock).toFixed(2),
+    currentStock: new Decimal(row.current_stock_e4).div(10000).toFixed(4),
   };
 }
 
+
+export function createCategory(db: SqlDriver, name: string, now: number = Date.now()): string {
+  const id = uuidv7(now);
+  db.run("INSERT INTO categories (id, name, created_at) VALUES (?, ?, ?)", [id, name.trim(), now]);
+  return id;
+}
