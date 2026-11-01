@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import Decimal from "decimal.js";
 import type { SqlDriver } from "../database/connection";
 
@@ -48,6 +49,53 @@ export function attachBarcodeListener(target: KeyEventTargetLike, opts: BarcodeL
   const cb = (e: { key: string; timeStamp: number }) => listener.handleKey(e.key, e.timeStamp);
   target.addEventListener("keydown", cb);
   return () => target.removeEventListener("keydown", cb);
+}
+
+export interface UseBarcodeScannerOptions {
+  onScan: (barcode: string) => void;
+  enabled?: boolean;
+  maxGapMs?: number;
+  minLength?: number;
+  target?: KeyEventTargetLike;
+}
+
+export function useBarcodeScanner(opts: UseBarcodeScannerOptions) {
+  const onScanRef = useRef(opts.onScan);
+  onScanRef.current = opts.onScan;
+
+  const listenerRef = useRef<ReturnType<typeof createBarcodeListener> | null>(null);
+
+  if (!listenerRef.current) {
+    listenerRef.current = createBarcodeListener({
+      onScan: (barcode) => onScanRef.current(barcode),
+      maxGapMs: opts.maxGapMs,
+      minLength: opts.minLength,
+    });
+  }
+
+  useEffect(() => {
+    if (opts.enabled === false) return;
+
+    const target: KeyEventTargetLike | undefined =
+      opts.target ??
+      (typeof window !== "undefined" && typeof window.addEventListener === "function"
+        ? (window as unknown as KeyEventTargetLike)
+        : undefined);
+
+    if (!target) return;
+
+    const cb = (e: { key: string; timeStamp: number }) => {
+      listenerRef.current?.handleKey(e.key, e.timeStamp || Date.now());
+    };
+
+    target.addEventListener("keydown", cb);
+    return () => target.removeEventListener("keydown", cb);
+  }, [opts.enabled, opts.target, opts.maxGapMs, opts.minLength]);
+
+  return {
+    handleKey: (key: string, ts: number = Date.now()) => listenerRef.current?.handleKey(key, ts),
+    reset: () => listenerRef.current?.reset(),
+  };
 }
 
 export interface ProductLookup {

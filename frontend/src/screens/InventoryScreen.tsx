@@ -4,6 +4,8 @@ import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 import { formatUsd, formatFixed4 } from "../utils/decimal";
+import { useBarcodeScanner } from "../services/barcode-scanner.service";
+import type { KeyEventTargetLike } from "../services/barcode-scanner.service";
 
 export interface InventoryItem {
   id: string;
@@ -16,8 +18,24 @@ export interface InventoryItem {
   minStock: string;
 }
 
-export const InventoryScreen: React.FC = () => {
+export interface InventoryScreenProps {
+  keyEventTarget?: KeyEventTargetLike;
+  onScanBarcode?: (barcode: string) => void;
+}
+
+export const InventoryScreen: React.FC<InventoryScreenProps> = ({
+  keyEventTarget,
+  onScanBarcode,
+}) => {
   const [search, setSearch] = useState("");
+
+  useBarcodeScanner({
+    target: keyEventTarget,
+    onScan: (scannedCode) => {
+      setSearch(scannedCode);
+      onScanBarcode?.(scannedCode);
+    },
+  });
   const [items] = useState<InventoryItem[]>([
     {
       id: "1",

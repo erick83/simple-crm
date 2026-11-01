@@ -23,12 +23,19 @@ import {
 import type { SqlDriver } from "../database/connection";
 import { getCatalogWithBimonetaryPrices } from "../services/catalog.service";
 import { registerManualRate } from "../services/bcv-exchange.service";
-import { createInvoice, PaymentMethod } from "../database/repositories/invoice.repository";
+import { createInvoice } from "../database/repositories/invoice.repository";
+import type { PaymentMethod } from "../database/repositories/invoice.repository";
 import { getOpenShift } from "../database/repositories/shift.repository";
+import {
+  useBarcodeScanner,
+  findProductByBarcode,
+} from "../services/barcode-scanner.service";
+import type { KeyEventTargetLike } from "../services/barcode-scanner.service";
 
 export interface PosProductItem {
   id: string;
   sku: string;
+  barcode?: string;
   name: string;
   priceUsd: string;
   category?: string;
@@ -48,6 +55,7 @@ export interface PosScreenProps {
   terminalId?: string;
   initialExchangeRate?: string;
   initialProducts?: PosProductItem[];
+  keyEventTarget?: KeyEventTargetLike;
   onRateChange?: (newRate: string) => void;
   onInvoiceCreated?: (invoiceId: string) => void;
 }
@@ -66,12 +74,36 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   terminalId = "TERM-01",
   initialExchangeRate = "36.5000",
   initialProducts,
+  keyEventTarget,
   onRateChange,
   onInvoiceCreated,
 }) => {
   const [exchangeRate, setExchangeRate] = useState<string>(initialExchangeRate);
   const [catalog, setCatalog] = useState<PosProductItem[]>(initialProducts ?? DEFAULT_PRODUCTS);
   const [ticketItems, setTicketItems] = useState<PosTicketItem[]>([]);
+
+  // Escaneo reactivo mediante lector HID de código de barras
+  useBarcodeScanner({
+    target: keyEventTarget,
+    onScan: (scannedBarcode) => {
+      if (db) {
+        const found = findProductByBarcode(db, scannedBarcode);
+        if (found) {
+          addToCart({
+            id: found.productId,
+            sku: found.sku,
+            name: found.name,
+            priceUsd: found.priceUsd,
+          });
+          return;
+        }
+      }
+      const match = catalog.find((p) => p.sku === scannedBarcode || p.barcode === scannedBarcode);
+      if (match) {
+        addToCart(match);
+      }
+    },
+  });
 
   // Estado del modal de actualización de tasa
   const [isRateModalOpen, setIsRateModalOpen] = useState(false);
