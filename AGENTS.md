@@ -1,60 +1,68 @@
 # AGENTS.md — Constitución del Sistema (POS P2P Local-First)
 
-Este documento define las reglas estrictas, la arquitectura y las directrices técnicas que todos los agentes de IA (Antigravity, OpenCode) deben seguir obligatoriamente.
+Este documento define las reglas estrictas, la arquitectura y las directrices técnicas que todos los agentes de IA (Antigravity, OpenCode) deben seguir obligatoriamente en este repositorio.
 
 ---
 
-## 1. Alcance y Filosofía del Sistema ($0 Infraestructura Cloud)
+## 1. Stack Tecnológico y Plataforma (Cero Desviaciones)
 
-* **Topología P2P Local Pura:** NO existe backend centralizado de negocio ni base de datos SaaS en la nube. Los datos residen 100% en los dispositivos físicos de la tienda y se respaldan mediante replicación cruzada.
-* **Persistencia Local:** Cada terminal gestiona su propia base de datos completa con SQLite (`op-sqlite`).
-* **Tooling de Licencias Offline:** Un script/CLI local en Go (en `/tools/license-cli`) genera y firma los certificados Ed25519 para clientes en Windows. NO requiere servidores web activos 24/7.
-* **Sincronización P2P en Wi-Fi:** Descubrimiento automático en red local (mDNS) y comunicación HTTP/TCP directa entre cajas bajo demanda para consultas de stock, catálogos y replicación de deltas.
+* **Frontend / Cliente:** **React Native** (TypeScript) con arquitectura multiplataforma:
+  * **Móvil / Tablet:** Android (APK / Google Play Billing).
+  * **Escritorio:** Windows vía React Native for Windows o wrapper ligero (Tauri / React Native for Web).
+* **Persistencia Local:** **SQLite nativo** (`op-sqlite` o equivalente de alto rendimiento JSI/C++; en Web/Tauri, SQLite WASM con OPFS). Prohibido el uso de IndexedDB o AsyncStorage para datos de negocio. Todo acceso a SQLite pasa por la interfaz `SqlDriver` (`frontend/src/db/driver.ts`).
+* **Red y Topología:** **Local-First P2P Puro**. No existe base de datos centralizada ni servidor SaaS operativo. Los dispositivos en la misma tienda se comunican y sincronizan directamente por red local (Wi-Fi) vía **mDNS / Bonjour** y peticiones HTTP/TCP directas.
+* **Sin backend:** Todo el sistema (base de datos, lógica de negocio, licenciamiento y sincronización) corre en el cliente React Native bajo `/frontend`. No existe servidor, API remota ni CLI propio. La emisión de licencias (backend/CLI Ed25519) es un **proyecto futuro** fuera de este repositorio; la app solo **verifica** tokens con una llave pública embebida.
 
 ---
 
 ## 2. Reglas Estrictas de Tipos e Integridad
 
-1. **Identificadores:** Uso mandatorio de **UUIDv7** para todas las transacciones, productos, turnos, tasas y movimientos.
-2. **Matemática Financiera y Multimoneda:** Uso estricto de tipos de precisión fija (librerías decimales en TypeScript/React Native). **PROHIBIDO** el uso de flotantes nativos (`number` impreciso) para precios, tasas de cambio o importes.
-3. **Inmutabilidad Cambiaria en Facturas:** Toda factura emitida DEBE congelar:
-   * Montos en moneda base (`subtotal_usd`, `total_usd`).
-   * Tasa de cambio oficial aplicada en ese instante (`exchange_rate`).
-   * Montos en moneda de curso legal (`subtotal_ves`, `total_ves`).
-   * Estos valores jamás se recalculan retrospectivamente.
+1. **Identificadores:** Uso mandatorio de **UUIDv7** para todas las transacciones, productos, turnos, movimientos de inventario y tasas de cambio para garantizar orden cronológico y evitar colisiones entre cajas independientes.
+2. **Matemática Financiera y Cantidades:** Uso obligatorio de librerías de precisión fija (ej. `decimal.js` o `bignumber.js` en TypeScript). **PROHIBIDO** el uso de tipos `number` flotantes nativos en precios, tasas cambiarias, totales o inventario (incluye `CAST ... AS REAL` en SQL).
+3. **Kardex Conmutativo por Deltas:** Ninguna caja puede sobreescribir el stock de otra. El inventario se computa mediante la suma acumulada de registros delta inmutables (`quantity_delta: -1.0000`, `+10.0000`, 4 decimales) en la tabla `stock_movements`.
 
 ---
 
-## 3. Módulos Core y Hardware
+## 3. Especificación de Módulos Core en React Native
 
-1. **Módulo de Facturación y Cierres X/Z:**
-   * Fondo y arqueo ciego bimoneda (efectivo USD y efectivo VES independientes).
-   * Generación de balances consolidados mensuales en SQLite.
-2. **Módulo de Inventario e Imágenes:**
-   * Catálogo con búsqueda por código de barras (EAN-13, UPC, Code 128).
-   * Redimensionado de imágenes en el cliente a un máximo de 600x600 px (WebP <80 KB) almacenadas en el filesystem local.
-3. **Integración con Lectores de Códigos de Barras:**
-   * Listener global de teclado en modo **HID (Human Interface Device)**: detección de ráfagas rápidas (<30 ms entre teclas) finalizadas en `Enter` para cargar productos de inmediato en facturación.
-4. **Módulo de Tasa BCV (Venezuela):**
-   * Detección por configuración regional (`country_code == 'VE'`).
-   * Consulta al portal oficial del BCV o API de contingencia; si está offline, permite el registro manual auditado en la apertura de turno.
+1. **Facturación y Flujo de Caja:**
+   * Terminal de venta con soporte para múltiples métodos de pago combinados.
+   * Gestión de sesiones de caja (`cash_shifts`): registro de fondo inicial, arqueo X (corte parcial) y cierre Z (arqueo ciego con detección de descuadres), con efectivo USD y efectivo VES contados de forma independiente.
+   * Generación de balance mensual y acumulados contables mediante consultas de agregación en SQLite.
+2. **Módulo Cambiario / Bimoneda (USD / VES - Exclusivo Venezuela):**
+   * Activación condicional por configuración de país (`country_code == 'VE'`).
+   * Consulta/scraping de la tasa oficial del BCV con fallback a captura manual auditada (motivo obligatorio) en la apertura de turno.
+   * **Inmutabilidad en factura:** Cada venta congela permanentemente la tasa aplicada (`exchange_rate`), los montos en USD (`subtotal_usd`, `total_usd`) y el equivalente legal en VES (`subtotal_ves`, `total_ves`). Jamás se recalculan retrospectivamente.
+3. **Inventario y Manejo de Imágenes:**
+   * Catálogo con búsqueda indexada por código de barras (`barcode`; EAN-13, UPC, Code 128), SKU y categoría.
+   * Carga de fotos con redimensionado y compresión en el dispositivo (WebP/JPEG, máx. 600x600 px, peso <80 KB), almacenando solo la ruta del archivo local en SQLite.
+4. **Entrada de Datos por Código de Barras (HID):**
+   * Captura global de eventos de teclado para pistolas y escáneres USB/Bluetooth que operen como dispositivos HID (pulsaciones rápidas, <30 ms entre teclas, finalizadas en `Enter`).
+   * Alternativa de escaneo por cámara de la tablet/teléfono para terminales sin hardware externo.
 
 ---
 
-## 4. Reglas de Ejecución para Agentes
+## 4. Licenciamiento Criptográfico Offline-First
+
+* **Hardware Binding (Windows):** La app extrae un identificador inmutable (`HWID = SHA256(Motherboard_UUID + CPU_Serial)`). En Android se usará un identificador equivalente definido en el PR correspondiente.
+* **Verificación Ed25519:** La app valida localmente la firma del token JSON emitido por el emisor de licencias externo (proyecto futuro) usando la llave pública embebida. Si `HWID_local != token.hwid` o la fecha expiró, la app bloquea las funciones de cobro.
+* **Guardia de Reloj Monótono:** La app almacena `last_recorded_timestamp` en cada operación. Si el reloj del dispositivo se atrasa deliberadamente, el sistema se bloquea hasta restablecer la hora real.
+
+---
+
+## 5. Diseño Visual y Reglas Táctiles (UI/UX)
+
+Todo componente visual debe cumplir estrictamente con:
+* `docs/skills/bisync-pos-design-guide.md`
+* Orientación preferente horizontal (**Landscape**, estándar 1280×800 px para tablets).
+* Tema por defecto: Dark Mode (`#061426` base, `#0E1C2F` contenedores, `#1D61E0` acento primario, `#00B074` botón maestro de cobro).
+* **Touch Targets mínimos de 48×48 px** (64 px para cobro, cierre Z y teclado numérico). Cero dependencias de eventos `hover`.
+* Formateo numérico tabular con 4 decimales exactos (`tabular-nums`, Plus Jakarta Sans): `$ X,XXX.0000` y `Bs. X,XXX.0000`.
+
+---
+
+## 6. Protocolo de Ejecución para Agentes
 
 1. Trabajar estrictamente **un Micro-PR a la vez** respetando el orden secuencial de `HARNESS_CONTROL.md`.
-2. Mantener cada PR dentro de un rango de 150 a 300 líneas auditables por un humano.
-3. Prohibido agregar dependencias que requieran servidores o bases de datos externas.
-
-## 5. Directriz Obligatoria de Look & Feel y Diseño Táctil (UI/UX)
-
-* Archivo de Referencia: `docs/skills/bisync-pos-design-guide.md`
-* Form Factor: Tablet táctil en orientación horizontal (Landscape, 1280 × 800 px).
-* Tema por Defecto: Dark Mode (#061426 base, #0E1C2F contenedores, #1D61E0 acento primario y #00B074 botón maestro de cobro).
-* Ergonomía Táctil:
-  * Botones de acción crítica (Cobrar, Cierre Z): 64 px de altura.
-  * Teclado numérico táctil (Numpad): teclas de mínimo 64 × 64 px.
-  * Controles secundarios (steppers, filtros, pestañas): mínimo 48 × 48 px.
-  * Cero interacciones dependientes de hover.
-* Formato Numérico: Fuentes tabulares (tabular-nums con Plus Jakarta Sans) mostrando 4 decimales exactos ($ X,XXX.0000 y Bs. X,XXX.0000).
+2. Mantener cada PR dentro de 150 a 300 líneas auditables por un humano.
+3. Prohibido agregar dependencias que requieran servidores web centrales de datos o bases de datos externas en la nube.

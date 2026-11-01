@@ -16,7 +16,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 
 ### Fase 1: Persistencia Local, DDL y Hardware de Entrada
 - [x] **PR-01: Inicialización del Monorepo y SQLite con UUIDv7**
-  * *Descripción:* Estructurar `/app` y `/tools/license-cli`. Implementar el motor SQLite local cargando el esquema de `docs/database_schema.sql` y soporte para UUIDv7.
+  * *Descripción:* Estructurar `/frontend` (React Native; toda la lógica y la base de datos local residen allí). Implementar el motor SQLite local cargando el esquema de `docs/database_schema.sql` y soporte para UUIDv7.
   * *Criterio de éxito:* Tests unitarios de inserción de productos y cálculo de stock mediante la vista `v_product_current_stock`.
 - [x] **PR-02: Procesamiento y Almacenamiento Local de Imágenes**
   * *Descripción:* Implementar la compresión de fotos (WebP/JPEG 600x600 px, <80 KB) en el cliente y persistencia de la ruta en SQLite.
@@ -45,20 +45,17 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
   * *Criterio de éxito:* Reporte mensual calcula exactamente las sumatorias por moneda y método de cobro.
 
 ### Fase 4: Licenciamiento Criptográfico Offline-First
-- [ ] **PR-09: Herramienta CLI Generadora de Licencias (Go / Ed25519)**
-  * *Descripción:* CLI en `/tools/license-cli` que toma `HWID`, vigencia y datos del comercio, emitiendo un archivo `.lic` firmado con la llave privada Ed25519.
-  * *Criterio de éxito:* CLI genera licencias válidas y rechaza datos incompletos.
-- [ ] **PR-10: Validador de Licencia en App y Guardia de Reloj Monótono**
+- [ ] **PR-09: Validador de Licencia en App y Guardia de Reloj Monótono**
   * *Descripción:* Verificación en la app usando la llave pública Ed25519, chequeo de coincidencia con el `HWID` local y bloqueo si `last_recorded_timestamp` detecta atraso de fecha.
   * *Criterio de éxito:* App activa el cobro con licencia válida; se bloquea si el HWID difiere o el reloj es manipulado.
 
 ### Fase 5: Red Local y Sincronización Wi-Fi P2P
-- [ ] **PR-11: Descubrimiento de Cajas por mDNS en Red Wi-Fi**
+- [ ] **PR-10: Descubrimiento de Cajas por mDNS en Red Wi-Fi**
   * *Descripción:* Anuncio y detección de terminales en la red local (`_cajapos._tcp`).
   * *Criterio de éxito:* Dos cajas en la misma Wi-Fi intercambian sus IPs privadas automáticamente.
-- [ ] **PR-12: Servidor HTTP Embebido para Consultas On-Demand**
+- [ ] **PR-11: Servidor HTTP Embebido para Consultas On-Demand**
   * *Descripción:* Mini-servidor HTTP local en la app para responder endpoints: `GET /p2p/stock?sku=XYZ` y `GET /p2p/exchange-rate`.
   * *Criterio de éxito:* La Caja 2 consulta el inventario en tiempo real de la Caja 1 en <15 ms.
-- [ ] **PR-13: Replicación Cruzada y Respaldo P2P de Deltas**
+- [ ] **PR-12: Replicación Cruzada y Respaldo P2P de Deltas**
   * *Descripción:* Endpoint `POST /p2p/sync/deltas` que recibe lotes de `peer_sync_outbox`, los persiste de forma idempotente y actualiza el inventario local.
   * *Criterio de éxito:* Las ventas de la Caja 1 quedan respaldadas automáticamente en la Caja 2.
