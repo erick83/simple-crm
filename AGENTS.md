@@ -46,3 +46,15 @@ Este documento define las reglas estrictas, la arquitectura y las directrices t�
 1. Trabajar estrictamente **un Micro-PR a la vez** respetando el orden secuencial de `HARNESS_CONTROL.md`.
 2. Mantener cada PR dentro de un rango de 150 a 300 líneas auditables por un humano.
 3. Prohibido agregar dependencias que requieran servidores o bases de datos externas.
+
+## 5. Directriz Obligatoria de Look & Feel y Diseño Táctil (UI/UX)
+
+* Archivo de Referencia: `docs/skills/bisync-pos-design-guide.md`
+* Form Factor: Tablet táctil en orientación horizontal (Landscape, 1280 × 800 px).
+* Tema por Defecto: Dark Mode (#061426 base, #0E1C2F contenedores, #1D61E0 acento primario y #00B074 botón maestro de cobro).
+* Ergonomía Táctil:
+  * Botones de acción crítica (Cobrar, Cierre Z): 64 px de altura.
+  * Teclado numérico táctil (Numpad): teclas de mínimo 64 × 64 px.
+  * Controles secundarios (steppers, filtros, pestañas): mínimo 48 × 48 px.
+  * Cero interacciones dependientes de hover.
+* Formato Numérico: Fuentes tabulares (tabular-nums con Plus Jakarta Sans) mostrando 4 decimales exactos ($ X,XXX.0000 y Bs. X,XXX.0000).
