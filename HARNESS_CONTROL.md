@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-06 completado. Gestión de turnos bimoneda con Arqueo X (corte parcial informativo) y Cierre Z (arqueo ciego con detección de descuadres y bloqueo de turno) con matemática de precisión fija decimal. Los 43 tests unitarios e integrados pasan al 100% y typecheck limpio.
-* **Próxima tarea a ejecutar:** PR-07 (Emisión de Ventas e Inmutabilidad Cambiaria con Kardex Delta).
+* **Estado actual:** PR-07 completado. Emisión de facturas con inmutabilidad cambiaria permanente, congelamiento de totales USD/VES, descuento atómico en Kardex delta conmutativo y modal táctil de cobro conectado. Los 47 tests unitarios e integrados pasan al 100% y typecheck limpio.
+* **Próxima tarea a ejecutar:** PR-08 (Módulo de Balance Periódico y Cierre Mensual con agregaciones contables en SQLite).
 
 ---
 
@@ -38,7 +38,7 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-06: Turnos de Caja Bimoneda (Arqueo X y Z)**
   * *Descripción:* Tabla `cash_shifts`, fijación de tasa del turno, conteo ciego discriminado por moneda (USD y VES en efectivo) y cálculo de diferencias.
   * *Criterio de éxito:* Cierre Z bloquea el turno y genera el cuadre de caja exacto por moneda.
-- [ ] **PR-07: Emisión de Ventas e Inmutabilidad Cambiaria**
+- [x] **PR-07: Emisión de Ventas e Inmutabilidad Cambiaria**
   * *Descripción:* Flujo de cobro que persiste `invoices`, `invoice_items` y agrega los deltas correspondientes en `stock_movements`.
   * *Criterio de éxito:* Venta congela la tasa y los totales en ambas monedas de forma inmutable; descuenta el inventario atómicamente.
 - [ ] **PR-08: Módulo de Balance Periódico y Cierre Mensual**

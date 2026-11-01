@@ -23,6 +23,8 @@ import {
 import type { SqlDriver } from "../database/connection";
 import { getCatalogWithBimonetaryPrices } from "../services/catalog.service";
 import { registerManualRate } from "../services/bcv-exchange.service";
+import { createInvoice, PaymentMethod } from "../database/repositories/invoice.repository";
+import { getOpenShift } from "../database/repositories/shift.repository";
 
 export interface PosProductItem {
   id: string;
@@ -43,9 +45,11 @@ export interface PosTicketItem {
 
 export interface PosScreenProps {
   db?: SqlDriver;
+  terminalId?: string;
   initialExchangeRate?: string;
   initialProducts?: PosProductItem[];
   onRateChange?: (newRate: string) => void;
+  onInvoiceCreated?: (invoiceId: string) => void;
 }
 
 const DEFAULT_PRODUCTS: PosProductItem[] = [
@@ -59,9 +63,11 @@ const DEFAULT_PRODUCTS: PosProductItem[] = [
 
 export const PosScreen: React.FC<PosScreenProps> = ({
   db,
+  terminalId = "TERM-01",
   initialExchangeRate = "36.5000",
   initialProducts,
   onRateChange,
+  onInvoiceCreated,
 }) => {
   const [exchangeRate, setExchangeRate] = useState<string>(initialExchangeRate);
   const [catalog, setCatalog] = useState<PosProductItem[]>(initialProducts ?? DEFAULT_PRODUCTS);
@@ -72,6 +78,12 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   const [newRateInput, setNewRateInput] = useState("");
   const [rateReasonInput, setRateReasonInput] = useState("");
   const [rateError, setRateError] = useState<string | null>(null);
+
+  // Estado del modal de cobro (Checkout)
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("CASH_USD");
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [lastInvoiceSuccess, setLastInvoiceSuccess] = useState<string | null>(null);
 
   // Carga reactiva de catálogo y tasa desde SQLite si el driver está presente
   useEffect(() => {
@@ -166,6 +178,65 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
   const totalVes = convertUsdToVes(totalUsd, exchangeRate).toFixed(4);
 
+  const handleOpenCheckout = () => {
+    if (ticketItems.length === 0) return;
+    setCheckoutError(null);
+    setLastInvoiceSuccess(null);
+    setIsCheckoutModalOpen(true);
+  };
+
+  const handleConfirmCheckout = () => {
+    try {
+      setCheckoutError(null);
+
+      if (db) {
+        const openShift = getOpenShift(db, terminalId);
+        if (!openShift) {
+          throw new Error("No hay un turno de caja abierto. Vaya a 'Turnos' para abrir la sesión.");
+        }
+
+        const itemsInput = ticketItems.map((item) => {
+          const unitVes = convertUsdToVes(item.unitPriceUsd, exchangeRate).toFixed(4);
+          const lineVes = convertUsdToVes(item.lineTotalUsd, exchangeRate).toFixed(4);
+          return {
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPriceUsd: item.unitPriceUsd,
+            unitPriceVes: unitVes,
+            lineTotalUsd: item.lineTotalUsd,
+            lineTotalVes: lineVes,
+            taxRate: "0.0000",
+          };
+        });
+
+        const invoiceId = createInvoice(db, {
+          shiftId: openShift.id,
+          terminalId,
+          exchangeRate,
+          subtotalUsd: totalUsd,
+          taxUsd: "0.0000",
+          totalUsd,
+          subtotalVes: totalVes,
+          taxVes: "0.0000",
+          totalVes,
+          paymentMethod: selectedPaymentMethod,
+          items: itemsInput,
+        });
+
+        onInvoiceCreated?.(invoiceId);
+      }
+
+      setLastInvoiceSuccess(`¡Venta cobrada con éxito!`);
+      setTicketItems([]);
+      setTimeout(() => {
+        setIsCheckoutModalOpen(false);
+        setLastInvoiceSuccess(null);
+      }, 1200);
+    } catch (err) {
+      setCheckoutError((err as Error).message);
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Columna Izquierda: Catálogo de Productos */}
@@ -198,7 +269,6 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           numColumns={2}
           contentContainerStyle={styles.catalogGrid}
           renderItem={({ item }) => {
-            // Conversión instantánea reactiva: nunca altera item.priceUsd
             const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
             return (
               <TouchableOpacity
@@ -239,369 +309,565 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           data={ticketItems}
           keyExtractor={(item) => item.productId}
           style={styles.ticketList}
-              renderItem={({ item }) => {
-                const lineVes = convertUsdToVes(item.lineTotalUsd, exchangeRate).toFixed(4);
-                return (
-                  <View style={styles.ticketLine}>
-                    <View style={styles.ticketLineInfo}>
-                      <Text style={styles.ticketLineName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <Text style={[styles.ticketLineUnit, typography.tabularNumeric]}>
-                        {formatUsd(item.unitPriceUsd)} c/u
-                      </Text>
-                    </View>
-
-                    <TouchStepper
-                      value={toDecimal(item.quantity).toFixed(0)}
-                      onIncrement={() => updateQuantity(item.productId, 1)}
-                      onDecrement={() => updateQuantity(item.productId, -1)}
-                    />
-
-                      <View style={styles.ticketLineTotalContainer}>
-                        <Text style={[styles.ticketLineTotal, typography.tabularNumeric]}>
-                          {formatUsd(item.lineTotalUsd)}
-                        </Text>
-                        <Text style={[styles.ticketLineTotalVes, typography.tabularNumeric]}>
-                          {formatVes(lineVes)}
-                        </Text>
-                      </View>
-                    </View>
-            );
-          }}
-              ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No hay productos en el ticket</Text>
-                  <Text style={styles.emptySubText}>
-                    Escanee con la pistola HID o seleccione del catálogo
+          renderItem={({ item }) => {
+            const lineVes = convertUsdToVes(item.lineTotalUsd, exchangeRate).toFixed(4);
+            return (
+              <View style={styles.ticketLine}>
+                <View style={styles.ticketLineInfo}>
+                  <Text style={styles.ticketLineName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text style={[styles.ticketLineUnit, typography.tabularNumeric]}>
+                    {formatUsd(item.unitPriceUsd)} c/u
                   </Text>
                 </View>
-              }
+
+                <TouchStepper
+                  value={toDecimal(item.quantity).toFixed(0)}
+                  onIncrement={() => updateQuantity(item.productId, 1)}
+                  onDecrement={() => updateQuantity(item.productId, -1)}
+                />
+
+                <View style={styles.ticketLineTotalContainer}>
+                  <Text style={[styles.ticketLineTotal, typography.tabularNumeric]}>
+                    {formatUsd(item.lineTotalUsd)}
+                  </Text>
+                  <Text style={[styles.ticketLineTotalVes, typography.tabularNumeric]}>
+                    {formatVes(lineVes)}
+                  </Text>
+                </View>
+              </View>
+            );
+          }}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No hay productos en el ticket</Text>
+              <Text style={styles.emptySubText}>
+                Escanee con la pistola HID o seleccione del catálogo
+              </Text>
+            </View>
+          }
         />
 
-              {/* Botón Maestro de Cobro */}
-              <View style={styles.checkoutFooter}>
-                <ButtonHero
-                  label="COBRAR TICKET"
-                  totalFormatted={formatUsd(totalUsd)}
-                  secondaryFormatted={`≈ ${formatVes(totalVes)}`}
-                  disabled={ticketItems.length === 0}
-                  onPress={() => {
-                    // PR-07: Emisión de facturas con inmutabilidad cambiaria
-                  }}
-                />
+        {/* Botón Maestro de Cobro */}
+        <View style={styles.checkoutFooter}>
+          <ButtonHero
+            label="COBRAR TICKET"
+            totalFormatted={formatUsd(totalUsd)}
+            secondaryFormatted={`≈ ${formatVes(totalVes)}`}
+            disabled={ticketItems.length === 0}
+            onPress={handleOpenCheckout}
+          />
+        </View>
+      </View>
+
+      {/* Modal Táctil de Cobro / Emisión de Factura */}
+      <Modal visible={isCheckoutModalOpen} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Confirmar Cobro de Venta</Text>
+            <Text style={styles.modalNotice}>
+              Al confirmar, se congelarán de forma inmutable la tasa del segundo de cobro y los
+              totales legales en ambas monedas, descontando el inventario atómicamente.
+            </Text>
+
+            {checkoutError ? <Text style={styles.errorText}>{checkoutError}</Text> : null}
+            {lastInvoiceSuccess ? (
+              <View style={styles.successBox}>
+                <Text style={styles.successText}>{lastInvoiceSuccess}</Text>
+              </View>
+            ) : null}
+
+            {/* Resumen de Importes Bimoneda */}
+            <View style={styles.checkoutSummaryCard}>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Total en Dólares (USD):</Text>
+                <Text style={[styles.summaryTotalUsd, typography.tabularNumeric]}>
+                  {formatUsd(totalUsd)}
+                </Text>
+              </View>
+
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Equivalente Legal en Bolívares (VES):</Text>
+                <Text style={[styles.summaryTotalVes, typography.tabularNumeric]}>
+                  {formatVes(totalVes)}
+                </Text>
+              </View>
+
+              <View style={styles.summaryRowSmall}>
+                <Text style={styles.summaryLabelSmall}>Tasa Congelada:</Text>
+                <Text style={[styles.summaryValueSmall, typography.tabularNumeric]}>
+                  {formatVes(exchangeRate)}
+                </Text>
               </View>
             </View>
+
+            {/* Selección de Método de Pago */}
+            <Text style={styles.paymentMethodTitle}>Seleccione Método de Pago:</Text>
+            <View style={styles.paymentMethodsGrid}>
+              {[
+                { id: "CASH_USD", label: "Efectivo USD ($)" },
+                { id: "CASH_VES", label: "Efectivo VES (Bs.)" },
+                { id: "PAGO_MOVIL", label: "Pago Móvil (Bs.)" },
+                { id: "CARD_VES", label: "Punto / Tarjeta (Bs.)" },
+              ].map((m) => {
+                const isSelected = selectedPaymentMethod === m.id;
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    activeOpacity={0.8}
+                    onPress={() => setSelectedPaymentMethod(m.id as PaymentMethod)}
+                    style={[styles.paymentMethodBtn, isSelected && styles.paymentMethodBtnActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.paymentMethodText,
+                        isSelected && styles.paymentMethodTextActive,
+                      ]}
+                    >
+                      {m.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setIsCheckoutModalOpen(false)}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>Volver al Ticket</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleConfirmCheckout}
+                style={styles.confirmCheckoutBtn}
+              >
+                <Text style={styles.confirmCheckoutBtnText}>CONFIRMAR COBRO</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal Táctil de Actualización de Tasa */}
       <Modal visible={isRateModalOpen} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Actualizar Tasa BCV / Moneda</Text>
-              <Text style={styles.modalNotice}>
-                Al modificar la tasa, todos los precios mostrados en Bolívares (VES) se
-                recalcularán reactivamente al instante sin alterar los precios base en USD.
-              </Text>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Actualizar Tasa BCV / Moneda</Text>
+            <Text style={styles.modalNotice}>
+              Al modificar la tasa, todos los precios mostrados en Bolívares (VES) se
+              recalcularán reactivamente al instante sin alterar los precios base en USD.
+            </Text>
 
-              {rateError ? <Text style={styles.errorText}>{rateError}</Text> : null}
+            {rateError ? <Text style={styles.errorText}>{rateError}</Text> : null}
 
-              <View style={styles.modalInputGroup}>
-                <Text style={styles.inputLabel}>Nueva Tasa a VES (ej. 42.5000):</Text>
-                <TextInput
-                  style={[styles.modalInput, typography.tabularNumeric]}
-                  keyboardType="decimal-pad"
-                  placeholder="0.0000"
-                  placeholderTextColor={colors.dark.textMuted}
-                  value={newRateInput}
-                  onChangeText={setNewRateInput}
-                />
-              </View>
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.inputLabel}>Nueva Tasa a VES (ej. 42.5000):</Text>
+              <TextInput
+                style={[styles.modalInput, typography.tabularNumeric]}
+                keyboardType="decimal-pad"
+                placeholder="0.0000"
+                placeholderTextColor={colors.dark.textMuted}
+                value={newRateInput}
+                onChangeText={setNewRateInput}
+              />
+            </View>
 
-              <View style={styles.modalInputGroup}>
-                <Text style={styles.inputLabel}>Motivo del cambio (Auditoría obligatoria):</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="Ej. Actualización vespertina oficial BCV"
-                  placeholderTextColor={colors.dark.textMuted}
-                  value={rateReasonInput}
-                  onChangeText={setRateReasonInput}
-                />
-              </View>
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.inputLabel}>Motivo del cambio (Auditoría obligatoria):</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Ej. Actualización vespertina oficial BCV"
+                placeholderTextColor={colors.dark.textMuted}
+                value={rateReasonInput}
+                onChangeText={setRateReasonInput}
+              />
+            </View>
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => setIsRateModalOpen(false)}
-                  style={styles.cancelBtn}
-                >
-                  <Text style={styles.cancelBtnText}>Cancelar</Text>
-                </TouchableOpacity>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setIsRateModalOpen(false)}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
 
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={handleApplyRate}
-                  style={styles.applyBtn}
-                >
-                  <Text style={styles.applyBtnText}>APLICAR TASA</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleApplyRate}
+                style={styles.applyBtn}
+              >
+                <Text style={styles.applyBtnText}>APLICAR TASA</Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </Modal>
-      </View>
-      );
+        </View>
+      </Modal>
+    </View>
+  );
 };
 
-      const styles = StyleSheet.create({
-        container: {
-        flex: 1,
-      flexDirection: "row",
-      backgroundColor: colors.dark.surfaceBase,
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: colors.dark.surfaceBase,
   },
-      catalogColumn: {
-        flex: 3,
-      padding: spacing.md,
-      borderRightWidth: 1,
-      borderRightColor: colors.dark.border,
+  catalogColumn: {
+    flex: 3,
+    padding: spacing.md,
+    borderRightWidth: 1,
+    borderRightColor: colors.dark.border,
   },
-      catalogHeader: {
-        flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: spacing.md,
+  catalogHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.md,
   },
-      sectionTitle: {
-        fontSize: typography.sizes.titleMd,
-      fontWeight: typography.weights.bold,
-      color: colors.dark.textPrimary,
+  sectionTitle: {
+    fontSize: typography.sizes.titleMd,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
   },
-      ratePill: {
-        flexDirection: "row",
-      alignItems: "center",
-      height: spacing.touchTargetMin, // 48px mínimo táctil
-      backgroundColor: colors.dark.surfaceContainerLow,
-      paddingHorizontal: spacing.md,
-      borderRadius: spacing.radiusFull,
-      borderWidth: 1,
-      borderColor: colors.dark.primaryGlow,
-      gap: spacing.xs,
+  ratePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: spacing.touchTargetMin, // 48px mínimo táctil
+    backgroundColor: colors.dark.surfaceContainerLow,
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusFull,
+    borderWidth: 1,
+    borderColor: colors.dark.primaryGlow,
+    gap: spacing.xs,
   },
-      ratePillLabel: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.textSecondary,
-      fontWeight: typography.weights.medium,
+  ratePillLabel: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+    fontWeight: typography.weights.medium,
   },
-      ratePillValue: {
-        fontSize: typography.sizes.subText,
-      fontWeight: typography.weights.bold,
-      color: colors.dark.primaryGlow,
+  ratePillValue: {
+    fontSize: typography.sizes.subText,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.primaryGlow,
   },
-      ratePillEdit: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.primaryGlow,
-      marginLeft: 4,
+  ratePillEdit: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.primaryGlow,
+    marginLeft: 4,
   },
-      catalogGrid: {
-        gap: spacing.md,
+  catalogGrid: {
+    gap: spacing.md,
   },
-      productCard: {
-        flex: 1,
-      margin: spacing.xs,
-      minHeight: 120,
-      backgroundColor: colors.dark.surfaceContainer,
-      borderRadius: spacing.radiusLg,
-      padding: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.dark.border,
-      justifyContent: "space-between",
+  productCard: {
+    flex: 1,
+    margin: spacing.xs,
+    minHeight: 120,
+    backgroundColor: colors.dark.surfaceContainer,
+    borderRadius: spacing.radiusLg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+    justifyContent: "space-between",
   },
-      badge: {
-        alignSelf: "flex-start",
-      backgroundColor: colors.dark.surfaceContainerHighest,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 2,
-      borderRadius: spacing.radiusSm,
+  badge: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.dark.surfaceContainerHighest,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: spacing.radiusSm,
   },
-      badgeText: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.primaryGlow,
-      fontWeight: typography.weights.bold,
+  badgeText: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.primaryGlow,
+    fontWeight: typography.weights.bold,
   },
-      productName: {
-        fontSize: typography.sizes.body,
-      fontWeight: typography.weights.semibold,
-      color: colors.dark.textPrimary,
-      marginVertical: spacing.xs,
+  productName: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textPrimary,
+    marginVertical: spacing.xs,
   },
-      priceRow: {
-        marginTop: spacing.xs,
+  priceRow: {
+    marginTop: spacing.xs,
   },
-      priceUsd: {
-        fontSize: typography.sizes.body,
-      fontWeight: typography.weights.bold,
-      color: colors.dark.textPrimary,
+  priceUsd: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
   },
-      priceVes: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.textSecondary,
+  priceVes: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
   },
-      ticketColumn: {
-        flex: 2,
-      backgroundColor: colors.dark.surfaceContainerLow,
-      display: "flex",
-      flexDirection: "column",
+  ticketColumn: {
+    flex: 2,
+    backgroundColor: colors.dark.surfaceContainerLow,
+    display: "flex",
+    flexDirection: "column",
   },
-      ticketHeader: {
-        padding: spacing.lg,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.dark.border,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
+  ticketHeader: {
+    padding: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dark.border,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-      itemCountText: {
-        fontSize: typography.sizes.subText,
-      color: colors.dark.textSecondary,
-      fontWeight: typography.weights.medium,
+  itemCountText: {
+    fontSize: typography.sizes.subText,
+    color: colors.dark.textSecondary,
+    fontWeight: typography.weights.medium,
   },
-      ticketList: {
-        flex: 1,
-      padding: spacing.md,
+  ticketList: {
+    flex: 1,
+    padding: spacing.md,
   },
-      ticketLine: {
-        flexDirection: "row",
-      alignItems: "center",
-      paddingVertical: spacing.sm,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.dark.border,
-      gap: spacing.sm,
+  ticketLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dark.border,
+    gap: spacing.sm,
   },
-      ticketLineInfo: {
-        flex: 1,
+  ticketLineInfo: {
+    flex: 1,
   },
-      ticketLineName: {
-        fontSize: typography.sizes.body,
-      fontWeight: typography.weights.semibold,
-      color: colors.dark.textPrimary,
+  ticketLineName: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textPrimary,
   },
-      ticketLineUnit: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.textSecondary,
+  ticketLineUnit: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
   },
-      ticketLineTotalContainer: {
-        minWidth: 80,
-      alignItems: "flex-end",
+  ticketLineTotalContainer: {
+    minWidth: 80,
+    alignItems: "flex-end",
   },
-      ticketLineTotal: {
-        fontSize: typography.sizes.body,
-      fontWeight: typography.weights.bold,
-      color: colors.dark.textPrimary,
+  ticketLineTotal: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
   },
-      ticketLineTotalVes: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.textSecondary,
+  ticketLineTotalVes: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
   },
-      emptyContainer: {
-        flex: 1,
-      paddingVertical: 60,
-      alignItems: "center",
-      justifyContent: "center",
+  emptyContainer: {
+    flex: 1,
+    paddingVertical: 60,
+    alignItems: "center",
+    justifyContent: "center",
   },
-      emptyText: {
-        fontSize: typography.sizes.titleMd,
-      color: colors.dark.textSecondary,
-      fontWeight: typography.weights.medium,
+  emptyText: {
+    fontSize: typography.sizes.titleMd,
+    color: colors.dark.textSecondary,
+    fontWeight: typography.weights.medium,
   },
-      emptySubText: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.textMuted,
-      marginTop: spacing.xs,
+  emptySubText: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textMuted,
+    marginTop: spacing.xs,
   },
-      checkoutFooter: {
-        padding: spacing.md,
-      borderTopWidth: 1,
-      borderTopColor: colors.dark.border,
-      backgroundColor: colors.dark.surfaceContainerLow,
+  checkoutFooter: {
+    padding: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.dark.border,
+    backgroundColor: colors.dark.surfaceContainerLow,
   },
-      modalOverlay: {
-        flex: 1,
-      backgroundColor: colors.dark.surfaceDim,
-      justifyContent: "center",
-      alignItems: "center",
-      padding: spacing.xl,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: colors.dark.surfaceDim,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
   },
-      modalCard: {
-        width: "100%",
-      maxWidth: 520,
-      backgroundColor: colors.dark.surfaceContainerLow,
-      borderRadius: spacing.radiusXl,
-      padding: spacing.xl,
-      borderWidth: 1,
-      borderColor: colors.dark.border,
+  modalCard: {
+    width: "100%",
+    maxWidth: 560,
+    backgroundColor: colors.dark.surfaceContainerLow,
+    borderRadius: spacing.radiusXl,
+    padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
   },
-      modalTitle: {
-        fontSize: typography.sizes.titleLg,
-      fontWeight: typography.weights.bold,
-      color: colors.dark.textPrimary,
-      marginBottom: spacing.xs,
+  modalTitle: {
+    fontSize: typography.sizes.titleLg,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+    marginBottom: spacing.xs,
   },
-      modalNotice: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.textSecondary,
-      marginBottom: spacing.md,
+  modalNotice: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+    marginBottom: spacing.md,
   },
-      errorText: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.error,
-      fontWeight: typography.weights.bold,
-      marginBottom: spacing.sm,
+  errorText: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.error,
+    fontWeight: typography.weights.bold,
+    marginBottom: spacing.sm,
   },
-      modalInputGroup: {
-        marginBottom: spacing.md,
+  successBox: {
+    backgroundColor: "rgba(0, 176, 116, 0.2)",
+    padding: spacing.sm,
+    borderRadius: spacing.radiusMd,
+    marginBottom: spacing.sm,
+    alignItems: "center",
   },
-      inputLabel: {
-        fontSize: typography.sizes.caption,
-      color: colors.dark.textSecondary,
-      marginBottom: spacing.xs,
+  successText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.hero,
   },
-      modalInput: {
-        height: spacing.touchTargetMin, // 48px
-      backgroundColor: colors.dark.surfaceContainerHigh,
-      borderRadius: spacing.radiusMd,
-      paddingHorizontal: spacing.md,
-      color: colors.dark.textPrimary,
-      fontSize: typography.sizes.body,
-      borderWidth: 1,
-      borderColor: colors.dark.border,
+  checkoutSummaryCard: {
+    backgroundColor: colors.dark.surfaceContainer,
+    padding: spacing.md,
+    borderRadius: spacing.radiusLg,
+    marginBottom: spacing.md,
+    gap: spacing.xs,
   },
-      modalActions: {
-        flexDirection: "row",
-      justifyContent: "flex-end",
-      gap: spacing.md,
-      marginTop: spacing.md,
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-      cancelBtn: {
-        height: spacing.touchTargetMin,
-      paddingHorizontal: spacing.lg,
-      justifyContent: "center",
-      alignItems: "center",
-      borderRadius: spacing.radiusMd,
+  summaryLabel: {
+    fontSize: typography.sizes.body,
+    color: colors.dark.textSecondary,
   },
-      cancelBtnText: {
-        fontSize: typography.sizes.body,
-      color: colors.dark.textSecondary,
+  summaryTotalUsd: {
+    fontSize: typography.sizes.titleMd,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
   },
-      applyBtn: {
-        height: spacing.touchTargetMin,
-      backgroundColor: colors.dark.primary,
-      paddingHorizontal: spacing.xl,
-      justifyContent: "center",
-      alignItems: "center",
-      borderRadius: spacing.radiusMd,
+  summaryTotalVes: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.primaryGlow,
   },
-      applyBtnText: {
-        fontSize: typography.sizes.body,
-      fontWeight: typography.weights.bold,
-      color: colors.dark.textPrimary,
+  summaryRowSmall: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: colors.dark.border,
+    paddingTop: 4,
+  },
+  summaryLabelSmall: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textMuted,
+  },
+  summaryValueSmall: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+    fontWeight: typography.weights.semibold,
+  },
+  paymentMethodTitle: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  paymentMethodsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  paymentMethodBtn: {
+    flex: 1,
+    minWidth: "45%",
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  paymentMethodBtnActive: {
+    backgroundColor: colors.dark.primary,
+    borderColor: colors.dark.primaryGlow,
+  },
+  paymentMethodText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.medium,
+    color: colors.dark.textSecondary,
+  },
+  paymentMethodTextActive: {
+    color: colors.dark.textPrimary,
+    fontWeight: typography.weights.bold,
+  },
+  modalInputGroup: {
+    marginBottom: spacing.md,
+  },
+  inputLabel: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  modalInput: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    borderRadius: spacing.radiusMd,
+    paddingHorizontal: spacing.md,
+    color: colors.dark.textPrimary,
+    fontSize: typography.sizes.body,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
+  cancelBtn: {
+    height: spacing.touchTargetHero, // 64px
+    paddingHorizontal: spacing.lg,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: spacing.radiusMd,
+  },
+  cancelBtnText: {
+    fontSize: typography.sizes.body,
+    color: colors.dark.textSecondary,
+  },
+  applyBtn: {
+    height: spacing.touchTargetMin,
+    backgroundColor: colors.dark.primary,
+    paddingHorizontal: spacing.xl,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: spacing.radiusMd,
+  },
+  applyBtnText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  confirmCheckoutBtn: {
+    height: spacing.touchTargetHero, // 64px hero height para cobro (AGENTS.md)
+    backgroundColor: colors.dark.hero, // Verde maestro #00B074
+    paddingHorizontal: spacing.xl,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: spacing.radiusLg,
+  },
+  confirmCheckoutBtnText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.extraBold,
+    color: colors.dark.textPrimary,
+    letterSpacing: 1,
   },
 });
