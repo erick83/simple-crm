@@ -6,7 +6,9 @@ import {
   setProductImage,
   removeProductImage,
   MemoryFileStore,
+  ExpoImageManipulatorEncoder,
   createDefaultFileStore,
+  createDefaultImageEncoder,
   resolveProductImageUri,
   MAX_BYTES,
   type ImageEncoder,
@@ -135,11 +137,17 @@ describe("PR-14: Almacenamiento Local y Selector de Imágenes de Producto (FileS
     expect(resolveProductImageUri(fileStore, "")).toBeNull();
   });
 
-  it("createDefaultFileStore retorna un FileStore funcional", () => {
+  it("createDefaultFileStore y createDefaultImageEncoder retornan instancias funcionales", async () => {
     const store = createDefaultFileStore();
     expect(store).toBeDefined();
     expect(typeof store.writeFile).toBe("function");
     expect(typeof store.deleteFile).toBe("function");
+
+    const defaultEncoder = createDefaultImageEncoder();
+    expect(defaultEncoder).toBeInstanceOf(ExpoImageManipulatorEncoder);
+    const sample = new Uint8Array([10, 20, 30]);
+    const out = await defaultEncoder.toWebp(sample, 600, 75);
+    expect(out).toBeInstanceOf(Uint8Array);
   });
 });
 

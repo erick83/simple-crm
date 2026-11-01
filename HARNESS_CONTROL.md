@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-15 completado. Integración reactiva del lector de código de barras (HID) en Inventario y POS implementada mediante `useBarcodeScanner` en `src/services/barcode-scanner.service.ts`, `src/screens/PosScreen.tsx` e `src/screens/InventoryScreen.tsx`. Captura de ráfagas rápidas (<30 ms) finalizadas en Enter, diferenciación automática del tecleo manual humano lento (>30 ms), adición al carrito en POS en <10 ms y autocompletado en inventario. 90 tests pasando al 100% (16 suites) y typecheck TypeScript sin errores.
-* **Próxima tarea a ejecutar:** PR-16 (Pantalla de Inventario Conectada a SQLite: UI Táctil CRUD + Carga de Imagen + Ajuste de Kardex).
+* **Estado actual:** PR-16 completado (Fases 1 a 6 cerradas al 100%). Pantalla de Inventario y `App.tsx` conectadas al motor SQLite real y al estado de sincronización P2P (`SyncBadge` reactivo), incluyendo listado sobre `v_product_current_stock` con miniatura local (`FileStore`), modal táctil CRUD de productos con selector de imagen local (`ExpoImageManipulatorEncoder` / `setProductImage`) y captura de código de barras HID (`useBarcodeScanner`), y modal táctil de entradas/ajustes de Kardex con historial inmutable a 4 decimales. 96 tests pasando al 100% (17 suites) y typecheck TypeScript sin errores.
+* **Próxima tarea a ejecutar:** Todas las fases planificadas (PR-01 a PR-16) han sido completadas y verificadas. Listo para pruebas en dispositivo o definición de Fase 7.
 
 ---
 

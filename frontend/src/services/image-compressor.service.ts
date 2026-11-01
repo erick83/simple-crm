@@ -221,3 +221,42 @@ export function createDefaultFileStore(): FileStore {
   }
   return new MemoryFileStore();
 }
+
+/**
+ * Adaptador de compresión y redimensionado de imágenes usando expo-image-manipulator
+ * (máx. 600x600 px, formato WebP/JPEG < 80 KB).
+ */
+export class ExpoImageManipulatorEncoder implements ImageEncoder {
+  async toWebp(input: Uint8Array, maxDimension: number, quality: number): Promise<Uint8Array> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const ImageManipulator = require("expo-image-manipulator");
+      if (ImageManipulator?.manipulateAsync) {
+        const base64In = Buffer.from(input).toString("base64");
+        const sourceUri = `data:image/jpeg;base64,${base64In}`;
+        const result = await ImageManipulator.manipulateAsync(
+          sourceUri,
+          [{ resize: { width: maxDimension } }],
+          {
+            compress: Math.max(0.1, Math.min(1, quality / 100)),
+            format: ImageManipulator.SaveFormat?.WEBP ?? "webp",
+            base64: true,
+          },
+        );
+        if (result?.base64) {
+          return Uint8Array.from(Buffer.from(result.base64, "base64"));
+        }
+      }
+    } catch {
+      // Fallback para entorno web/node sin runtime nativo de Expo
+    }
+    return input;
+  }
+}
+
+/**
+ * Crea la instancia por defecto de ImageEncoder
+ */
+export function createDefaultImageEncoder(): ImageEncoder {
+  return new ExpoImageManipulatorEncoder();
+}

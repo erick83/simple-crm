@@ -38,19 +38,29 @@ export const App: React.FC<AppProps> = ({
   );
   const [syncState] = useState<SyncState>("online");
 
-  useEffect(() => {
+  const refreshPendingCount = () => {
     if (!db) return;
     try {
       setPendingCount(P2pSyncService.getPendingCount(db));
     } catch {
       // Ignorar si db aún no inicializada
     }
+  };
+
+  useEffect(() => {
+    refreshPendingCount();
   }, [currentTab, db]);
 
   const renderScreen = () => {
     switch (currentTab) {
       case "pos":
-        return <PosScreen db={db} terminalId={terminalId} />;
+        return (
+          <PosScreen
+            db={db}
+            terminalId={terminalId}
+            onInvoiceCreated={() => refreshPendingCount()}
+          />
+        );
       case "inventory":
         return (
           <InventoryScreen
@@ -58,12 +68,14 @@ export const App: React.FC<AppProps> = ({
             tenantId={tenantId}
             terminalId={terminalId}
             fileStore={fileStore}
+            onProductSaved={() => refreshPendingCount()}
+            onStockAdjusted={() => refreshPendingCount()}
           />
         );
       case "shifts":
-        return <ShiftsScreen />;
+        return <ShiftsScreen db={db} terminalId={terminalId} />;
       case "balance":
-        return <MonthlyBalanceScreen />;
+        return <MonthlyBalanceScreen db={db} />;
     }
   };
 

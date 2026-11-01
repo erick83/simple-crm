@@ -29,9 +29,12 @@ import type {
 import { getLatestRate } from "../database/repositories/exchange.repository";
 import {
   createDefaultFileStore,
+  createDefaultImageEncoder,
   resolveProductImageUri,
+  setProductImage,
+  removeProductImage,
 } from "../services/image-compressor.service";
-import type { FileStore } from "../services/image-compressor.service";
+import type { FileStore, ImageEncoder } from "../services/image-compressor.service";
 import { useBarcodeScanner } from "../services/barcode-scanner.service";
 import type { KeyEventTargetLike } from "../services/barcode-scanner.service";
 
@@ -40,7 +43,9 @@ export interface InventoryScreenProps {
   tenantId?: string;
   terminalId?: string;
   fileStore?: FileStore;
+  imageEncoder?: ImageEncoder;
   keyEventTarget?: KeyEventTargetLike;
+  onPickImage?: () => Promise<Uint8Array | null>;
   onScanBarcode?: (barcode: string) => void;
   onProductSaved?: (productId: string) => void;
   onStockAdjusted?: (movementId: string) => void;
@@ -108,12 +113,17 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   tenantId = "T01",
   terminalId = "C01",
   fileStore: customFileStore,
+  imageEncoder: customImageEncoder,
   keyEventTarget,
+  onPickImage,
   onScanBarcode,
   onProductSaved,
   onStockAdjusted,
 }) => {
   const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
+  const [imageEncoder] = useState<ImageEncoder>(
+    () => customImageEncoder ?? createDefaultImageEncoder(),
+  );
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<InventoryItemWithStock[]>(DEFAULT_ITEMS);
   const [exchangeRate, setExchangeRate] = useState<string>("36.5000");
@@ -128,6 +138,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   const [formCostUsd, setFormCostUsd] = useState("");
   const [formMinStock, setFormMinStock] = useState("5.0000");
   const [formImagePath, setFormImagePath] = useState<string | null>(null);
+  const [pendingImageBytes, setPendingImageBytes] = useState<Uint8Array | null>(null);
+  const [removeExistingImage, setRemoveExistingImage] = useState(false);
   const [productFormError, setProductFormError] = useState<string | null>(null);
 
   // Estado del Modal de Ajuste de Kardex
@@ -178,6 +190,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormCostUsd("");
     setFormMinStock("5.0000");
     setFormImagePath(null);
+    setPendingImageBytes(null);
+    setRemoveExistingImage(false);
     setProductFormError(null);
     setIsProductModalOpen(true);
   };
@@ -192,12 +206,37 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormCostUsd(item.costUsd);
     setFormMinStock(item.minStock);
     setFormImagePath(item.imagePath);
+    setPendingImageBytes(null);
+    setRemoveExistingImage(false);
     setProductFormError(null);
     setIsProductModalOpen(true);
   };
 
-  // Guardar Producto (Crear o Actualizar)
-  const handleSaveProduct = () => {
+  // Seleccionar foto de producto desde el dispositivo
+  const handlePickProductImage = async () => {
+    try {
+      setProductFormError(null);
+      if (onPickImage) {
+        const picked = await onPickImage();
+        if (picked) {
+          setPendingImageBytes(picked);
+          setRemoveExistingImage(false);
+        }
+      }
+    } catch (err) {
+      setProductFormError((err as Error).message);
+    }
+  };
+
+  // Quitar foto actual del producto
+  const handleClearProductImage = () => {
+    setPendingImageBytes(null);
+    setFormImagePath(null);
+    setRemoveExistingImage(true);
+  };
+
+  // Guardar Producto (Crear o Actualizar + Imagen Local Comprimida)
+  const handleSaveProduct = async () => {
     try {
       setProductFormError(null);
       if (!formName.trim()) throw new Error("El nombre del producto es obligatorio");
@@ -210,6 +249,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
       }
 
       if (db) {
+        const now = Date.now();
         let savedId = editingProductId;
         if (!editingProductId) {
           savedId = insertProduct(
@@ -223,7 +263,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               costUsd: costDec.toFixed(4),
               minStock: toDecimal(formMinStock || "5", "Stock Mínimo").toFixed(4),
             },
-            Date.now(),
+            now,
             terminalId,
           );
         } else {
@@ -240,9 +280,25 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               imagePath: formImagePath,
               terminalId,
             },
-            Date.now(),
+            now,
           );
         }
+
+        if (savedId && pendingImageBytes) {
+          await setProductImage(
+            { db, encoder: imageEncoder, files: fileStore, terminalId },
+            savedId,
+            pendingImageBytes,
+            now + 1,
+          );
+        } else if (savedId && removeExistingImage) {
+          await removeProductImage(
+            { db, files: fileStore, terminalId },
+            savedId,
+            now + 1,
+          );
+        }
+
         reloadData();
         if (savedId) onProductSaved?.(savedId);
       }
@@ -509,6 +565,50 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                     value={formMinStock}
                     onChangeText={setFormMinStock}
                   />
+                </View>
+              </View>
+
+              {/* Selector Táctil de Imagen Local (WebP/JPEG < 80 KB) */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>
+                  Imagen del Producto (Almacenamiento Local &lt; 80 KB)
+                </Text>
+                <View style={styles.imageSelectorRow}>
+                  <View style={styles.imagePreviewBox}>
+                    {pendingImageBytes ? (
+                      <Image
+                        source={{
+                          uri: `data:image/webp;base64,${Buffer.from(pendingImageBytes).toString("base64")}`,
+                        }}
+                        style={styles.thumbnail}
+                      />
+                    ) : formImagePath && resolveProductImageUri(fileStore, formImagePath) ? (
+                      <Image
+                        source={{ uri: resolveProductImageUri(fileStore, formImagePath)! }}
+                        style={styles.thumbnail}
+                      />
+                    ) : (
+                      <Text style={styles.thumbnailPlaceholderText}>📷</Text>
+                    )}
+                  </View>
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={handlePickProductImage}
+                    style={styles.pickImageBtn}
+                  >
+                    <Text style={styles.pickImageBtnText}>Seleccionar Foto Local</Text>
+                  </TouchableOpacity>
+
+                  {(pendingImageBytes || formImagePath) && (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={handleClearProductImage}
+                      style={styles.removeImageBtn}
+                    >
+                      <Text style={styles.removeImageBtnText}>✕ Quitar Foto</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             </ScrollView>
@@ -896,6 +996,51 @@ const styles = StyleSheet.create({
     color: colors.dark.textPrimary,
     borderWidth: 1,
     borderColor: colors.dark.border,
+  },
+  imageSelectorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  imagePreviewBox: {
+    width: 56,
+    height: 56,
+    borderRadius: spacing.radiusMd,
+    overflow: "hidden",
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pickImageBtn: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    paddingHorizontal: spacing.lg,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.primaryGlow,
+  },
+  pickImageBtnText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.primaryGlow,
+  },
+  removeImageBtn: {
+    height: spacing.touchTargetMin, // 48px
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.error,
+  },
+  removeImageBtnText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
   },
   movementTypeRow: {
     flexDirection: "row",
