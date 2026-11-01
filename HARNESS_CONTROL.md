@@ -8,14 +8,14 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-10-31
 * **Arquitectura:** POS P2P Local-First con SQLite (`op-sqlite`), React Native / Desktop, $0 Cloud.
 * **Módulos Core:** Facturación bimoneda (USD/VES), Arqueos X/Z, Catálogo con fotos locales, Lector HID y Sync Wi-Fi P2P.
-* **Próxima tarea a ejecutar:** PR-01 (Inicialización del Monorepo, SQLite y DDL base).
+* **Próxima tarea a ejecutar:** PR-02 (Procesamiento y Almacenamiento Local de Imágenes).
 
 ---
 
 ## 2. Cola Secuencial de Micro-PRs
 
 ### Fase 1: Persistencia Local, DDL y Hardware de Entrada
-- [ ] **PR-01: Inicialización del Monorepo y SQLite con UUIDv7**
+- [x] **PR-01: Inicialización del Monorepo y SQLite con UUIDv7**
   * *Descripción:* Estructurar `/app` y `/tools/license-cli`. Implementar el motor SQLite local cargando el esquema de `docs/database_schema.sql` y soporte para UUIDv7.
   * *Criterio de éxito:* Tests unitarios de inserción de productos y cálculo de stock mediante la vista `v_product_current_stock`.
 - [ ] **PR-02: Procesamiento y Almacenamiento Local de Imágenes**
