@@ -122,6 +122,24 @@ CREATE TABLE IF NOT EXISTS cash_shifts (
 CREATE INDEX IF NOT EXISTS idx_shifts_status ON cash_shifts(status);
 
 -- -----------------------------------------------------------------------------
+-- 5.1 MOVIMIENTOS DE GAVETA (SANGRÍAS / RETIROS Y ENTRADAS DE EFECTIVO)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cash_movements (
+    id TEXT PRIMARY KEY,                       -- UUIDv7
+    shift_id TEXT NOT NULL,                    -- Turno asociado
+    terminal_id TEXT NOT NULL,                 -- Terminal donde ocurrió el movimiento
+    movement_type TEXT NOT NULL CHECK (movement_type IN ('DROP', 'INFLOW')), -- 'DROP'=Sangría, 'INFLOW'=Entrada
+    currency TEXT NOT NULL CHECK (currency IN ('USD', 'VES')),
+    amount TEXT NOT NULL,                      -- Monto con 4 decimales
+    reason TEXT NOT NULL,                      -- Motivo obligatorio auditado
+    cashier_name TEXT NOT NULL,                -- Cajero que ejecuta el movimiento
+    created_at INTEGER NOT NULL,               -- Timestamp Unix
+    FOREIGN KEY(shift_id) REFERENCES cash_shifts(id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_cash_movements_shift ON cash_movements(shift_id);
+
+-- -----------------------------------------------------------------------------
 -- 6. FACTURACIÓN Y DETALLE (INMUTABILIDAD CAMBIARIA)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS invoices (

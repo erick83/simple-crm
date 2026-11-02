@@ -20,6 +20,18 @@ export interface ShiftEntity {
   status: "OPEN" | "CLOSED";
 }
 
+export interface CashMovementEntity {
+  id: string;
+  shiftId: string;
+  terminalId: string;
+  movementType: "DROP" | "INFLOW";
+  currency: "USD" | "VES";
+  amount: string;
+  reason: string;
+  cashierName: string;
+  createdAt: number;
+}
+
 export interface ShiftCashAudit {
   shiftId: string;
   terminalId: string;
@@ -30,6 +42,10 @@ export interface ShiftCashAudit {
   initialCashVes: string;
   salesCashUsd: string;
   salesCashVes: string;
+  dropsCashUsd: string;
+  dropsCashVes: string;
+  inflowsCashUsd: string;
+  inflowsCashVes: string;
   salesPagoMovilVes: string;
   salesCardVes: string;
   totalSalesUsd: string;
@@ -212,8 +228,35 @@ export function calculateShiftAuditTotals(db: SqlDriver, shiftId: string): Shift
     }
   }
 
-  const expectedCashUsd = toDecimal(shift.initialCashUsd).plus(salesCashUsd).toFixed(4);
-  const expectedCashVes = toDecimal(shift.initialCashVes).plus(salesCashVes).toFixed(4);
+  // Movimientos de gaveta del turno (Sangrías y Entradas extraordinarias)
+  let dropsCashUsd = new Decimal("0");
+  let dropsCashVes = new Decimal("0");
+  let inflowsCashUsd = new Decimal("0");
+  let inflowsCashVes = new Decimal("0");
+
+  const movements = listCashMovements(db, shiftId);
+  for (const mov of movements) {
+    const amt = toDecimal(mov.amount);
+    if (mov.currency === "USD") {
+      if (mov.movementType === "DROP") dropsCashUsd = dropsCashUsd.plus(amt);
+      else if (mov.movementType === "INFLOW") inflowsCashUsd = inflowsCashUsd.plus(amt);
+    } else if (mov.currency === "VES") {
+      if (mov.movementType === "DROP") dropsCashVes = dropsCashVes.plus(amt);
+      else if (mov.movementType === "INFLOW") inflowsCashVes = inflowsCashVes.plus(amt);
+    }
+  }
+
+  const expectedCashUsd = toDecimal(shift.initialCashUsd)
+    .plus(salesCashUsd)
+    .plus(inflowsCashUsd)
+    .minus(dropsCashUsd)
+    .toFixed(4);
+
+  const expectedCashVes = toDecimal(shift.initialCashVes)
+    .plus(salesCashVes)
+    .plus(inflowsCashVes)
+    .minus(dropsCashVes)
+    .toFixed(4);
 
   return {
     shiftId: shift.id,
@@ -225,6 +268,10 @@ export function calculateShiftAuditTotals(db: SqlDriver, shiftId: string): Shift
     initialCashVes: shift.initialCashVes,
     salesCashUsd: salesCashUsd.toFixed(4),
     salesCashVes: salesCashVes.toFixed(4),
+    dropsCashUsd: dropsCashUsd.toFixed(4),
+    dropsCashVes: dropsCashVes.toFixed(4),
+    inflowsCashUsd: inflowsCashUsd.toFixed(4),
+    inflowsCashVes: inflowsCashVes.toFixed(4),
     salesPagoMovilVes: salesPagoMovilVes.toFixed(4),
     salesCardVes: salesCardVes.toFixed(4),
     totalSalesUsd: totalSalesUsd.toFixed(4),
@@ -320,4 +367,133 @@ export function performCierreZ(
       isSquare,
     };
   });
+}
+
+/**
+ * Registra un movimiento de gaveta (sangría/retiro por seguridad o entrada de efectivo).
+ */
+export function addCashMovement(
+  db: SqlDriver,
+  args: {
+    shiftId: string;
+    terminalId: string;
+    movementType: "DROP" | "INFLOW";
+    currency: "USD" | "VES";
+    amount: string;
+    reason: string;
+    cashierName: string;
+  },
+  now: number = Date.now(),
+): CashMovementEntity {
+  const shift = getShiftById(db, args.shiftId);
+  if (!shift) {
+    throw new Error(`Turno no encontrado: ${args.shiftId}`);
+  }
+  if (shift.status !== "OPEN") {
+    throw new Error("No se pueden registrar movimientos en un turno cerrado");
+  }
+
+  const amt = toDecimal(args.amount, "Monto de movimiento de caja");
+  if (amt.lte(0)) {
+    throw new Error("El monto del movimiento debe ser mayor a cero");
+  }
+
+  const cleanReason = args.reason.trim();
+  if (!cleanReason) {
+    throw new Error("El motivo del movimiento de caja es obligatorio para auditoría");
+  }
+
+  const id = uuidv7(now);
+  const formattedAmount = amt.toFixed(4);
+
+  db.run(
+    `INSERT INTO cash_movements (
+      id, shift_id, terminal_id, movement_type, currency, amount, reason, cashier_name, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      args.shiftId,
+      args.terminalId,
+      args.movementType,
+      args.currency,
+      formattedAmount,
+      cleanReason,
+      args.cashierName.trim(),
+      now,
+    ],
+  );
+
+  return {
+    id,
+    shiftId: args.shiftId,
+    terminalId: args.terminalId,
+    movementType: args.movementType,
+    currency: args.currency,
+    amount: formattedAmount,
+    reason: cleanReason,
+    cashierName: args.cashierName.trim(),
+    createdAt: now,
+  };
+}
+
+/**
+ * Retorna todos los movimientos de gaveta registrados para el turno en orden cronológico.
+ */
+export function listCashMovements(db: SqlDriver, shiftId: string): CashMovementEntity[] {
+  const rows = db.all<{
+    id: string;
+    shift_id: string;
+    terminal_id: string;
+    movement_type: "DROP" | "INFLOW";
+    currency: "USD" | "VES";
+    amount: string;
+    reason: string;
+    cashier_name: string;
+    created_at: number;
+  }>("SELECT * FROM cash_movements WHERE shift_id = ? ORDER BY created_at ASC", [shiftId]);
+
+  return rows.map((r) => ({
+    id: r.id,
+    shiftId: r.shift_id,
+    terminalId: r.terminal_id,
+    movementType: r.movement_type,
+    currency: r.currency,
+    amount: r.amount,
+    reason: r.reason,
+    cashierName: r.cashier_name,
+    createdAt: r.created_at,
+  }));
+}
+
+/**
+ * Consulta el histórico de turnos cerrados (Cierres Z anteriores).
+ */
+export function listClosedShifts(
+  db: SqlDriver,
+  terminalId?: string,
+  limit: number = 20,
+): ShiftEntity[] {
+  const query = terminalId
+    ? "SELECT * FROM cash_shifts WHERE status = 'CLOSED' AND terminal_id = ? ORDER BY closed_at DESC LIMIT ?"
+    : "SELECT * FROM cash_shifts WHERE status = 'CLOSED' ORDER BY closed_at DESC LIMIT ?";
+  const params = terminalId ? [terminalId, limit] : [limit];
+  const rows = db.all<{
+    id: string;
+    terminal_id: string;
+    cashier_name: string;
+    opened_at: number;
+    closed_at: number | null;
+    exchange_rate_applied: string;
+    initial_cash_usd: string;
+    initial_cash_ves: string;
+    expected_cash_usd: string | null;
+    expected_cash_ves: string | null;
+    declared_cash_usd: string | null;
+    declared_cash_ves: string | null;
+    difference_usd: string | null;
+    difference_ves: string | null;
+    status: "OPEN" | "CLOSED";
+  }>(query, params);
+
+  return rows.map(mapShiftRow);
 }

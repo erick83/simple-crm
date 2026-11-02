@@ -35,5 +35,25 @@ export function migrateDatabase(driver: SqlDriver, customSchemaSql?: string): vo
   } catch {
     // Si la columna unit ya existe, SQLite ignorará el error
   }
+
+  try {
+    driver.exec(`
+      CREATE TABLE IF NOT EXISTS cash_movements (
+        id TEXT PRIMARY KEY,
+        shift_id TEXT NOT NULL,
+        terminal_id TEXT NOT NULL,
+        movement_type TEXT NOT NULL CHECK (movement_type IN ('DROP', 'INFLOW')),
+        currency TEXT NOT NULL CHECK (currency IN ('USD', 'VES')),
+        amount TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        cashier_name TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(shift_id) REFERENCES cash_shifts(id) ON DELETE RESTRICT
+      );
+      CREATE INDEX IF NOT EXISTS idx_cash_movements_shift ON cash_movements(shift_id);
+    `);
+  } catch {
+    // Ignorar si ya existe
+  }
 }
 

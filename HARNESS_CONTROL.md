@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-02
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-20 completado (Fases 1 a 6 cerradas al 100%, Fase 7 con PR-17, PR-18, PR-19 y PR-20 finalizados). Integración reactiva completa de turnos de caja y tasa cambiaria: (1) Indicador dinámico en la barra lateral (`App.tsx`) conectado a `getOpenShift(db, terminalId)`, mostrando nombre del cajero, número de turno activo y punto de estado verde/ámbar con navegación directa al gestor de turnos; (2) Banner de advertencia en `PosScreen.tsx` cuando no hay turno abierto para la terminal con botón táctil directo "Abrir Turno"; (3) Soporte de upsert auditado para la tasa cambiaria del día en `exchange.repository.ts` y `bcv-exchange.service.ts` (`allowUpdate: true`), posibilitando registrar ajustes intradía desde la interfaz sin conflictos de unicidad; (4) 119 tests unitarios e integrados pasando al 100% (21 suites) y chequeo estricto TypeScript limpio.
-* **Próxima tarea a ejecutar:** PR-21: Movimientos de Gaveta (Sangrías/Ingresos) y Conteo por Denominación en Turnos.
+* **Estado actual:** PR-21 completado (Fases 1 a 6 cerradas al 100%, Fase 7 con PR-17, PR-18, PR-19, PR-20 y PR-21 finalizados). Módulo de movimientos de gaveta y arqueo por denominación completamente operativo: (1) Tabla `cash_movements` en SQLite (`DROP` / `INFLOW` para USD y VES con motivo auditado obligatorio); (2) Integración matemática estricta en el arqueo del turno: `Efectivo Esperado = Fondo Inicial + Ventas Efectivo + Entradas - Sangrías`; (3) Asistente táctil de conteo de billetes por denominación (`USD_DENOMINATIONS` y `VES_DENOMINATIONS`) en `ShiftsScreen.tsx` que totaliza y autocompleta la declaración ciega; (4) Historial de cierres Z anteriores en SQLite (`listClosedShifts`); (5) 124 tests pasando al 100% (22 suites) y typecheck TypeScript limpio.
+* **Próxima tarea a ejecutar:** PR-22: Historial de Ventas del Turno, Devoluciones (RETURN) y Sync P2P de Facturas.
 
 ---
 
@@ -88,9 +88,9 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-20: Estado Reactivo de Turno en App Shell, Banner de Turno en POS y Upsert de Tasa**
   * *Descripción:* Conectar el indicador del sidebar en `App.tsx` al turno real (`getOpenShift`), banner de alerta en `PosScreen` si no hay turno abierto con acceso directo a abrir sesión, y permitir actualización de la tasa del día (`upsertRate` / `allowUpdate: true`) con auditoría sin fallar por clave duplicada.
   * *Criterio de éxito:* El sidebar refleja el cajero y turno activo; banner avisa si no hay sesión activa; actualizar la tasa múltiples veces en el día no genera error. 119 tests pasando al 100% y typecheck limpio.
-- [ ] **PR-21: Movimientos de Gaveta (Sangrías/Ingresos) y Conteo por Denominación en Turnos**
-  * *Descripción:* Registrar entradas y salidas de efectivo justificadas (sangrías, fondo para vuelto, gastos menores), asistente táctil de arqueo ciego por denominación de billetes y reporte histórico de cierres Z.
-  * *Criterio de éxito:* Retiro parcial por seguridad queda registrado y se descuenta del efectivo esperado en el Cierre Z.
+- [x] **PR-21: Movimientos de Gaveta (Sangrías/Ingresos) y Conteo por Denominación en Turnos**
+  * *Descripción:* Registrar entradas y salidas de efectivo justificadas (sangrías / retiros por seguridad, fondo para vuelto, gastos menores), asistente táctil de arqueo ciego por denominación de billetes y reporte histórico de cierres Z.
+  * *Criterio de éxito:* Retiro parcial por seguridad queda registrado y se descuenta del efectivo esperado en el Cierre Z; asistente de conteo de billetes autocompleta el arqueo. 124 tests pasando al 100% y typecheck limpio.
 - [ ] **PR-22: Historial de Ventas del Turno, Devoluciones (RETURN) y Sync P2P de Facturas**
   * *Descripción:* Pestaña de facturas emitidas en el turno con vista de comprobante/recibo digital, opción de anulación/devolución que genera el delta `'RETURN'` en Kardex, y encolado de `INVOICE` en `peer_sync_outbox` para sincronización Wi-Fi LAN entre cajas.
   * *Criterio de éxito:* Anular una factura restituye el stock y ambas cajas sincronizan las facturas de la tienda.

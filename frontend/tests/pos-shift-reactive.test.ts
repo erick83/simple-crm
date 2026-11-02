@@ -24,8 +24,6 @@ describe("PR-20: Sincronización Reactiva de Turno y Tasa Cambiaria Auditada", (
       rateDate: today,
       rate: "45.0000",
       reason: "Tasa apertura de mañana",
-      cashierName: "Erick",
-      tenantId: TENANT_1,
     });
 
     const rate1 = getRateForDate(db, today);
@@ -38,8 +36,6 @@ describe("PR-20: Sincronización Reactiva de Turno y Tasa Cambiaria Auditada", (
         rateDate: today,
         rate: "46.0000",
         reason: "Actualización no permitida sin flag",
-        cashierName: "Erick",
-        tenantId: TENANT_1,
         allowUpdate: false,
       });
     }).toThrow(/Ya existe/);
@@ -49,8 +45,6 @@ describe("PR-20: Sincronización Reactiva de Turno y Tasa Cambiaria Auditada", (
       rateDate: today,
       rate: "46.5000",
       reason: "Ajuste BCV publicado a la 1:00 PM",
-      cashierName: "Erick",
-      tenantId: TENANT_1,
       allowUpdate: true,
     });
 
@@ -188,7 +182,7 @@ describe("PR-20: Sincronización Reactiva de Turno y Tasa Cambiaria Auditada", (
       terminalId: TERMINAL_1,
       tenantId: TENANT_1,
       initialExchangeRate: "45.0000",
-      onNavigateToShifts: () => {},
+      onNavigateToShifts: () => { },
     });
     expect(posElement).toBeDefined();
 
