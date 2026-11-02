@@ -23,17 +23,19 @@ import {
   CierreZResult,
 } from "../database/repositories/shift.repository";
 
-  export interface ShiftsScreenProps {
-    db?: SqlDriver;
-    terminalId?: string;
-    defaultExchangeRate?: string;
-  }
+export interface ShiftsScreenProps {
+  db?: SqlDriver;
+  terminalId?: string;
+  defaultExchangeRate?: string;
+  onShiftChanged?: (shift: ShiftEntity | null) => void;
+}
 
-  export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
-    db,
-    terminalId = "TERM-01",
-    defaultExchangeRate = "36.5000",
-  }) => {
+export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
+  db,
+  terminalId = "TERM-01",
+  defaultExchangeRate = "36.5000",
+  onShiftChanged,
+}) => {
     const [activeShift, setActiveShift] = useState<ShiftEntity | null>(null);
 
     // Apertura de turno
@@ -58,15 +60,16 @@ import {
       if (db) {
         const shift = getOpenShift(db, terminalId);
         setActiveShift(shift ?? null);
+        onShiftChanged?.(shift ?? null);
       }
-    }, [db, terminalId]);
+    }, [db, terminalId, onShiftChanged]);
 
     const handleOpenShift = () => {
       try {
         setOpenError(null);
         if (!db) {
           // Modo preview / sin db directa
-          setActiveShift({
+          const simulatedShift: ShiftEntity = {
             id: "sim-shift-1",
             terminalId,
             cashierName: newCashier,
@@ -82,7 +85,9 @@ import {
             differenceUsd: null,
             differenceVes: null,
             status: "OPEN",
-          });
+          };
+          setActiveShift(simulatedShift);
+          onShiftChanged?.(simulatedShift);
           return;
         }
 
@@ -96,6 +101,7 @@ import {
 
         const shift = getOpenShift(db, terminalId);
         setActiveShift(shift ?? null);
+        onShiftChanged?.(shift ?? null);
       } catch (err) {
         setOpenError((err as Error).message);
       }
@@ -142,6 +148,7 @@ import {
           });
           setCloseReport(result);
           setActiveShift(result.shift);
+          onShiftChanged?.(null);
         } else {
           // Simulado
           const expectedUsd = "142.5000";
@@ -163,6 +170,7 @@ import {
             isSquare,
           });
           setActiveShift({ ...activeShift, status: "CLOSED" });
+          onShiftChanged?.(null);
         }
       } catch (err) {
         setCloseError((err as Error).message);

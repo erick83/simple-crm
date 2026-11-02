@@ -5,11 +5,11 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 ---
 
 ## 1. Estado de la Última Sesión (Handoff)
-* **Fecha:** 2026-11-01
+* **Fecha:** 2026-11-02
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-19 completado (Fases 1 a 6 cerradas al 100%, Fase 7 en curso). Modal de cobro de Caja (`PosScreen.tsx`) rediseñado con soporte integral para Cobro Combinado (`SPLIT`), permitiendo al cajero ingresar pagos mixtos entre Efectivo USD, Efectivo VES, Pago Móvil y Tarjeta/Punto de Venta mediante teclado numérico táctil en pantalla (`Numpad.tsx`), botón de autocompletado de saldo restante en un toque, calculadora reactiva en vivo de saldo pendiente y vuelto exacto bimoneda (USD y VES), y desglose contable de métodos mixtos en `balance.repository.ts` y en el arqueo Cierre Z de `shift.repository.ts`. 115 tests pasando al 100% (20 suites) y verificación TypeScript estricta sin errores.
-* **Próxima tarea a ejecutar:** PR-20: Estado Reactivo de Turno en App Shell, Banner de Turno en POS y Upsert de Tasa BCV.
+* **Estado actual:** PR-20 completado (Fases 1 a 6 cerradas al 100%, Fase 7 con PR-17, PR-18, PR-19 y PR-20 finalizados). Integración reactiva completa de turnos de caja y tasa cambiaria: (1) Indicador dinámico en la barra lateral (`App.tsx`) conectado a `getOpenShift(db, terminalId)`, mostrando nombre del cajero, número de turno activo y punto de estado verde/ámbar con navegación directa al gestor de turnos; (2) Banner de advertencia en `PosScreen.tsx` cuando no hay turno abierto para la terminal con botón táctil directo "Abrir Turno"; (3) Soporte de upsert auditado para la tasa cambiaria del día en `exchange.repository.ts` y `bcv-exchange.service.ts` (`allowUpdate: true`), posibilitando registrar ajustes intradía desde la interfaz sin conflictos de unicidad; (4) 119 tests unitarios e integrados pasando al 100% (21 suites) y chequeo estricto TypeScript limpio.
+* **Próxima tarea a ejecutar:** PR-21: Movimientos de Gaveta (Sangrías/Ingresos) y Conteo por Denominación en Turnos.
 
 ---
 
@@ -85,9 +85,9 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-19: Cobro Combinado (SPLIT), Calculadora de Vuelto Bimoneda y Numpad de Pago**
   * *Descripción:* Rediseño del modal de cobro para soportar pagos combinados (`SPLIT`) distribuyendo montos en efectivo USD, efectivo VES, Pago Móvil y Tarjeta/Punto. Teclado numérico táctil en pantalla, botón de autocompletado de saldo restante en un toque, calculadora reactiva en vivo de saldo pendiente y vuelto bimoneda (USD y VES), y desglose contable de métodos de pago en `balance.repository.ts` y en el arqueo Cierre Z.
   * *Criterio de éxito:* Cobro mixto con efectivo USD y Pago Móvil calcula el vuelto correcto y se refleja desglosado en el arqueo y balance. 115 tests pasando al 100% y typecheck limpio.
-- [ ] **PR-20: Estado Reactivo de Turno en App Shell, Banner de Turno en POS y Upsert de Tasa**
-  * *Descripción:* Conectar el indicador del sidebar en `App.tsx` al turno real (`getOpenShift`), banner de alerta en `PosScreen` si no hay turno abierto con acceso directo a abrir sesión, y permitir actualización de la tasa del día (`upsertRate`) sin fallar por clave duplicada.
-  * *Criterio de éxito:* El sidebar refleja el cajero y turno activo; actualizar la tasa múltiples veces en el día no genera error.
+- [x] **PR-20: Estado Reactivo de Turno en App Shell, Banner de Turno en POS y Upsert de Tasa**
+  * *Descripción:* Conectar el indicador del sidebar en `App.tsx` al turno real (`getOpenShift`), banner de alerta en `PosScreen` si no hay turno abierto con acceso directo a abrir sesión, y permitir actualización de la tasa del día (`upsertRate` / `allowUpdate: true`) con auditoría sin fallar por clave duplicada.
+  * *Criterio de éxito:* El sidebar refleja el cajero y turno activo; banner avisa si no hay sesión activa; actualizar la tasa múltiples veces en el día no genera error. 119 tests pasando al 100% y typecheck limpio.
 - [ ] **PR-21: Movimientos de Gaveta (Sangrías/Ingresos) y Conteo por Denominación en Turnos**
   * *Descripción:* Registrar entradas y salidas de efectivo justificadas (sangrías, fondo para vuelto, gastos menores), asistente táctil de arqueo ciego por denominación de billetes y reporte histórico de cierres Z.
   * *Criterio de éxito:* Retiro parcial por seguridad queda registrado y se descuenta del efectivo esperado en el Cierre Z.

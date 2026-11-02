@@ -31,6 +31,7 @@ import { registerManualRate } from "../services/bcv-exchange.service";
 import { createInvoice } from "../database/repositories/invoice.repository";
 import type { PaymentMethod } from "../database/repositories/invoice.repository";
 import { getOpenShift } from "../database/repositories/shift.repository";
+import type { ShiftEntity } from "../database/repositories/shift.repository";
 import {
   useBarcodeScanner,
   findProductByBarcode,
@@ -82,6 +83,7 @@ export interface PosScreenProps {
   keyEventTarget?: KeyEventTargetLike;
   onRateChange?: (newRate: string) => void;
   onInvoiceCreated?: (invoiceId: string) => void;
+  onNavigateToShifts?: () => void;
 }
 
 const DEFAULT_PRODUCTS: PosProductItem[] = [
@@ -103,6 +105,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   keyEventTarget,
   onRateChange,
   onInvoiceCreated,
+  onNavigateToShifts,
 }) => {
   const [exchangeRate, setExchangeRate] = useState<string>(initialExchangeRate);
   const [catalog, setCatalog] = useState<PosProductItem[]>(initialProducts ?? DEFAULT_PRODUCTS);
@@ -111,8 +114,26 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [ticketItems, setTicketItems] = useState<PosTicketItem[]>([]);
   const [stockNotice, setStockNotice] = useState<string | null>(null);
+  const [activeShift, setActiveShift] = useState<ShiftEntity | null>(null);
 
   const fileStore = useMemo(() => customFileStore ?? createDefaultFileStore(), [customFileStore]);
+
+  const checkShift = useCallback(() => {
+    if (!db) {
+      setActiveShift(null);
+      return;
+    }
+    try {
+      const shift = getOpenShift(db, terminalId);
+      setActiveShift(shift ?? null);
+    } catch {
+      setActiveShift(null);
+    }
+  }, [db, terminalId]);
+
+  useEffect(() => {
+    checkShift();
+  }, [checkShift]);
 
   // Carga reactiva de catálogo, categorías y tasa desde SQLite si el driver está presente
   const refreshCatalog = useCallback(() => {
@@ -358,6 +379,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           rateDate: todayIso,
           rate: formatted,
           reason: rateReasonInput.trim() || "Ajuste operativo en pantalla de caja",
+          allowUpdate: true,
         });
       }
 
@@ -630,8 +652,36 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* Columna Izquierda: Catálogo de Productos */}
-      <View style={styles.catalogColumn}>
+      {/* Banner reactivo si no hay turno de caja abierto */}
+      {db && !activeShift ? (
+        <View style={styles.noShiftBanner} testID="no-shift-banner">
+          <View style={styles.noShiftBannerContent}>
+            <Text style={styles.noShiftBannerIcon}>⚠️</Text>
+            <View style={styles.noShiftBannerTexts}>
+              <Text style={styles.noShiftBannerTitle}>Sin turno de caja abierto ({terminalId})</Text>
+              <Text style={styles.noShiftBannerSubtitle}>
+                No es posible registrar ni cobrar ventas sin un turno de caja activo.
+              </Text>
+            </View>
+          </View>
+          {onNavigateToShifts ? (
+            <TouchableOpacity
+              style={styles.noShiftBannerButton}
+              activeOpacity={0.8}
+              onPress={onNavigateToShifts}
+              accessibilityRole="button"
+              accessibilityLabel="Abrir Turno Ahora"
+              testID="btn-open-shift-banner"
+            >
+              <Text style={styles.noShiftBannerButtonText}>Abrir Turno</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+
+      <View style={styles.columnsRow}>
+        {/* Columna Izquierda: Catálogo de Productos */}
+        <View style={styles.catalogColumn}>
         <View style={styles.catalogHeader}>
           <View>
             <Text style={styles.sectionTitle}>Catálogo de Productos</Text>
@@ -951,6 +1001,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             onPress={handleOpenCheckout}
           />
         </View>
+      </View>
       </View>
 
       {/* Modal Táctil de Cobro / Emisión de Factura */}
@@ -1360,8 +1411,58 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     backgroundColor: colors.dark.surfaceBase,
+  },
+  columnsRow: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  noShiftBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#2E1A08",
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dark.warning,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    zIndex: 10,
+  },
+  noShiftBannerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: spacing.md,
+  },
+  noShiftBannerIcon: {
+    fontSize: 20,
+  },
+  noShiftBannerTexts: {
+    flex: 1,
+  },
+  noShiftBannerTitle: {
+    color: colors.dark.warning,
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+  },
+  noShiftBannerSubtitle: {
+    color: colors.dark.textSecondary,
+    fontSize: typography.sizes.caption,
+  },
+  noShiftBannerButton: {
+    backgroundColor: colors.dark.warning,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: spacing.radiusMd,
+    minHeight: 38,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  noShiftBannerButtonText: {
+    color: "#061426",
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
   },
   catalogColumn: {
     flex: 3,

@@ -86,12 +86,14 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function registerManualRate(
   db: SqlDriver,
-  args: { rateDate: string; rate: string; reason: string },
+  args: { rateDate: string; rate: string; reason: string; allowUpdate?: boolean },
   now: number = Date.now(),
 ): StoredRate {
   if (!ISO_DATE.test(args.rateDate)) throw new RateError("Fecha inválida (use YYYY-MM-DD)");
   if (!args.reason.trim()) throw new RateError("El registro manual requiere un motivo para auditoría");
-  if (getRateForDate(db, args.rateDate)) throw new RateError(`Ya existe una tasa para ${args.rateDate}`);
+  if (!args.allowUpdate && getRateForDate(db, args.rateDate)) {
+    throw new RateError(`Ya existe una tasa para ${args.rateDate}`);
+  }
   const rate = parseManualRate(args.rate).toFixed(4);
   insertRate(db, args.rateDate, rate, "MANUAL", args.reason.trim(), now);
   return getRateForDate(db, args.rateDate)!;

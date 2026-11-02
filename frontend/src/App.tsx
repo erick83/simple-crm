@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { colors } from "./theme/colors";
 import { spacing } from "./theme/spacing";
@@ -14,6 +14,8 @@ import type { SqlDriver } from "./database/connection";
 import { createDefaultFileStore } from "./services/image-compressor.service";
 import type { FileStore } from "./services/image-compressor.service";
 import { P2pSyncService } from "./services/p2p-sync.service";
+import { getOpenShift } from "./database/repositories/shift.repository";
+import type { ShiftEntity } from "./database/repositories/shift.repository";
 
 type NavTab = "pos" | "inventory" | "shifts" | "balance";
 
@@ -38,19 +40,34 @@ export const App: React.FC<AppProps> = ({
     db ? P2pSyncService.getPendingCount(db) : 0,
   );
   const [syncState] = useState<SyncState>("online");
+  const [activeShift, setActiveShift] = useState<ShiftEntity | null>(null);
 
-  const refreshPendingCount = () => {
+  const refreshPendingCount = useCallback(() => {
     if (!db) return;
     try {
       setPendingCount(P2pSyncService.getPendingCount(db));
     } catch {
       // Ignorar si db aún no inicializada
     }
-  };
+  }, [db]);
+
+  const refreshActiveShift = useCallback(() => {
+    if (!db) {
+      setActiveShift(null);
+      return;
+    }
+    try {
+      const shift = getOpenShift(db, terminalId);
+      setActiveShift(shift ?? null);
+    } catch {
+      setActiveShift(null);
+    }
+  }, [db, terminalId]);
 
   useEffect(() => {
     refreshPendingCount();
-  }, [currentTab, db]);
+    refreshActiveShift();
+  }, [currentTab, refreshPendingCount, refreshActiveShift]);
 
   const renderScreen = () => {
     switch (currentTab) {
@@ -61,7 +78,11 @@ export const App: React.FC<AppProps> = ({
             tenantId={tenantId}
             terminalId={terminalId}
             fileStore={fileStore}
-            onInvoiceCreated={() => refreshPendingCount()}
+            onInvoiceCreated={() => {
+              refreshPendingCount();
+              refreshActiveShift();
+            }}
+            onNavigateToShifts={() => setCurrentTab("shifts")}
           />
         );
       case "inventory":
@@ -76,7 +97,15 @@ export const App: React.FC<AppProps> = ({
           />
         );
       case "shifts":
-        return <ShiftsScreen db={db} terminalId={terminalId} />;
+        return (
+          <ShiftsScreen
+            db={db}
+            terminalId={terminalId}
+            onShiftChanged={(shift) => {
+              setActiveShift(shift);
+            }}
+          />
+        );
       case "balance":
         return <MonthlyBalanceScreen db={db} />;
     }
@@ -116,13 +145,30 @@ export const App: React.FC<AppProps> = ({
           </View>
 
           {/* Indicador de Turno Activo */}
-          <View style={styles.shiftFooter}>
-            <View style={styles.shiftDot} />
+          <TouchableOpacity
+            style={styles.shiftFooter}
+            activeOpacity={0.8}
+            onPress={() => setCurrentTab("shifts")}
+            accessibilityRole="button"
+            accessibilityLabel="Gestionar Turno"
+          >
+            <View
+              style={[
+                styles.shiftDot,
+                !activeShift && styles.shiftDotInactive,
+              ]}
+            />
             <View>
-              <Text style={styles.shiftCashier}>Erick (C01)</Text>
-              <Text style={styles.shiftNumber}>Turno Activo #402</Text>
+              <Text style={styles.shiftCashier}>
+                {activeShift ? activeShift.cashierName : `Terminal: ${terminalId}`}
+              </Text>
+              <Text style={styles.shiftNumber}>
+                {activeShift
+                  ? `Turno Activo #${activeShift.id.slice(-4).toUpperCase()}`
+                  : "Sin Turno Abierto"}
+              </Text>
             </View>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* Contenido Principal y Header */}
@@ -224,6 +270,9 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: colors.dark.hero,
+  },
+  shiftDotInactive: {
+    backgroundColor: colors.dark.warning,
   },
   shiftCashier: {
     fontSize: typography.sizes.subText,

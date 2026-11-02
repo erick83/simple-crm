@@ -54,7 +54,12 @@ export function insertRate(
 ): void {
   db.run(
     `INSERT INTO exchange_rates (id, rate_date, currency_code, rate_to_ves, source, fetched_at, notes, created_at)
-     VALUES (?, ?, 'USD', ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, 'USD', ?, ?, ?, ?, ?)
+     ON CONFLICT(rate_date, currency_code) DO UPDATE SET
+       rate_to_ves = excluded.rate_to_ves,
+       source = excluded.source,
+       fetched_at = excluded.fetched_at,
+       notes = excluded.notes`,
     [uuidv7(now), rateDate, rate, source, now, notes, now],
   );
 }
