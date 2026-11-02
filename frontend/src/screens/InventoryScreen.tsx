@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   FlatList,
   Image,
@@ -22,10 +22,13 @@ import {
   updateProduct,
   addStockMovement,
   getProductKardex,
+  listCategories,
+  createCategory,
 } from "../database/repositories/product.repository";
 import type {
   InventoryItemWithStock,
   StockMovementEntity,
+  CategoryEntity,
 } from "../database/repositories/product.repository";
 import { getLatestRate } from "../database/repositories/exchange.repository";
 import {
@@ -110,6 +113,16 @@ const DEFAULT_ITEMS: InventoryItemWithStock[] = [
   },
 ];
 
+export type InventorySortBy =
+  | "NAME_ASC"
+  | "STOCK_ASC"
+  | "STOCK_DESC"
+  | "PRICE_ASC"
+  | "PRICE_DESC"
+  | "RECENT";
+
+export type StockFilterMode = "ALL" | "LOW_STOCK" | "OUT_OF_STOCK";
+
 export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   db: propDb,
   tenantId = "TENANT-001",
@@ -129,7 +142,15 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   );
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<InventoryItemWithStock[]>(DEFAULT_ITEMS);
+  const [categories, setCategories] = useState<CategoryEntity[]>([]);
   const [exchangeRate, setExchangeRate] = useState<string>("36.5000");
+
+  // Estados de Organización (Categoría, Filtro de Stock y Ordenamiento)
+  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+  const [stockFilter, setStockFilter] = useState<StockFilterMode>("ALL");
+  const [sortBy, setSortBy] = useState<InventorySortBy>("NAME_ASC");
+  const [isCreatingCategoryInline, setIsCreatingCategoryInline] = useState(false);
+  const [inlineCategoryName, setInlineCategoryName] = useState("");
 
   // Estado del Modal de Producto (Crear / Editar)
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -137,6 +158,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   const [formName, setFormName] = useState("");
   const [formSku, setFormSku] = useState("");
   const [formBarcode, setFormBarcode] = useState("");
+  const [formCategoryId, setFormCategoryId] = useState<string | null>(null);
+  const [newModalCategoryName, setNewModalCategoryName] = useState("");
   const [formPriceUsd, setFormPriceUsd] = useState("");
   const [formCostUsd, setFormCostUsd] = useState("");
   const [formMinStock, setFormMinStock] = useState("5.0000");
@@ -155,11 +178,13 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   const [kardexHistory, setKardexHistory] = useState<StockMovementEntity[]>([]);
   const [kardexError, setKardexError] = useState<string | null>(null);
 
-  // Carga reactiva de inventario y tasa desde SQLite
+  // Carga reactiva de inventario, categorías y tasa desde SQLite
   const reloadData = useCallback(() => {
     if (db) {
       const list = listInventoryWithStock(db, { search, tenantId });
       setItems(list);
+      const cats = listCategories(db);
+      setCategories(cats);
       const rateRecord = getLatestRate(db);
       if (rateRecord) {
         setExchangeRate(rateRecord.rateToVes);
@@ -170,6 +195,118 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   useEffect(() => {
     reloadData();
   }, [reloadData]);
+
+  // Crear nueva categoría rápidamente (desde la barra o el modal)
+  const handleCreateQuickCategory = (rawName: string, selectInModal: boolean): string | null => {
+    const clean = rawName.trim();
+    if (!clean || !db) return null;
+    const existing = categories.find((c) => c.name.toLowerCase() === clean.toLowerCase());
+    if (existing) {
+      if (selectInModal) setFormCategoryId(existing.id);
+      else setSelectedCategory(existing.id);
+      return existing.id;
+    }
+    const newId = createCategory(db, clean, Date.now());
+    const updatedCats = listCategories(db);
+    setCategories(updatedCats);
+    if (selectInModal) {
+      setFormCategoryId(newId);
+      setNewModalCategoryName("");
+    } else {
+      setSelectedCategory(newId);
+      setInlineCategoryName("");
+      setIsCreatingCategoryInline(false);
+    }
+    return newId;
+  };
+
+  // Contadores por categoría y estado de stock sobre la lista activa
+  const organizationCounts = useMemo(() => {
+    const byCat: Record<string, number> = { ALL: items.length, UNCATEGORIZED: 0 };
+    let lowStock = 0;
+    let outOfStock = 0;
+
+    for (const item of items) {
+      if (item.categoryId) {
+        byCat[item.categoryId] = (byCat[item.categoryId] ?? 0) + 1;
+      } else {
+        byCat.UNCATEGORIZED = (byCat.UNCATEGORIZED ?? 0) + 1;
+      }
+      if (item.isLowStock) lowStock += 1;
+      if (toDecimal(item.currentStock).lte(0)) outOfStock += 1;
+    }
+
+    return { byCat, lowStock, outOfStock };
+  }, [items]);
+
+  // Lista filtrada y ordenada con precisión fija (Decimal)
+  const organizedItems = useMemo(() => {
+    const filtered = items.filter((item) => {
+      if (selectedCategory !== "ALL") {
+        if (selectedCategory === "UNCATEGORIZED") {
+          if (item.categoryId !== null) return false;
+        } else if (item.categoryId !== selectedCategory) {
+          return false;
+        }
+      }
+
+      if (stockFilter === "LOW_STOCK" && !item.isLowStock) return false;
+      if (stockFilter === "OUT_OF_STOCK" && !toDecimal(item.currentStock).lte(0)) return false;
+
+      return true;
+    });
+
+    return [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case "STOCK_ASC": {
+          const cmp = toDecimal(a.currentStock).comparedTo(toDecimal(b.currentStock));
+          return cmp !== 0 ? cmp : a.name.localeCompare(b.name);
+        }
+        case "STOCK_DESC": {
+          const cmp = toDecimal(b.currentStock).comparedTo(toDecimal(a.currentStock));
+          return cmp !== 0 ? cmp : a.name.localeCompare(b.name);
+        }
+        case "PRICE_ASC": {
+          const cmp = toDecimal(a.priceUsd).comparedTo(toDecimal(b.priceUsd));
+          return cmp !== 0 ? cmp : a.name.localeCompare(b.name);
+        }
+        case "PRICE_DESC": {
+          const cmp = toDecimal(b.priceUsd).comparedTo(toDecimal(a.priceUsd));
+          return cmp !== 0 ? cmp : a.name.localeCompare(b.name);
+        }
+        case "RECENT":
+          return b.updatedAt - a.updatedAt;
+        case "NAME_ASC":
+        default:
+          return a.name.localeCompare(b.name);
+      }
+    });
+  }, [items, selectedCategory, stockFilter, sortBy]);
+
+  // KPIs de Valorización de la vista actual (Decimal exacto a 4 decimales)
+  const inventorySummary = useMemo(() => {
+    let totalUnits = toDecimal("0");
+    let totalCostUsd = toDecimal("0");
+    let totalSaleUsd = toDecimal("0");
+
+    for (const item of organizedItems) {
+      const stockDec = toDecimal(item.currentStock);
+      const positiveStock = stockDec.isNegative() ? toDecimal("0") : stockDec;
+      totalUnits = totalUnits.plus(positiveStock);
+      totalCostUsd = totalCostUsd.plus(positiveStock.times(toDecimal(item.costUsd)));
+      totalSaleUsd = totalSaleUsd.plus(positiveStock.times(toDecimal(item.priceUsd)));
+    }
+
+    const totalSaleVes = convertUsdToVes(totalSaleUsd.toFixed(4), exchangeRate);
+
+    return {
+      skuCount: organizedItems.length,
+      totalUnits: totalUnits.toFixed(4),
+      totalCostUsd: totalCostUsd.toFixed(4),
+      totalSaleUsd: totalSaleUsd.toFixed(4),
+      totalSaleVes: totalSaleVes.toFixed(4),
+    };
+  }, [organizedItems, exchangeRate]);
 
   // Listener para pistola/lector HID
   useBarcodeScanner({
@@ -190,6 +327,12 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormName("");
     setFormSku("");
     setFormBarcode(search ? search.trim() : "");
+    setFormCategoryId(
+      selectedCategory !== "ALL" && selectedCategory !== "UNCATEGORIZED"
+        ? selectedCategory
+        : null,
+    );
+    setNewModalCategoryName("");
     setFormPriceUsd("");
     setFormCostUsd("");
     setFormMinStock("5.0000");
@@ -207,6 +350,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormName(item.name);
     setFormSku(item.sku);
     setFormBarcode(item.barcode ?? "");
+    setFormCategoryId(item.categoryId);
+    setNewModalCategoryName("");
     setFormPriceUsd(item.priceUsd);
     setFormCostUsd(item.costUsd);
     setFormMinStock(item.minStock);
@@ -281,6 +426,11 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
       if (db) {
         const now = Date.now();
         let savedId = editingProductId;
+        let finalCategoryId = formCategoryId;
+        if (newModalCategoryName.trim()) {
+          finalCategoryId = handleCreateQuickCategory(newModalCategoryName, true);
+        }
+
         if (!editingProductId) {
           savedId = insertProduct(
             db,
@@ -289,6 +439,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               name: formName.trim(),
               sku: formSku.trim(),
               barcode: formBarcode.trim() || undefined,
+              categoryId: finalCategoryId ?? undefined,
               priceUsd: priceDec.toFixed(4),
               costUsd: costDec.toFixed(4),
               minStock: minStockDec.toFixed(4),
@@ -318,6 +469,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               name: formName.trim(),
               sku: formSku.trim(),
               barcode: formBarcode.trim() || null,
+              categoryId: finalCategoryId,
               priceUsd: priceDec.toFixed(4),
               costUsd: costDec.toFixed(4),
               minStock: minStockDec.toFixed(4),
@@ -343,7 +495,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
           );
         }
 
-        // Si había un filtro de búsqueda que ocultaría el producto recién guardado, limpiarlo
+        // Si había un filtro de búsqueda o categoría que ocultaría el producto recién guardado, limpiarlo
         const activeFilter = search.trim().toLowerCase();
         const matchesFilter =
           !activeFilter ||
@@ -356,8 +508,17 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
           setSearch("");
         }
 
+        if (
+          selectedCategory !== "ALL" &&
+          ((selectedCategory === "UNCATEGORIZED" && finalCategoryId !== null) ||
+            (selectedCategory !== "UNCATEGORIZED" && selectedCategory !== finalCategoryId))
+        ) {
+          setSelectedCategory("ALL");
+        }
+
         const updatedList = listInventoryWithStock(db, { search: nextSearch, tenantId });
         setItems(updatedList);
+        setCategories(listCategories(db));
         if (savedId) onProductSaved?.(savedId);
       }
       setIsProductModalOpen(false);
@@ -445,9 +606,236 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* Listado de Productos con Stock Actual */}
+      {/* Panel de Organización: Categorías, Estado de Stock y Ordenamiento */}
+      <View style={styles.organizationPanel}>
+        {/* Fila 1: Píldoras Táctiles de Categorías + Crear Categoría */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryScrollContent}
+        >
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => setSelectedCategory("ALL")}
+            style={[
+              styles.categoryChip,
+              selectedCategory === "ALL" && styles.categoryChipActive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.categoryChipText,
+                selectedCategory === "ALL" && styles.categoryChipTextActive,
+              ]}
+            >
+              Todas ({organizationCounts.byCat.ALL ?? 0})
+            </Text>
+          </TouchableOpacity>
+
+          {categories.map((cat) => {
+            const isSelected = selectedCategory === cat.id;
+            const count = organizationCounts.byCat[cat.id] ?? 0;
+            return (
+              <TouchableOpacity
+                key={cat.id}
+                activeOpacity={0.8}
+                onPress={() => setSelectedCategory(cat.id)}
+                style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
+              >
+                <Text
+                  style={[
+                    styles.categoryChipText,
+                    isSelected && styles.categoryChipTextActive,
+                  ]}
+                >
+                  {cat.name} ({count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+
+          {(organizationCounts.byCat.UNCATEGORIZED ?? 0) > 0 && (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setSelectedCategory("UNCATEGORIZED")}
+              style={[
+                styles.categoryChip,
+                selectedCategory === "UNCATEGORIZED" && styles.categoryChipActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.categoryChipText,
+                  selectedCategory === "UNCATEGORIZED" && styles.categoryChipTextActive,
+                ]}
+              >
+                Sin Categoría ({organizationCounts.byCat.UNCATEGORIZED})
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {isCreatingCategoryInline ? (
+            <View style={styles.inlineCategoryBox}>
+              <TextInput
+                style={styles.inlineCategoryInput}
+                placeholder="Nueva categoría..."
+                placeholderTextColor={colors.dark.textMuted}
+                value={inlineCategoryName}
+                onChangeText={setInlineCategoryName}
+                onSubmitEditing={() => handleCreateQuickCategory(inlineCategoryName, false)}
+              />
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => handleCreateQuickCategory(inlineCategoryName, false)}
+                style={styles.inlineCategoryConfirmBtn}
+              >
+                <Text style={styles.inlineCategoryConfirmText}>✓ Crear</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  setIsCreatingCategoryInline(false);
+                  setInlineCategoryName("");
+                }}
+                style={styles.inlineCategoryCancelBtn}
+              >
+                <Text style={styles.inlineCategoryCancelText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setIsCreatingCategoryInline(true)}
+              style={styles.addCategoryChip}
+            >
+              <Text style={styles.addCategoryChipText}>+ Categoría</Text>
+            </TouchableOpacity>
+          )}
+        </ScrollView>
+
+        {/* Fila 2: Filtros Rápidos de Stock (Semáforo) + Ordenamiento + Valorización */}
+        <View style={styles.controlsAndKpiRow}>
+          {/* Filtro por estado de stock */}
+          <View style={styles.filterGroup}>
+            <Text style={styles.controlGroupLabel}>ESTADO:</Text>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setStockFilter("ALL")}
+              style={[styles.filterPill, stockFilter === "ALL" && styles.filterPillActive]}
+            >
+              <Text
+                style={[
+                  styles.filterPillText,
+                  stockFilter === "ALL" && styles.filterPillTextActive,
+                ]}
+              >
+                Todos
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() =>
+                setStockFilter(stockFilter === "LOW_STOCK" ? "ALL" : "LOW_STOCK")
+              }
+              style={[
+                styles.filterPill,
+                stockFilter === "LOW_STOCK" && styles.filterPillWarningActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filterPillText,
+                  stockFilter === "LOW_STOCK"
+                    ? styles.filterPillWarningTextActive
+                    : organizationCounts.lowStock > 0
+                      ? { color: colors.dark.warning }
+                      : undefined,
+                ]}
+              >
+                ⚠️ Stock Bajo ({organizationCounts.lowStock})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() =>
+                setStockFilter(stockFilter === "OUT_OF_STOCK" ? "ALL" : "OUT_OF_STOCK")
+              }
+              style={[
+                styles.filterPill,
+                stockFilter === "OUT_OF_STOCK" && styles.filterPillErrorActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filterPillText,
+                  stockFilter === "OUT_OF_STOCK" && styles.filterPillErrorTextActive,
+                ]}
+              >
+                🚫 Agotados ({organizationCounts.outOfStock})
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Selector táctil de ordenamiento */}
+          <View style={styles.filterGroup}>
+            <Text style={styles.controlGroupLabel}>ORDENAR POR:</Text>
+            {(
+              [
+                { id: "NAME_ASC", label: "A → Z" },
+                { id: "STOCK_ASC", label: "Stock ↑" },
+                { id: "STOCK_DESC", label: "Stock ↓" },
+                { id: "PRICE_ASC", label: "Precio ↑" },
+                { id: "PRICE_DESC", label: "Precio ↓" },
+                { id: "RECENT", label: "Recientes" },
+              ] as const
+            ).map((opt) => {
+              const active = sortBy === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.8}
+                  onPress={() => setSortBy(opt.id)}
+                  style={[styles.sortPill, active && styles.sortPillActive]}
+                >
+                  <Text style={[styles.sortPillText, active && styles.sortPillTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Resumen de Valorización de la vista actual */}
+          <View style={styles.kpiStrip}>
+            <View style={styles.kpiItem}>
+              <Text style={styles.kpiLabel}>MOSTRANDO</Text>
+              <Text style={[styles.kpiValue, typography.tabularNumeric]}>
+                {inventorySummary.skuCount} SKUs ({inventorySummary.totalUnits} unds)
+              </Text>
+            </View>
+            <View style={styles.kpiDivider} />
+            <View style={styles.kpiItem}>
+              <Text style={styles.kpiLabel}>VALOR COSTO</Text>
+              <Text style={[styles.kpiValue, typography.tabularNumeric]}>
+                {formatUsd(inventorySummary.totalCostUsd)}
+              </Text>
+            </View>
+            <View style={styles.kpiDivider} />
+            <View style={styles.kpiItem}>
+              <Text style={styles.kpiLabel}>VALOR VENTA</Text>
+              <Text style={[styles.kpiValueHero, typography.tabularNumeric]}>
+                {formatUsd(inventorySummary.totalSaleUsd)}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* Listado de Productos Organizado con Stock Actual */}
       <FlatList
-        data={items}
+        data={organizedItems}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
           const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
@@ -468,7 +856,20 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
 
               {/* Información del Producto */}
               <View style={styles.colInfo}>
-                <Text style={styles.productName}>{item.name}</Text>
+                <View style={styles.productHeaderRow}>
+                  <Text style={styles.productName}>{item.name}</Text>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() =>
+                      setSelectedCategory(item.categoryId ? item.categoryId : "UNCATEGORIZED")
+                    }
+                    style={styles.rowCategoryTag}
+                  >
+                    <Text style={styles.rowCategoryTagText}>
+                      {item.categoryName ?? "Sin categoría"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
                 <Text style={styles.metaText}>
                   SKU: <Text style={styles.metaHighlight}>{item.sku}</Text>
                   {item.barcode ? ` | Barcode: ${item.barcode}` : " | Sin código"}
@@ -531,10 +932,25 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
         }}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No se encontraron productos en el inventario</Text>
+            <Text style={styles.emptyText}>No se encontraron productos en esta vista</Text>
             <Text style={styles.emptySubText}>
-              Presione "+ NUEVO PRODUCTO" o escanee un código de barras para darlo de alta
+              {selectedCategory !== "ALL" || stockFilter !== "ALL" || search.trim()
+                ? "Pruebe limpiando los filtros de categoría o estado de stock"
+                : 'Presione "+ NUEVO PRODUCTO" o escanee un código de barras para darlo de alta'}
             </Text>
+            {(selectedCategory !== "ALL" || stockFilter !== "ALL" || search.trim() !== "") && (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  setSelectedCategory("ALL");
+                  setStockFilter("ALL");
+                  setSearch("");
+                }}
+                style={styles.resetFiltersBtn}
+              >
+                <Text style={styles.resetFiltersBtnText}>Restablecer Filtros</Text>
+              </TouchableOpacity>
+            )}
           </View>
         }
       />
@@ -585,6 +1001,85 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                     value={formBarcode}
                     onChangeText={setFormBarcode}
                   />
+                </View>
+              </View>
+
+              {/* Selector Táctil de Categoría en el Modal */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Categoría de Organización</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.modalCategoryRow}
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setFormCategoryId(null)}
+                    style={[
+                      styles.modalCategoryOption,
+                      formCategoryId === null &&
+                        !newModalCategoryName.trim() &&
+                        styles.modalCategoryOptionActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.modalCategoryOptionText,
+                        formCategoryId === null &&
+                          !newModalCategoryName.trim() &&
+                          styles.modalCategoryOptionTextActive,
+                      ]}
+                    >
+                      Sin categoría
+                    </Text>
+                  </TouchableOpacity>
+
+                  {categories.map((cat) => {
+                    const isSelected =
+                      formCategoryId === cat.id && !newModalCategoryName.trim();
+                    return (
+                      <TouchableOpacity
+                        key={cat.id}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setFormCategoryId(cat.id);
+                          setNewModalCategoryName("");
+                        }}
+                        style={[
+                          styles.modalCategoryOption,
+                          isSelected && styles.modalCategoryOptionActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modalCategoryOptionText,
+                            isSelected && styles.modalCategoryOptionTextActive,
+                          ]}
+                        >
+                          {cat.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                <View style={styles.modalNewCategoryRow}>
+                  <TextInput
+                    style={[styles.modalInput, { flex: 1 }]}
+                    placeholder="O escriba una nueva categoría (ej. Lácteos, Charcutería)..."
+                    placeholderTextColor={colors.dark.textMuted}
+                    value={newModalCategoryName}
+                    onChangeText={setNewModalCategoryName}
+                  />
+                  {newModalCategoryName.trim().length > 0 && (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => handleCreateQuickCategory(newModalCategoryName, true)}
+                      style={styles.modalCreateCatBtn}
+                    >
+                      <Text style={styles.modalCreateCatBtnText}>+ Agregar</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
 
@@ -831,7 +1326,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
     gap: spacing.md,
   },
   titleContainer: {
@@ -868,6 +1363,301 @@ const styles = StyleSheet.create({
   },
   newProductBtnText: {
     fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  organizationPanel: {
+    backgroundColor: colors.dark.surfaceContainerLow,
+    borderRadius: spacing.radiusLg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+    gap: spacing.sm,
+  },
+  categoryScrollContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingBottom: 2,
+  },
+  categoryChip: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: colors.dark.surfaceContainer,
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusFull,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  categoryChipActive: {
+    backgroundColor: colors.dark.primary,
+    borderColor: colors.dark.primaryGlow,
+  },
+  categoryChipText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textSecondary,
+  },
+  categoryChipTextActive: {
+    color: colors.dark.textPrimary,
+    fontWeight: typography.weights.bold,
+  },
+  addCategoryChip: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusFull,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.primaryGlow,
+  },
+  addCategoryChipText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.primaryGlow,
+  },
+  inlineCategoryBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  inlineCategoryInput: {
+    height: spacing.touchTargetMin,
+    minWidth: 160,
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    borderRadius: spacing.radiusMd,
+    paddingHorizontal: spacing.md,
+    color: colors.dark.textPrimary,
+    borderWidth: 1,
+    borderColor: colors.dark.primaryGlow,
+  },
+  inlineCategoryConfirmBtn: {
+    height: spacing.touchTargetMin,
+    backgroundColor: colors.dark.hero,
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  inlineCategoryConfirmText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  inlineCategoryCancelBtn: {
+    height: spacing.touchTargetMin,
+    width: spacing.touchTargetMin,
+    backgroundColor: colors.dark.surfaceContainer,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  inlineCategoryCancelText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textSecondary,
+  },
+  controlsAndKpiRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.dark.border,
+    paddingTop: spacing.sm,
+  },
+  filterGroup: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  controlGroupLabel: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textMuted,
+    marginRight: 4,
+  },
+  filterPill: {
+    minHeight: 40,
+    backgroundColor: colors.dark.surfaceContainer,
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  filterPillActive: {
+    backgroundColor: colors.dark.surfaceContainerHighest,
+    borderColor: colors.dark.primaryGlow,
+  },
+  filterPillWarningActive: {
+    backgroundColor: "rgba(245, 158, 11, 0.2)",
+    borderColor: colors.dark.warning,
+  },
+  filterPillErrorActive: {
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    borderColor: colors.dark.error,
+  },
+  filterPillText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textSecondary,
+  },
+  filterPillTextActive: {
+    color: colors.dark.textPrimary,
+    fontWeight: typography.weights.bold,
+  },
+  filterPillWarningTextActive: {
+    color: colors.dark.warning,
+    fontWeight: typography.weights.bold,
+  },
+  filterPillErrorTextActive: {
+    color: colors.dark.error,
+    fontWeight: typography.weights.bold,
+  },
+  sortPill: {
+    minHeight: 40,
+    backgroundColor: colors.dark.surfaceContainer,
+    paddingHorizontal: spacing.sm,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  sortPillActive: {
+    backgroundColor: colors.dark.primary,
+    borderColor: colors.dark.primaryGlow,
+  },
+  sortPillText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textSecondary,
+  },
+  sortPillTextActive: {
+    color: colors.dark.textPrimary,
+    fontWeight: typography.weights.bold,
+  },
+  kpiStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.dark.surfaceContainer,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: spacing.radiusMd,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+    gap: spacing.md,
+  },
+  kpiItem: {
+    alignItems: "flex-end",
+  },
+  kpiLabel: {
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textMuted,
+  },
+  kpiValue: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  kpiValueHero: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.hero,
+  },
+  kpiDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: colors.dark.border,
+  },
+  productHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    flexWrap: "wrap",
+  },
+  rowCategoryTag: {
+    backgroundColor: colors.dark.surfaceContainerHighest,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: spacing.radiusFull,
+  },
+  rowCategoryTagText: {
+    fontSize: 11,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.primaryGlow,
+  },
+  resetFiltersBtn: {
+    marginTop: spacing.md,
+    height: spacing.touchTargetMin,
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    paddingHorizontal: spacing.lg,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.primaryGlow,
+  },
+  resetFiltersBtnText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.primaryGlow,
+  },
+  modalCategoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: 4,
+  },
+  modalCategoryOption: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusFull,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  modalCategoryOptionActive: {
+    backgroundColor: colors.dark.primary,
+    borderColor: colors.dark.primaryGlow,
+  },
+  modalCategoryOptionText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textSecondary,
+  },
+  modalCategoryOptionTextActive: {
+    color: colors.dark.textPrimary,
+    fontWeight: typography.weights.bold,
+  },
+  modalNewCategoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  modalCreateCatBtn: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: colors.dark.primary,
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalCreateCatBtnText: {
+    fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
     color: colors.dark.textPrimary,
   },

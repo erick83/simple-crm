@@ -36,7 +36,7 @@ function cloneStore(store: RelationalStore): RelationalStore {
   return JSON.parse(JSON.stringify(store)) as RelationalStore;
 }
 
-function toScaledIntE4(deltaStr: SqlValue): number {
+function toScaledIntE4(deltaStr: SqlValue | undefined): number {
   if (deltaStr === null || deltaStr === undefined) return 0;
   const cleaned = String(deltaStr).replace(".", "");
   const parsed = parseInt(cleaned, 10);
@@ -207,14 +207,14 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           ] = params;
           const row = store.products.find((p) => p.id === id);
           if (row) {
-            row.name = name ?? row.name;
-            row.sku = sku ?? row.sku;
+            row.name = name ?? row.name ?? "";
+            row.sku = sku ?? row.sku ?? "";
             row.barcode = barcode ?? null;
             row.category_id = category_id ?? null;
-            row.price_usd = price_usd ?? row.price_usd;
-            row.cost_usd = cost_usd ?? row.cost_usd;
-            row.tax_rate = tax_rate ?? row.tax_rate;
-            row.min_stock = min_stock ?? row.min_stock;
+            row.price_usd = price_usd ?? row.price_usd ?? "0.0000";
+            row.cost_usd = cost_usd ?? row.cost_usd ?? "0.0000";
+            row.tax_rate = tax_rate ?? row.tax_rate ?? "0.1600";
+            row.min_stock = min_stock ?? row.min_stock ?? "5.0000";
             row.image_path = image_path ?? null;
             row.updated_at = updated_at ?? Date.now();
           }

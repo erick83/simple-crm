@@ -660,7 +660,8 @@ export function listInventoryWithStock(
       (r) =>
         r.name.toLowerCase().includes(q) ||
         r.sku.toLowerCase().includes(q) ||
-        (r.barcode && r.barcode.toLowerCase().includes(q)),
+        (r.barcode && r.barcode.toLowerCase().includes(q)) ||
+        (r.category_name && r.category_name.toLowerCase().includes(q)),
     );
   }
 
