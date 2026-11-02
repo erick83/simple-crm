@@ -8,6 +8,10 @@ import {
   listInventoryWithStock,
   addStockMovement,
   getProductKardex,
+  createCategory,
+  deleteCategory,
+  deleteProduct,
+  listCategories,
 } from "../src/database/repositories/product.repository";
 import { MemoryFileStore, resolveProductImageUri } from "../src/services/image-compressor.service";
 import { P2pSyncService } from "../src/services/p2p-sync.service";
@@ -307,6 +311,58 @@ describe("PR-16: Pantalla Táctil de Inventario, Gestión de Productos y Ajustes
     const screenElement = React.createElement(InventoryScreen, screenProps);
     expect(screenElement).toBeDefined();
     expect(screenElement.props.db).toBe(db);
+  });
+
+  it("elimina categorías y productos validando que el usuario escriba exactamente BORRAR", () => {
+    const db = createTestDb();
+    const catId = createCategory(db, "Lácteos");
+    const prodId = insertProduct(
+      db,
+      {
+        tenantId: TENANT_A,
+        sku: "LAC-01",
+        name: "Queso Blanco 1kg",
+        categoryId: catId,
+        priceUsd: "5.5000",
+        costUsd: "4.0000",
+      },
+      Date.now(),
+      TERMINAL_1,
+    );
+    addStockMovement(db, {
+      productId: prodId,
+      terminalId: TERMINAL_1,
+      delta: "8.0000",
+      type: "RESTOCK",
+    });
+
+    // Intento fallido sin escribir BORRAR
+    expect(() =>
+      deleteCategory(db, { categoryId: catId, confirmationWord: "eliminar" }),
+    ).toThrow(/BORRAR/);
+
+    expect(() =>
+      deleteProduct(db, { productId: prodId, confirmationWord: "no" }),
+    ).toThrow(/BORRAR/);
+
+    // Eliminación válida de categoría (desasocia el producto a Sin Categoría)
+    deleteCategory(db, { categoryId: catId, confirmationWord: "BORRAR" });
+    expect(listCategories(db).find((c) => c.id === catId)).toBeUndefined();
+
+    const [prodAfterCatDelete] = listInventoryWithStock(db, { tenantId: TENANT_A });
+    expect(prodAfterCatDelete?.categoryId).toBeNull();
+
+    // Eliminación válida de producto con liquidación de stock en Kardex
+    deleteProduct(db, {
+      productId: prodId,
+      confirmationWord: "BORRAR",
+      clearRemainingStock: true,
+      terminalId: TERMINAL_1,
+    });
+
+    expect(listInventoryWithStock(db, { tenantId: TENANT_A })).toHaveLength(0);
+    const kardex = getProductKardex(db, prodId);
+    expect(kardex[0]?.quantityDelta).toBe("-8.0000");
   });
 
   it("createDefaultSqlDriver inicializa el driver de escritorio/web con semilla automática y permite operaciones CRUD", () => {

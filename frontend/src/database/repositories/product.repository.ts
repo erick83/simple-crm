@@ -501,6 +501,68 @@ export function listCategories(db: SqlDriver): CategoryEntity[] {
     .map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at }));
 }
 
+export function deleteCategory(
+  db: SqlDriver,
+  args: { categoryId: string; confirmationWord: string },
+  now: number = Date.now(),
+): void {
+  if (args.confirmationWord.trim().toUpperCase() !== "BORRAR") {
+    throw new Error('Confirmación inválida: debe escribir exactamente "BORRAR".');
+  }
+
+  const existing = listCategories(db).find((c) => c.id === args.categoryId);
+  if (!existing) {
+    throw new Error("La categoría seleccionada no existe o ya fue eliminada.");
+  }
+
+  db.transaction(() => {
+    db.run("UPDATE products SET category_id = NULL, updated_at = ? WHERE category_id = ?", [
+      now,
+      args.categoryId,
+    ]);
+    db.run("DELETE FROM categories WHERE id = ?", [args.categoryId]);
+  });
+}
+
+export function deleteProduct(
+  db: SqlDriver,
+  args: {
+    productId: string;
+    confirmationWord: string;
+    clearRemainingStock?: boolean;
+    terminalId?: string;
+  },
+  now: number = Date.now(),
+): void {
+  if (args.confirmationWord.trim().toUpperCase() !== "BORRAR") {
+    throw new Error('Confirmación inválida: debe escribir exactamente "BORRAR".');
+  }
+
+  const terminalId = args.terminalId ?? "TERM-01";
+  const stockInfo = getCurrentStock(db, args.productId);
+
+  db.transaction(() => {
+    if (args.clearRemainingStock && stockInfo) {
+      const currentDec = toDecimal(stockInfo.currentStock);
+      if (!currentDec.isZero()) {
+        addStockMovement(
+          db,
+          {
+            productId: args.productId,
+            terminalId,
+            delta: currentDec.negated().toFixed(4),
+            type: "ADJUSTMENT",
+            referenceId: "Liquidación por baja de producto",
+          },
+          now,
+        );
+      }
+    }
+
+    setProductActive(db, args.productId, false, terminalId, now + 1);
+  });
+}
+
 /** Registra un delta de inventario (kardex). `delta` con signo y 4 decimales exactos. */
 export function addStockMovement(
   db: SqlDriver,

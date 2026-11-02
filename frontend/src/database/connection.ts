@@ -33,8 +33,11 @@ export function createOpSqliteDriver(dbName = "bisync_pos.db"): SqlDriver {
   if (!isOpSqliteNativeAvailable()) {
     throw new Error("OPSQLite native module is not available in this runtime (Expo Go / Web).");
   }
+  // Evita que Metro Web empaquete estáticamente index.web.js de op-sqlite (que contiene import.meta fuera de módulo ESM)
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { open } = require("@op-engineering/op-sqlite");
+  const dynamicRequire: (id: string) => { open: (opts: { name: string }) => { execute: (sql: string, params?: (string | number | null)[]) => { rows?: { _array?: unknown[] } } } } =
+    eval("require");
+  const { open } = dynamicRequire(["@op-engineering", "op-sqlite"].join("/"));
   const db = open({ name: dbName });
 
   db.execute("PRAGMA foreign_keys = ON;");

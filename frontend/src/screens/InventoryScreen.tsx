@@ -24,6 +24,8 @@ import {
   getProductKardex,
   listCategories,
   createCategory,
+  deleteCategory,
+  deleteProduct,
 } from "../database/repositories/product.repository";
 import type {
   InventoryItemWithStock,
@@ -54,6 +56,8 @@ export interface InventoryScreenProps {
   onScanBarcode?: (barcode: string) => void;
   onProductSaved?: (productId: string) => void;
   onStockAdjusted?: (movementId: string) => void;
+  onProductDeleted?: (productId: string) => void;
+  onCategoryDeleted?: (categoryId: string) => void;
 }
 
 const DEFAULT_ITEMS: InventoryItemWithStock[] = [
@@ -123,6 +127,10 @@ export type InventorySortBy =
 
 export type StockFilterMode = "ALL" | "LOW_STOCK" | "OUT_OF_STOCK";
 
+export type DeleteTargetState =
+  | { kind: "PRODUCT"; product: InventoryItemWithStock }
+  | { kind: "CATEGORY"; category: CategoryEntity; affectedCount: number };
+
 export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   db: propDb,
   tenantId = "TENANT-001",
@@ -134,6 +142,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   onScanBarcode,
   onProductSaved,
   onStockAdjusted,
+  onProductDeleted,
+  onCategoryDeleted,
 }) => {
   const db = propDb ?? getOrCreateDefaultSqlDriver({ tenantId, terminalId });
   const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
@@ -151,6 +161,13 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   const [sortBy, setSortBy] = useState<InventorySortBy>("NAME_ASC");
   const [isCreatingCategoryInline, setIsCreatingCategoryInline] = useState(false);
   const [inlineCategoryName, setInlineCategoryName] = useState("");
+
+  // Estado del Modal de Eliminación Segura (con validación "BORRAR")
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTargetState | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+  const [clearStockOnDelete, setClearStockOnDelete] = useState(true);
+  const [ackImpactCheckbox, setAckImpactCheckbox] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Estado del Modal de Producto (Crear / Editar)
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -578,6 +595,101 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     }
   };
 
+  // Abrir modal de confirmación para eliminar un producto
+  const handleOpenDeleteProduct = (item: InventoryItemWithStock) => {
+    setIsProductModalOpen(false);
+    setDeleteTarget({ kind: "PRODUCT", product: item });
+    setDeleteConfirmInput("");
+    setClearStockOnDelete(true);
+    setAckImpactCheckbox(false);
+    setDeleteError(null);
+  };
+
+  // Abrir modal de confirmación para eliminar una categoría
+  const handleOpenDeleteCategory = (category: CategoryEntity) => {
+    const affectedCount = organizationCounts.byCat[category.id] ?? 0;
+    setDeleteTarget({ kind: "CATEGORY", category, affectedCount });
+    setDeleteConfirmInput("");
+    setAckImpactCheckbox(false);
+    setDeleteError(null);
+  };
+
+  // Ejecutar eliminación validada (requiere "BORRAR" y validaciones de impacto)
+  const handleConfirmDelete = () => {
+    try {
+      setDeleteError(null);
+      if (!deleteTarget) return;
+
+      const normalizedWord = deleteConfirmInput.trim().toUpperCase();
+      if (normalizedWord !== "BORRAR") {
+        throw new Error('Por seguridad, debe escribir exactamente la palabra "BORRAR" para confirmar.');
+      }
+
+      if (deleteTarget.kind === "PRODUCT") {
+        const prod = deleteTarget.product;
+        const hasRemainingStock = !toDecimal(prod.currentStock).isZero();
+        if (hasRemainingStock && !ackImpactCheckbox) {
+          throw new Error(
+            `El producto "${prod.name}" tiene ${prod.currentStock} unds en stock. Debe marcar la casilla de verificación de impacto antes de borrar.`,
+          );
+        }
+
+        if (db) {
+          deleteProduct(
+            db,
+            {
+              productId: prod.id,
+              confirmationWord: normalizedWord,
+              clearRemainingStock: hasRemainingStock && clearStockOnDelete,
+              terminalId,
+            },
+            Date.now(),
+          );
+          reloadData();
+          onProductDeleted?.(prod.id);
+        } else {
+          setItems((prev) => prev.filter((p) => p.id !== prod.id));
+        }
+      } else {
+        const { category, affectedCount } = deleteTarget;
+        if (affectedCount > 0 && !ackImpactCheckbox) {
+          throw new Error(
+            `La categoría "${category.name}" contiene ${affectedCount} producto(s). Confirme la casilla para reasignarlos a "Sin Categoría".`,
+          );
+        }
+
+        if (db) {
+          deleteCategory(
+            db,
+            {
+              categoryId: category.id,
+              confirmationWord: normalizedWord,
+            },
+            Date.now(),
+          );
+          if (selectedCategory === category.id) {
+            setSelectedCategory("ALL");
+          }
+          if (formCategoryId === category.id) {
+            setFormCategoryId(null);
+          }
+          reloadData();
+          onCategoryDeleted?.(category.id);
+        } else {
+          setCategories((prev) => prev.filter((c) => c.id !== category.id));
+          if (selectedCategory === category.id) {
+            setSelectedCategory("ALL");
+          }
+        }
+      }
+
+      setDeleteTarget(null);
+      setDeleteConfirmInput("");
+    } catch (err) {
+      setDeleteError((err as Error).message);
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Barra Superior con Buscador y Botón de Nuevo Producto */}
@@ -636,21 +748,31 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
             const isSelected = selectedCategory === cat.id;
             const count = organizationCounts.byCat[cat.id] ?? 0;
             return (
-              <TouchableOpacity
-                key={cat.id}
-                activeOpacity={0.8}
-                onPress={() => setSelectedCategory(cat.id)}
-                style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
-              >
-                <Text
-                  style={[
-                    styles.categoryChipText,
-                    isSelected && styles.categoryChipTextActive,
-                  ]}
+              <View key={cat.id} style={styles.categoryChipWrapper}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setSelectedCategory(cat.id)}
+                  style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
                 >
-                  {cat.name} ({count})
-                </Text>
-              </TouchableOpacity>
+                  <Text
+                    style={[
+                      styles.categoryChipText,
+                      isSelected && styles.categoryChipTextActive,
+                    ]}
+                  >
+                    {cat.name} ({count})
+                  </Text>
+                </TouchableOpacity>
+                {isSelected && (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => handleOpenDeleteCategory(cat)}
+                    style={styles.deleteCategoryChipBtn}
+                  >
+                    <Text style={styles.deleteCategoryChipBtnText}>🗑 Eliminar Categoría</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             );
           })}
 
@@ -926,6 +1048,14 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 >
                   <Text style={styles.editBtnText}>✎ Editar</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => handleOpenDeleteProduct(item)}
+                  style={styles.deleteRowBtn}
+                >
+                  <Text style={styles.deleteRowBtnText}>🗑 Eliminar</Text>
+                </TouchableOpacity>
               </View>
             </View>
           );
@@ -1181,6 +1311,19 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
             </ScrollView>
 
             <View style={styles.modalActions}>
+              {editingProductId && (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    const found = items.find((p) => p.id === editingProductId);
+                    if (found) handleOpenDeleteProduct(found);
+                  }}
+                  style={styles.modalDeleteProductBtn}
+                >
+                  <Text style={styles.modalDeleteProductBtnText}>🗑 Eliminar Producto</Text>
+                </TouchableOpacity>
+              )}
+
               <TouchableOpacity
                 activeOpacity={0.7}
                 onPress={() => setIsProductModalOpen(false)}
@@ -1307,6 +1450,169 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 style={styles.saveBtn}
               >
                 <Text style={styles.saveBtnText}>REGISTRAR EN KARDEX</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal 3: Confirmación de Eliminación con Validación Estricta ("BORRAR") */}
+      <Modal visible={deleteTarget !== null} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, styles.dangerModalCard]}>
+            <Text style={styles.dangerModalTitle}>
+              {deleteTarget?.kind === "PRODUCT"
+                ? "⚠️ Confirmar Eliminación de Producto"
+                : "⚠️ Confirmar Eliminación de Categoría"}
+            </Text>
+
+            {deleteTarget?.kind === "PRODUCT" && (
+              <View style={styles.deleteSummaryBox}>
+                <Text style={styles.deleteEntityName}>
+                  {deleteTarget.product.name} (SKU: {deleteTarget.product.sku})
+                </Text>
+                <Text style={styles.deleteEntitySub}>
+                  Stock actual:{" "}
+                  <Text style={typography.tabularNumeric}>
+                    {deleteTarget.product.currentStock} unds
+                  </Text>{" "}
+                  • Precio: {formatUsd(deleteTarget.product.priceUsd)}
+                </Text>
+                <Text style={styles.deleteNoticeText}>
+                  El producto se dará de baja del catálogo activo (sincronizado por P2P) sin
+                  alterar las facturas emitidas ni el historial de auditoría del Kardex.
+                </Text>
+
+                {!toDecimal(deleteTarget.product.currentStock).isZero() && (
+                  <View style={styles.stockWarningBox}>
+                    <Text style={styles.stockWarningTitle}>
+                      ⚠️ Atención: Este producto tiene stock distinto de cero (
+                      {deleteTarget.product.currentStock} unds)
+                    </Text>
+
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setClearStockOnDelete((prev) => !prev)}
+                      style={styles.checkboxRow}
+                    >
+                      <View
+                        style={[
+                          styles.checkboxSquare,
+                          clearStockOnDelete && styles.checkboxSquareActive,
+                        ]}
+                      >
+                        {clearStockOnDelete && <Text style={styles.checkboxMark}>✓</Text>}
+                      </View>
+                      <Text style={styles.checkboxLabel}>
+                        Registrar ajuste automático en Kardex para dejar el stock en 0.0000 unds
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setAckImpactCheckbox((prev) => !prev)}
+                      style={styles.checkboxRow}
+                    >
+                      <View
+                        style={[
+                          styles.checkboxSquare,
+                          ackImpactCheckbox && styles.checkboxSquareDangerActive,
+                        ]}
+                      >
+                        {ackImpactCheckbox && <Text style={styles.checkboxMark}>✓</Text>}
+                      </View>
+                      <Text style={styles.checkboxLabel}>
+                        Confirmo que revisé las existencias físicas de este producto antes de
+                        eliminarlo *
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {deleteTarget?.kind === "CATEGORY" && (
+              <View style={styles.deleteSummaryBox}>
+                <Text style={styles.deleteEntityName}>
+                  Categoría: {deleteTarget.category.name}
+                </Text>
+                <Text style={styles.deleteEntitySub}>
+                  Productos asociados actualmente: {deleteTarget.affectedCount} SKU(s)
+                </Text>
+                <Text style={styles.deleteNoticeText}>
+                  Los productos dentro de esta categoría NO serán eliminados; pasarán
+                  automáticamente a &quot;Sin Categoría&quot;.
+                </Text>
+
+                {deleteTarget.affectedCount > 0 && (
+                  <View style={styles.stockWarningBox}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setAckImpactCheckbox((prev) => !prev)}
+                      style={styles.checkboxRow}
+                    >
+                      <View
+                        style={[
+                          styles.checkboxSquare,
+                          ackImpactCheckbox && styles.checkboxSquareDangerActive,
+                        ]}
+                      >
+                        {ackImpactCheckbox && <Text style={styles.checkboxMark}>✓</Text>}
+                      </View>
+                      <Text style={styles.checkboxLabel}>
+                        Entiendo que {deleteTarget.affectedCount} producto(s) quedarán bajo
+                        &quot;Sin Categoría&quot; *
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {deleteError && <Text style={styles.errorText}>{deleteError}</Text>}
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>
+                Para prevenir errores accidentales, escriba exactamente{" "}
+                <Text style={{ color: colors.dark.error }}>BORRAR</Text> en el campo:
+              </Text>
+              <TextInput
+                style={[
+                  styles.modalInput,
+                  deleteConfirmInput.trim().toUpperCase() === "BORRAR" &&
+                    styles.deleteInputConfirmed,
+                ]}
+                placeholder='Escriba "BORRAR" aquí...'
+                placeholderTextColor={colors.dark.textMuted}
+                autoCapitalize="characters"
+                value={deleteConfirmInput}
+                onChangeText={setDeleteConfirmInput}
+              />
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  setDeleteTarget(null);
+                  setDeleteConfirmInput("");
+                  setDeleteError(null);
+                }}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleConfirmDelete}
+                style={[
+                  styles.confirmDeleteBtn,
+                  deleteConfirmInput.trim().toUpperCase() !== "BORRAR" &&
+                    styles.confirmDeleteBtnDisabled,
+                ]}
+              >
+                <Text style={styles.confirmDeleteBtnText}>CONFIRMAR Y BORRAR</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1996,6 +2302,161 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   saveBtnText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  categoryChipWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  deleteCategoryChipBtn: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusFull,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.error,
+  },
+  deleteCategoryChipBtnText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
+  },
+  deleteRowBtn: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.error,
+  },
+  deleteRowBtnText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
+  },
+  modalDeleteProductBtn: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.error,
+    marginRight: "auto",
+  },
+  modalDeleteProductBtnText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
+  },
+  dangerModalCard: {
+    borderColor: colors.dark.error,
+    borderWidth: 1.5,
+  },
+  dangerModalTitle: {
+    fontSize: typography.sizes.titleLg,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
+    marginBottom: spacing.sm,
+  },
+  deleteSummaryBox: {
+    backgroundColor: colors.dark.surfaceContainer,
+    borderRadius: spacing.radiusMd,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+    gap: 6,
+  },
+  deleteEntityName: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  deleteEntitySub: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.primaryGlow,
+  },
+  deleteNoticeText: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+    marginTop: 2,
+  },
+  stockWarningBox: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    backgroundColor: "rgba(245, 158, 11, 0.12)",
+    borderRadius: spacing.radiusMd,
+    borderWidth: 1,
+    borderColor: colors.dark.warning,
+    gap: spacing.xs,
+  },
+  stockWarningTitle: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.warning,
+  },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    minHeight: 40,
+    paddingVertical: 4,
+  },
+  checkboxSquare: {
+    width: 24,
+    height: 24,
+    borderRadius: spacing.radiusSm,
+    borderWidth: 1.5,
+    borderColor: colors.dark.textSecondary,
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxSquareActive: {
+    backgroundColor: colors.dark.primary,
+    borderColor: colors.dark.primaryGlow,
+  },
+  checkboxSquareDangerActive: {
+    backgroundColor: colors.dark.error,
+    borderColor: colors.dark.error,
+  },
+  checkboxMark: {
+    fontSize: 14,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  checkboxLabel: {
+    flex: 1,
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textPrimary,
+    fontWeight: typography.weights.medium,
+  },
+  deleteInputConfirmed: {
+    borderColor: colors.dark.error,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+  },
+  confirmDeleteBtn: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: colors.dark.error,
+    paddingHorizontal: spacing.xl,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  confirmDeleteBtnDisabled: {
+    opacity: 0.45,
+  },
+  confirmDeleteBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
     color: colors.dark.textPrimary,

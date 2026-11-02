@@ -191,6 +191,16 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           }
           return;
         }
+        if (/SET category_id = NULL, updated_at = \? WHERE category_id = \?/i.test(norm)) {
+          const [updated_at, category_id] = params;
+          for (const row of store.products) {
+            if (row.category_id === category_id) {
+              row.category_id = null;
+              row.updated_at = updated_at ?? Date.now();
+            }
+          }
+          return;
+        }
         if (/name = \?, sku = \?, barcode = \?/i.test(norm)) {
           const [
             name,
@@ -222,7 +232,7 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         }
       }
 
-      // 3. INSERT INTO categories
+      // 3. INSERT / DELETE categories
       if (/^INSERT INTO categories/i.test(norm)) {
         const [id, name, created_at] = params;
         store.categories.push({
@@ -230,6 +240,11 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           name: name ?? "",
           created_at: created_at ?? Date.now(),
         });
+        return;
+      }
+      if (/^DELETE FROM categories WHERE id = \?/i.test(norm)) {
+        const [id] = params;
+        store.categories = store.categories.filter((c) => c.id !== id);
         return;
       }
 
