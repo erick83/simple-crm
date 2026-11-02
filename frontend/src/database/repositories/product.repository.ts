@@ -14,6 +14,8 @@ export interface NewProduct {
   categoryId?: string;
   taxRate?: string;
   minStock?: string;
+  /** Unidad de medida (ej. 'und', 'kg', 'g', 'l', 'caja', 'paq'). Por defecto 'und'. */
+  unit?: string;
 }
 
 export interface UpdateProductInput {
@@ -26,6 +28,7 @@ export interface UpdateProductInput {
   costUsd?: string;
   taxRate?: string;
   minStock?: string;
+  unit?: string;
   imagePath?: string | null;
   terminalId?: string;
 }
@@ -34,6 +37,7 @@ export interface StockRow {
   productId: string;
   sku: string;
   name: string;
+  unit: string;
   /** Decimal exacto con 4 decimales (cantidades). */
   currentStock: string;
 }
@@ -49,6 +53,7 @@ export interface ProductEntity {
   costUsd: string;
   taxRate: string;
   imagePath: string | null;
+  unit?: string;
   minStock: string;
   isActive: boolean;
   createdAt: number;
@@ -73,6 +78,7 @@ export interface InventoryItemWithStock {
   costUsd: string;
   taxRate: string;
   imagePath: string | null;
+  unit: string;
   minStock: string;
   currentStock: string;
   isLowStock: boolean;
@@ -124,10 +130,11 @@ export function insertProduct(
   const costStr = cost.toFixed(4);
   const taxRateStr = toDecimal(p.taxRate ?? "0.16", "taxRate").toFixed(4);
   const minStockStr = toDecimal(p.minStock ?? "5", "minStock").toFixed(4);
+  const unit = (p.unit ?? "und").trim() || "und";
 
   db.run(
-    `INSERT INTO products (id, tenant_id, category_id, barcode, sku, name, price_usd, cost_usd, tax_rate, min_stock, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO products (id, tenant_id, category_id, barcode, sku, name, price_usd, cost_usd, tax_rate, unit, min_stock, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       p.tenantId,
@@ -138,6 +145,7 @@ export function insertProduct(
       priceStr,
       costStr,
       taxRateStr,
+      unit,
       minStockStr,
       now,
       now,
@@ -161,6 +169,7 @@ export function insertProduct(
         priceUsd: priceStr,
         costUsd: costStr,
         taxRate: taxRateStr,
+        unit,
         minStock: minStockStr,
         imagePath: null,
         isActive: true,
@@ -190,6 +199,7 @@ export function updateProduct(
     cost_usd: string;
     tax_rate: string;
     image_path: string | null;
+    unit?: string;
     min_stock: string;
     is_active: number;
     created_at: number;
@@ -248,6 +258,11 @@ export function updateProduct(
       ? toDecimal(input.minStock, "minStock").toFixed(4)
       : existing.min_stock;
 
+  const nextUnit =
+    input.unit !== undefined
+      ? input.unit.trim() || "und"
+      : existing.unit || "und";
+
   const nextName = input.name !== undefined ? input.name.trim() : existing.name;
   const nextCategoryId = input.categoryId !== undefined ? input.categoryId : existing.category_id;
   const nextImagePath = input.imagePath !== undefined ? input.imagePath : existing.image_path;
@@ -256,7 +271,7 @@ export function updateProduct(
   db.run(
     `UPDATE products SET
        name = ?, sku = ?, barcode = ?, category_id = ?, price_usd = ?, cost_usd = ?,
-       tax_rate = ?, min_stock = ?, image_path = ?, updated_at = ?
+       tax_rate = ?, unit = ?, min_stock = ?, image_path = ?, updated_at = ?
      WHERE id = ?`,
     [
       nextName,
@@ -266,6 +281,7 @@ export function updateProduct(
       nextPrice,
       nextCost,
       nextTax,
+      nextUnit,
       nextMinStock,
       nextImagePath,
       now,
@@ -290,6 +306,7 @@ export function updateProduct(
         priceUsd: nextPrice,
         costUsd: nextCost,
         taxRate: nextTax,
+        unit: nextUnit,
         minStock: nextMinStock,
         imagePath: nextImagePath,
         isActive: existing.is_active === 1,
@@ -310,6 +327,7 @@ export function updateProduct(
     priceUsd: nextPrice,
     costUsd: nextCost,
     taxRate: nextTax,
+    unit: nextUnit,
     imagePath: nextImagePath,
     minStock: nextMinStock,
     isActive: existing.is_active === 1,
@@ -372,6 +390,7 @@ export function getProductById(db: SqlDriver, id: string): ProductEntity | undef
     cost_usd: string;
     tax_rate: string;
     image_path: string | null;
+    unit?: string;
     min_stock: string;
     is_active: number;
     created_at: number;
@@ -390,6 +409,7 @@ export function getProductById(db: SqlDriver, id: string): ProductEntity | undef
     costUsd: r.cost_usd,
     taxRate: r.tax_rate,
     imagePath: r.image_path,
+    unit: r.unit ?? "und",
     minStock: r.min_stock,
     isActive: r.is_active === 1,
     createdAt: r.created_at,
@@ -417,6 +437,7 @@ export function getProductByBarcode(
     cost_usd: string;
     tax_rate: string;
     image_path: string | null;
+    unit?: string;
     min_stock: string;
     is_active: number;
     created_at: number;
@@ -435,6 +456,7 @@ export function getProductByBarcode(
     costUsd: r.cost_usd,
     taxRate: r.tax_rate,
     imagePath: r.image_path,
+    unit: r.unit ?? "und",
     minStock: r.min_stock,
     isActive: r.is_active === 1,
     createdAt: r.created_at,
@@ -462,6 +484,7 @@ export function getProductBySku(
     cost_usd: string;
     tax_rate: string;
     image_path: string | null;
+    unit?: string;
     min_stock: string;
     is_active: number;
     created_at: number;
@@ -480,6 +503,7 @@ export function getProductBySku(
     costUsd: r.cost_usd,
     taxRate: r.tax_rate,
     imagePath: r.image_path,
+    unit: r.unit ?? "und",
     minStock: r.min_stock,
     isActive: r.is_active === 1,
     createdAt: r.created_at,
@@ -618,8 +642,8 @@ export function addStockMovement(
 
 /** Lee stock vigente desde la vista `v_product_current_stock`. */
 export function getCurrentStock(db: SqlDriver, productId: string): StockRow | undefined {
-  const [row] = db.all<{ product_id: string; sku: string; name: string; current_stock_e4: number }>(
-    "SELECT product_id, sku, name, current_stock_e4 FROM v_product_current_stock WHERE product_id = ?",
+  const [row] = db.all<{ product_id: string; sku: string; name: string; unit?: string; current_stock_e4: number }>(
+    "SELECT product_id, sku, name, unit, current_stock_e4 FROM v_product_current_stock WHERE product_id = ?",
     [productId],
   );
   if (!row) return undefined;
@@ -627,6 +651,7 @@ export function getCurrentStock(db: SqlDriver, productId: string): StockRow | un
     productId: row.product_id,
     sku: row.sku,
     name: row.name,
+    unit: row.unit ?? "und",
     currentStock: new Decimal(row.current_stock_e4).div(10000).toFixed(4),
   };
 }
@@ -645,6 +670,7 @@ export function getAllActiveProducts(db: SqlDriver): ProductEntity[] {
       cost_usd: string;
       tax_rate: string;
       image_path: string | null;
+      unit?: string;
       min_stock: string;
       is_active: number;
       created_at: number;
@@ -661,6 +687,7 @@ export function getAllActiveProducts(db: SqlDriver): ProductEntity[] {
       costUsd: r.cost_usd,
       taxRate: r.tax_rate,
       imagePath: r.image_path,
+      unit: r.unit ?? "und",
       minStock: r.min_stock,
       isActive: r.is_active === 1,
       createdAt: r.created_at,
@@ -678,7 +705,7 @@ export function listInventoryWithStock(
     SELECT
       p.id, p.tenant_id, p.sku, p.barcode, p.name, p.category_id,
       c.name AS category_name, p.price_usd, p.cost_usd, p.tax_rate,
-      p.image_path, p.min_stock, p.is_active, p.updated_at,
+      p.image_path, p.unit, p.min_stock, p.is_active, p.updated_at,
       COALESCE(SUM(CAST(REPLACE(sm.quantity_delta, '.', '') AS INTEGER)), 0) AS current_stock_e4
     FROM products p
     LEFT JOIN categories c ON p.category_id = c.id
@@ -710,6 +737,7 @@ export function listInventoryWithStock(
     cost_usd: string;
     tax_rate: string;
     image_path: string | null;
+    unit?: string;
     min_stock: string;
     is_active: number;
     updated_at: number;
@@ -743,6 +771,7 @@ export function listInventoryWithStock(
       costUsd: formatFixed4(r.cost_usd),
       taxRate: formatFixed4(r.tax_rate),
       imagePath: r.image_path,
+      unit: r.unit ?? "und",
       minStock,
       currentStock,
       isLowStock,

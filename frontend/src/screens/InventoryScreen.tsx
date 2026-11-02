@@ -13,7 +13,14 @@ import {
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
-import { formatUsd, formatVes, convertUsdToVes, formatFixed4, toDecimal } from "../utils/decimal";
+import {
+  formatUsd,
+  formatVes,
+  convertUsdToVes,
+  formatFixed4,
+  toDecimal,
+  formatQuantity,
+} from "../utils/decimal";
 import { getOrCreateDefaultSqlDriver } from "../database/connection";
 import type { SqlDriver } from "../database/connection";
 import {
@@ -73,6 +80,7 @@ const DEFAULT_ITEMS: InventoryItemWithStock[] = [
     costUsd: "0.9500",
     taxRate: "0.1600",
     imagePath: null,
+    unit: "paq",
     minStock: "5.0000",
     currentStock: "24.0000",
     isLowStock: false,
@@ -91,6 +99,7 @@ const DEFAULT_ITEMS: InventoryItemWithStock[] = [
     costUsd: "1.1000",
     taxRate: "0.1600",
     imagePath: null,
+    unit: "kg",
     minStock: "5.0000",
     currentStock: "4.0000",
     isLowStock: true,
@@ -109,6 +118,7 @@ const DEFAULT_ITEMS: InventoryItemWithStock[] = [
     costUsd: "2.9000",
     taxRate: "0.1600",
     imagePath: null,
+    unit: "l",
     minStock: "5.0000",
     currentStock: "12.0000",
     isLowStock: false,
@@ -116,6 +126,15 @@ const DEFAULT_ITEMS: InventoryItemWithStock[] = [
     updatedAt: Date.now(),
   },
 ];
+
+export const UNIT_OPTIONS = [
+  { id: "und", label: "Unidad (und)" },
+  { id: "kg", label: "Kilogramo (kg)" },
+  { id: "g", label: "Gramo (g)" },
+  { id: "l", label: "Litro (l)" },
+  { id: "caja", label: "Caja" },
+  { id: "paq", label: "Paquete (paq)" },
+] as const;
 
 export type InventorySortBy =
   | "NAME_ASC"
@@ -177,10 +196,11 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   const [formBarcode, setFormBarcode] = useState("");
   const [formCategoryId, setFormCategoryId] = useState<string | null>(null);
   const [newModalCategoryName, setNewModalCategoryName] = useState("");
+  const [formUnit, setFormUnit] = useState<string>("und");
   const [formPriceUsd, setFormPriceUsd] = useState("");
   const [formCostUsd, setFormCostUsd] = useState("");
-  const [formMinStock, setFormMinStock] = useState("5.0000");
-  const [formInitialStock, setFormInitialStock] = useState("0.0000");
+  const [formMinStock, setFormMinStock] = useState("5");
+  const [formInitialStock, setFormInitialStock] = useState("0");
   const [formImagePath, setFormImagePath] = useState<string | null>(null);
   const [pendingImageBytes, setPendingImageBytes] = useState<Uint8Array | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
@@ -350,10 +370,11 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
         : null,
     );
     setNewModalCategoryName("");
+    setFormUnit("und");
     setFormPriceUsd("");
     setFormCostUsd("");
-    setFormMinStock("5.0000");
-    setFormInitialStock("0.0000");
+    setFormMinStock("5");
+    setFormInitialStock("0");
     setFormImagePath(null);
     setPendingImageBytes(null);
     setRemoveExistingImage(false);
@@ -369,10 +390,11 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormBarcode(item.barcode ?? "");
     setFormCategoryId(item.categoryId);
     setNewModalCategoryName("");
+    setFormUnit(item.unit || "und");
     setFormPriceUsd(item.priceUsd);
     setFormCostUsd(item.costUsd);
-    setFormMinStock(item.minStock);
-    setFormInitialStock(item.currentStock);
+    setFormMinStock(formatQuantity(item.minStock));
+    setFormInitialStock(formatQuantity(item.currentStock));
     setFormImagePath(item.imagePath);
     setPendingImageBytes(null);
     setRemoveExistingImage(false);
@@ -457,6 +479,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               sku: formSku.trim(),
               barcode: formBarcode.trim() || undefined,
               categoryId: finalCategoryId ?? undefined,
+              unit: formUnit.trim() || "und",
               priceUsd: priceDec.toFixed(4),
               costUsd: costDec.toFixed(4),
               minStock: minStockDec.toFixed(4),
@@ -487,6 +510,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               sku: formSku.trim(),
               barcode: formBarcode.trim() || null,
               categoryId: finalCategoryId,
+              unit: formUnit.trim() || "und",
               priceUsd: priceDec.toFixed(4),
               costUsd: costDec.toFixed(4),
               minStock: minStockDec.toFixed(4),
@@ -630,7 +654,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
         const hasRemainingStock = !toDecimal(prod.currentStock).isZero();
         if (hasRemainingStock && !ackImpactCheckbox) {
           throw new Error(
-            `El producto "${prod.name}" tiene ${prod.currentStock} unds en stock. Debe marcar la casilla de verificación de impacto antes de borrar.`,
+            `El producto "${prod.name}" tiene ${formatQuantity(prod.currentStock, prod.unit)} en stock. Debe marcar la casilla de verificación de impacto antes de borrar.`,
           );
         }
 
@@ -934,7 +958,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
             <View style={styles.kpiItem}>
               <Text style={styles.kpiLabel}>MOSTRANDO</Text>
               <Text style={[styles.kpiValue, typography.tabularNumeric]}>
-                {inventorySummary.skuCount} SKUs ({inventorySummary.totalUnits} unds)
+                {inventorySummary.skuCount} SKUs ({formatQuantity(inventorySummary.totalUnits)} unds)
               </Text>
             </View>
             <View style={styles.kpiDivider} />
@@ -1025,7 +1049,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                       item.isLowStock ? styles.lowStockText : styles.normalStockText,
                     ]}
                   >
-                    {item.currentStock} unds
+                    {formatQuantity(item.currentStock, item.unit)}
                   </Text>
                 </View>
                 {item.isLowStock && <Text style={styles.alertText}>Alerta Stock Bajo</Text>}
@@ -1213,6 +1237,40 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 </View>
               </View>
 
+              {/* Selector Táctil de Unidad de Medida */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Unidad de Medida *</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.modalCategoryRow}
+                >
+                  {UNIT_OPTIONS.map((u) => {
+                    const isSelected = formUnit === u.id;
+                    return (
+                      <TouchableOpacity
+                        key={u.id}
+                        activeOpacity={0.8}
+                        onPress={() => setFormUnit(u.id)}
+                        style={[
+                          styles.modalCategoryOption,
+                          isSelected && styles.modalCategoryOptionActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modalCategoryOptionText,
+                            isSelected && styles.modalCategoryOptionTextActive,
+                          ]}
+                        >
+                          {u.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
               <View style={styles.rowInputs}>
                 <View style={[styles.inputGroup, { flex: 1 }]}>
                   <Text style={styles.inputLabel}>Precio Base USD ($) *</Text>
@@ -1239,10 +1297,10 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 </View>
 
                 <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>Stock Mínimo (Alerta)</Text>
+                  <Text style={styles.inputLabel}>Stock Mínimo ({formUnit})</Text>
                   <TextInput
                     style={[styles.modalInput, typography.tabularNumeric]}
-                    placeholder="5.0000"
+                    placeholder="5"
                     keyboardType="decimal-pad"
                     placeholderTextColor={colors.dark.textMuted}
                     value={formMinStock}
@@ -1252,10 +1310,10 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
 
                 {!editingProductId && (
                   <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.inputLabel}>Stock Inicial (Unds)</Text>
+                    <Text style={styles.inputLabel}>Stock Inicial ({formUnit})</Text>
                     <TextInput
                       style={[styles.modalInput, typography.tabularNumeric]}
-                      placeholder="0.0000"
+                      placeholder="0"
                       keyboardType="decimal-pad"
                       placeholderTextColor={colors.dark.textMuted}
                       value={formInitialStock}
@@ -1353,7 +1411,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               <Text style={styles.modalSubtitle}>
                 {kardexProduct.name} (SKU: {kardexProduct.sku}) — Stock actual:{" "}
                 <Text style={{ color: colors.dark.hero, fontWeight: "bold" }}>
-                  {kardexProduct.currentStock} unds
+                  {formatQuantity(kardexProduct.currentStock, kardexProduct.unit)}
                 </Text>
               </Text>
             )}
@@ -1389,10 +1447,12 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
 
             <View style={styles.rowInputs}>
               <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.inputLabel}>Cantidad Delta (ej. 10.0000 o -2.0000):</Text>
+                <Text style={styles.inputLabel}>
+                  Cantidad Delta {kardexProduct?.unit ? `(${kardexProduct.unit})` : ""}:
+                </Text>
                 <TextInput
                   style={[styles.modalInput, typography.tabularNumeric]}
-                  placeholder="0.0000"
+                  placeholder="0"
                   keyboardType="decimal-pad"
                   placeholderTextColor={colors.dark.textMuted}
                   value={kardexDelta}
@@ -1428,7 +1488,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                           : styles.historyPositive,
                       ]}
                     >
-                      {mov.quantityDelta} unds
+                      {formatQuantity(mov.quantityDelta, kardexProduct?.unit)}
                     </Text>
                   </View>
                 ))}
@@ -1474,7 +1534,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 <Text style={styles.deleteEntitySub}>
                   Stock actual:{" "}
                   <Text style={typography.tabularNumeric}>
-                    {deleteTarget.product.currentStock} unds
+                    {formatQuantity(deleteTarget.product.currentStock, deleteTarget.product.unit)}
                   </Text>{" "}
                   • Precio: {formatUsd(deleteTarget.product.priceUsd)}
                 </Text>
@@ -1487,7 +1547,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                   <View style={styles.stockWarningBox}>
                     <Text style={styles.stockWarningTitle}>
                       ⚠️ Atención: Este producto tiene stock distinto de cero (
-                      {deleteTarget.product.currentStock} unds)
+                      {formatQuantity(deleteTarget.product.currentStock, deleteTarget.product.unit)})
                     </Text>
 
                     <TouchableOpacity
@@ -1504,7 +1564,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                         {clearStockOnDelete && <Text style={styles.checkboxMark}>✓</Text>}
                       </View>
                       <Text style={styles.checkboxLabel}>
-                        Registrar ajuste automático en Kardex para dejar el stock en 0.0000 unds
+                        Registrar ajuste automático en Kardex para dejar el stock en 0 {deleteTarget.product.unit}
                       </Text>
                     </TouchableOpacity>
 

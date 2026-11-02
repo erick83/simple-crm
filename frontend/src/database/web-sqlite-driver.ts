@@ -66,6 +66,7 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           category_id: p.category_id ?? null,
           price_usd: p.price_usd ?? null,
           cost_usd: p.cost_usd ?? null,
+          unit: p.unit ?? "und",
           min_stock: p.min_stock ?? null,
           image_path: p.image_path ?? null,
           current_stock_e4: sumE4,
@@ -111,14 +112,49 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
             price_usd: price_usd ?? "0.0000",
             cost_usd: cost_usd ?? "0.0000",
             tax_rate: tax_rate ?? "0.1600",
+            unit: "und",
             image_path: image_path ?? null,
             min_stock: min_stock ?? "5.0000",
             is_active: is_active ?? 1,
             created_at: created_at ?? Date.now(),
             updated_at: updated_at ?? Date.now(),
           });
+        } else if (norm.includes("tax_rate, unit, min_stock")) {
+          // Desde insertProduct con unit
+          const [
+            id,
+            tenant_id,
+            category_id,
+            barcode,
+            sku,
+            name,
+            price_usd,
+            cost_usd,
+            tax_rate,
+            unit,
+            min_stock,
+            created_at,
+            updated_at,
+          ] = params;
+          store.products.push({
+            id: id ?? null,
+            tenant_id: tenant_id ?? "TENANT-001",
+            category_id: category_id ?? null,
+            barcode: barcode ?? null,
+            sku: sku ?? "",
+            name: name ?? "",
+            price_usd: price_usd ?? "0.0000",
+            cost_usd: cost_usd ?? "0.0000",
+            tax_rate: tax_rate ?? "0.1600",
+            unit: unit ?? "und",
+            image_path: null,
+            min_stock: min_stock ?? "5.0000",
+            is_active: 1,
+            created_at: created_at ?? Date.now(),
+            updated_at: updated_at ?? Date.now(),
+          });
         } else {
-          // Desde insertProduct
+          // Desde insertProduct legado sin unit
           const [
             id,
             tenant_id,
@@ -143,6 +179,7 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
             price_usd: price_usd ?? "0.0000",
             cost_usd: cost_usd ?? "0.0000",
             tax_rate: tax_rate ?? "0.1600",
+            unit: "und",
             image_path: null,
             min_stock: min_stock ?? "5.0000",
             is_active: 1,
@@ -202,31 +239,62 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           return;
         }
         if (/name = \?, sku = \?, barcode = \?/i.test(norm)) {
-          const [
-            name,
-            sku,
-            barcode,
-            category_id,
-            price_usd,
-            cost_usd,
-            tax_rate,
-            min_stock,
-            image_path,
-            updated_at,
-            id,
-          ] = params;
-          const row = store.products.find((p) => p.id === id);
-          if (row) {
-            row.name = name ?? row.name ?? "";
-            row.sku = sku ?? row.sku ?? "";
-            row.barcode = barcode ?? null;
-            row.category_id = category_id ?? null;
-            row.price_usd = price_usd ?? row.price_usd ?? "0.0000";
-            row.cost_usd = cost_usd ?? row.cost_usd ?? "0.0000";
-            row.tax_rate = tax_rate ?? row.tax_rate ?? "0.1600";
-            row.min_stock = min_stock ?? row.min_stock ?? "5.0000";
-            row.image_path = image_path ?? null;
-            row.updated_at = updated_at ?? Date.now();
+          if (norm.includes("tax_rate = ?, unit = ?, min_stock = ?")) {
+            const [
+              name,
+              sku,
+              barcode,
+              category_id,
+              price_usd,
+              cost_usd,
+              tax_rate,
+              unit,
+              min_stock,
+              image_path,
+              updated_at,
+              id,
+            ] = params;
+            const row = store.products.find((p) => p.id === id);
+            if (row) {
+              row.name = name ?? row.name ?? "";
+              row.sku = sku ?? row.sku ?? "";
+              row.barcode = barcode ?? null;
+              row.category_id = category_id ?? null;
+              row.price_usd = price_usd ?? row.price_usd ?? "0.0000";
+              row.cost_usd = cost_usd ?? row.cost_usd ?? "0.0000";
+              row.tax_rate = tax_rate ?? row.tax_rate ?? "0.1600";
+              row.unit = unit ?? row.unit ?? "und";
+              row.min_stock = min_stock ?? row.min_stock ?? "5.0000";
+              row.image_path = image_path ?? null;
+              row.updated_at = updated_at ?? Date.now();
+            }
+          } else {
+            const [
+              name,
+              sku,
+              barcode,
+              category_id,
+              price_usd,
+              cost_usd,
+              tax_rate,
+              min_stock,
+              image_path,
+              updated_at,
+              id,
+            ] = params;
+            const row = store.products.find((p) => p.id === id);
+            if (row) {
+              row.name = name ?? row.name ?? "";
+              row.sku = sku ?? row.sku ?? "";
+              row.barcode = barcode ?? null;
+              row.category_id = category_id ?? null;
+              row.price_usd = price_usd ?? row.price_usd ?? "0.0000";
+              row.cost_usd = cost_usd ?? row.cost_usd ?? "0.0000";
+              row.tax_rate = tax_rate ?? row.tax_rate ?? "0.1600";
+              row.min_stock = min_stock ?? row.min_stock ?? "5.0000";
+              row.image_path = image_path ?? null;
+              row.updated_at = updated_at ?? Date.now();
+            }
           }
           return;
         }
@@ -461,6 +529,7 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
               cost_usd: p.cost_usd,
               tax_rate: p.tax_rate,
               image_path: p.image_path,
+              unit: p.unit ?? "und",
               min_stock: p.min_stock,
               is_active: p.is_active,
               updated_at: p.updated_at,
@@ -697,6 +766,7 @@ export function seedInitialPosData(
         categoryId: catViveres,
         priceUsd: "1.2500",
         costUsd: "0.9500",
+        unit: "paq",
         minStock: "5.0000",
         initialStock: "24.0000",
       },
@@ -707,6 +777,7 @@ export function seedInitialPosData(
         categoryId: catGranos,
         priceUsd: "1.5000",
         costUsd: "1.1000",
+        unit: "kg",
         minStock: "5.0000",
         initialStock: "4.0000",
       },
@@ -717,6 +788,7 @@ export function seedInitialPosData(
         categoryId: catAceites,
         priceUsd: "3.8000",
         costUsd: "2.9000",
+        unit: "l",
         minStock: "5.0000",
         initialStock: "12.0000",
       },
@@ -727,6 +799,7 @@ export function seedInitialPosData(
         categoryId: catBebidas,
         priceUsd: "4.2000",
         costUsd: "3.1000",
+        unit: "paq",
         minStock: "5.0000",
         initialStock: "18.0000",
       },
@@ -737,6 +810,7 @@ export function seedInitialPosData(
         categoryId: catViveres,
         priceUsd: "1.7500",
         costUsd: "1.2500",
+        unit: "paq",
         minStock: "5.0000",
         initialStock: "30.0000",
       },
@@ -747,6 +821,7 @@ export function seedInitialPosData(
         categoryId: catViveres,
         priceUsd: "1.3500",
         costUsd: "0.9800",
+        unit: "kg",
         minStock: "5.0000",
         initialStock: "20.0000",
       },
@@ -763,6 +838,7 @@ export function seedInitialPosData(
           categoryId: item.categoryId,
           priceUsd: item.priceUsd,
           costUsd: item.costUsd,
+          unit: item.unit,
           minStock: item.minStock,
         },
         now + 10 + index,

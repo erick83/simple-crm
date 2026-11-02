@@ -70,3 +70,22 @@ export function convertUsdToVes(usdAmount: string | Decimal, rateToVes: string |
   return toDecimal(usdAmount).times(toDecimal(rateToVes)).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
 }
 
+/**
+ * Formatea una cantidad de inventario o ítems para visualización sin ceros decimales innecesarios.
+ * No muestra decimales si la cantidad es entera (ej. 24 en lugar de 24.0000).
+ * Si tiene fracciones decimales (ej. balanza de kg), muestra hasta los decimales significativos.
+ * Incluye opcionalmente la unidad de medida (ej. "24 und", "1.5 kg", "10 caja").
+ */
+export function formatQuantity(value: string | Decimal, unit?: string | null): string {
+  const d = toDecimal(value, "Cantidad");
+  const isNegative = d.isNegative() && !d.isZero();
+  const absFixed = d.abs().toFixed(4);
+  const clean = absFixed.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "");
+  const parts = clean.split(".");
+  const integerPart = parts[0]!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const formatted = `${isNegative ? "-" : ""}${parts.length > 1 ? `${integerPart}.${parts[1]}` : integerPart}`;
+  const trimmedUnit = unit?.trim();
+  return trimmedUnit ? `${formatted} ${trimmedUnit}` : formatted;
+}
+
+

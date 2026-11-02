@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS products (
     cost_usd TEXT NOT NULL,                    -- Costo de reposición en USD (decimal)
     tax_rate TEXT NOT NULL DEFAULT '0.16',     -- Alícuota de impuesto (ej. '0.16' para 16%)
     image_path TEXT,                           -- Ruta relativa al filesystem local (WebP <80KB)
+    unit TEXT NOT NULL DEFAULT 'und',          -- Unidad de medida ('und', 'kg', 'g', 'l', 'caja', 'paq')
     min_stock TEXT NOT NULL DEFAULT '5.0000',  -- Umbral para alerta de agotamiento
     is_active INTEGER NOT NULL DEFAULT 1,      -- 1=Activo, 0=Deshabilitado
     created_at INTEGER NOT NULL,               -- Timestamp Unix
@@ -193,6 +194,7 @@ SELECT
     p.cost_usd,
     p.min_stock,
     p.image_path,
+    p.unit,
     COALESCE(SUM(CAST(REPLACE(sm.quantity_delta, '.', '') AS INTEGER)), 0) AS current_stock_e4
 FROM products p
 LEFT JOIN stock_movements sm ON p.id = sm.product_id

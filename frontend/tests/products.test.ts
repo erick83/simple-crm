@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createTestDb } from "./helpers";
-import { addStockMovement, createCategory, getCurrentStock, insertProduct } from "../src/db/products";
+import { addStockMovement, createCategory, getCurrentStock, insertProduct, updateProduct, listInventoryWithStock } from "../src/db/products";
 import { uuidv7 } from "../src/lib/uuidv7";
+import { formatQuantity } from "../src/utils/decimal";
 
 const TENANT = uuidv7();
 const base = { tenantId: TENANT, sku: "SKU-1", name: "Harina PAN 1kg", priceUsd: "1.2", costUsd: "0.9" };
@@ -71,6 +72,42 @@ describe("productos y stock", () => {
     const [row] = db.all<{ category_id: string }>("SELECT category_id FROM products WHERE id = ?", [id]);
     expect(row?.category_id).toBe(cat);
     expect(() => createCategory(db, "Víveres")).toThrow();
+  });
+
+  it("almacena y consulta la unidad de medida del producto (unit)", () => {
+    const db = createTestDb();
+    const id = insertProduct(db, { ...base, sku: "KG-01", unit: "kg" });
+    const stock = getCurrentStock(db, id);
+    expect(stock?.unit).toBe("kg");
+
+    const [row] = db.all<{ unit: string }>("SELECT unit FROM products WHERE id = ?", [id]);
+    expect(row?.unit).toBe("kg");
+
+    // Por defecto si no se pasa unidad, es 'und'
+    const idDef = insertProduct(db, { ...base, sku: "UND-01" });
+    const stockDef = getCurrentStock(db, idDef);
+    expect(stockDef?.unit).toBe("und");
+
+    // Actualizar unidad
+    updateProduct(db, { id, unit: "caja" });
+    const [updatedRow] = db.all<{ unit: string }>("SELECT unit FROM products WHERE id = ?", [id]);
+    expect(updatedRow?.unit).toBe("caja");
+
+    // listInventoryWithStock incluye unit
+    const items = listInventoryWithStock(db, { tenantId: TENANT });
+    const found = items.find((i) => i.id === id);
+    expect(found?.unit).toBe("caja");
+  });
+
+  it("formatQuantity formatea cantidades enteras y decimales sin ceros innecesarios con su unidad", () => {
+    expect(formatQuantity("24.0000", "und")).toBe("24 und");
+    expect(formatQuantity("4.0000", "kg")).toBe("4 kg");
+    expect(formatQuantity("1.5000", "kg")).toBe("1.5 kg");
+    expect(formatQuantity("0.2500", "kg")).toBe("0.25 kg");
+    expect(formatQuantity("1250.0000", "caja")).toBe("1,250 caja");
+    expect(formatQuantity("-1.0000", "und")).toBe("-1 und");
+    expect(formatQuantity("0.0000", "paq")).toBe("0 paq");
+    expect(formatQuantity("10.0000")).toBe("10");
   });
 });
 
