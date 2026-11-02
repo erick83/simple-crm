@@ -12,6 +12,7 @@ import { SCHEMA_SQL } from "../src/database/schema.generated";
 import { migrateDatabase } from "../src/database/migrations";
 import { uuidv7 } from "../src/utils/uuid7";
 import { MonthlyBalanceScreen, ReportsScreen } from "../src/screens/MonthlyBalanceScreen";
+import { ExchangeRateLineChart } from "../src/components/ExchangeRateLineChart";
 
 describe("Design Tokens y Reglas de la Constitución", () => {
   it("cumple los colores de tema oscuro obligatorios", () => {
@@ -143,6 +144,46 @@ describe("Guardia de Reloj Monótono", () => {
     const elem = React.createElement(ReportsScreen, { db });
     expect(elem).toBeDefined();
     expect(MonthlyBalanceScreen).toBe(ReportsScreen);
+  });
+
+  it("renderiza el gráfico táctil de líneas de tasas BCV con puntos y deltas", () => {
+    // 1. Caso sin datos
+    const emptyElem = React.createElement(ExchangeRateLineChart, { rates: [] });
+    expect(emptyElem).toBeDefined();
+
+    // 2. Caso con puntos históricos
+    const ratesSample = [
+      {
+        rateDate: "2026-11-01",
+        rateToVes: "36.4500",
+        source: "BCV_AUTO" as const,
+        notes: null,
+      },
+      {
+        rateDate: "2026-11-02",
+        rateToVes: "36.5013",
+        source: "BCV_AUTO" as const,
+        notes: null,
+        deltaPreviousDay: "+0.0513",
+        percentPreviousDay: "+0.14%",
+      },
+      {
+        rateDate: "2026-11-03",
+        rateToVes: "36.6200",
+        source: "MANUAL" as const,
+        notes: "Sin internet en tienda",
+        deltaPreviousDay: "+0.1187",
+        percentPreviousDay: "+0.33%",
+      },
+    ];
+
+    const chartElem = React.createElement(ExchangeRateLineChart, {
+      rates: ratesSample,
+      height: 300,
+    });
+    expect(chartElem).toBeDefined();
+    expect(chartElem.props.rates).toHaveLength(3);
+    expect(chartElem.props.height).toBe(300);
   });
 });
 
