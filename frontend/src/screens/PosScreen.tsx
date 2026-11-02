@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   FlatList,
+  Image,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -22,6 +24,7 @@ import {
 } from "../utils/decimal";
 import type { SqlDriver } from "../database/connection";
 import { getCatalogWithBimonetaryPrices } from "../services/catalog.service";
+import type { BimonetaryProduct } from "../services/catalog.service";
 import { registerManualRate } from "../services/bcv-exchange.service";
 import { createInvoice } from "../database/repositories/invoice.repository";
 import type { PaymentMethod } from "../database/repositories/invoice.repository";
@@ -31,14 +34,28 @@ import {
   findProductByBarcode,
 } from "../services/barcode-scanner.service";
 import type { KeyEventTargetLike } from "../services/barcode-scanner.service";
+import { listCategories } from "../database/repositories/product.repository";
+import type { CategoryEntity } from "../database/repositories/product.repository";
+import {
+  createDefaultFileStore,
+  resolveProductImageUri,
+} from "../services/image-compressor.service";
+import type { FileStore } from "../services/image-compressor.service";
 
 export interface PosProductItem {
   id: string;
   sku: string;
-  barcode?: string;
+  barcode?: string | null;
   name: string;
   priceUsd: string;
   category?: string;
+  categoryId?: string | null;
+  categoryName?: string | null;
+  currentStock?: string;
+  minStock?: string;
+  isLowStock?: boolean;
+  unit?: string;
+  imagePath?: string | null;
 }
 
 export interface PosTicketItem {
@@ -53,6 +70,8 @@ export interface PosTicketItem {
 export interface PosScreenProps {
   db?: SqlDriver;
   terminalId?: string;
+  tenantId?: string;
+  fileStore?: FileStore;
   initialExchangeRate?: string;
   initialProducts?: PosProductItem[];
   keyEventTarget?: KeyEventTargetLike;
@@ -61,17 +80,19 @@ export interface PosScreenProps {
 }
 
 const DEFAULT_PRODUCTS: PosProductItem[] = [
-  { id: "1", sku: "HAR-01", name: "Harina PAN 1kg", priceUsd: "1.2500", category: "Víveres" },
-  { id: "2", sku: "ARR-02", name: "Arroz Primor 1kg", priceUsd: "1.5000", category: "Granos" },
-  { id: "3", sku: "ACE-03", name: "Aceite Mazeite 1L", priceUsd: "3.8000", category: "Aceites" },
-  { id: "4", sku: "CAF-04", name: "Café Fama de América 500g", priceUsd: "4.2000", category: "Bebidas" },
-  { id: "5", sku: "PAS-05", name: "Pasta Primor Corta 1kg", priceUsd: "1.7500", category: "Víveres" },
-  { id: "6", sku: "AZU-06", name: "Azúcar Montalbán 1kg", priceUsd: "1.3500", category: "Víveres" },
+  { id: "1", sku: "HAR-01", name: "Harina PAN 1kg", priceUsd: "1.2500", category: "Víveres", currentStock: "24.0000", minStock: "5.0000", isLowStock: false, unit: "und" },
+  { id: "2", sku: "ARR-02", name: "Arroz Primor 1kg", priceUsd: "1.5000", category: "Granos", currentStock: "3.0000", minStock: "5.0000", isLowStock: true, unit: "und" },
+  { id: "3", sku: "ACE-03", name: "Aceite Mazeite 1L", priceUsd: "3.8000", category: "Aceites", currentStock: "0.0000", minStock: "5.0000", isLowStock: true, unit: "und" },
+  { id: "4", sku: "CAF-04", name: "Café Fama de América 500g", priceUsd: "4.2000", category: "Bebidas", currentStock: "15.0000", minStock: "5.0000", isLowStock: false, unit: "und" },
+  { id: "5", sku: "PAS-05", name: "Pasta Primor Corta 1kg", priceUsd: "1.7500", category: "Víveres", currentStock: "18.0000", minStock: "5.0000", isLowStock: false, unit: "und" },
+  { id: "6", sku: "AZU-06", name: "Azúcar Montalbán 1kg", priceUsd: "1.3500", category: "Víveres", currentStock: "9.0000", minStock: "5.0000", isLowStock: false, unit: "und" },
 ];
 
 export const PosScreen: React.FC<PosScreenProps> = ({
   db,
   terminalId = "TERM-01",
+  tenantId = "TENANT-001",
+  fileStore: customFileStore,
   initialExchangeRate = "36.5000",
   initialProducts,
   keyEventTarget,
@@ -80,62 +101,60 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 }) => {
   const [exchangeRate, setExchangeRate] = useState<string>(initialExchangeRate);
   const [catalog, setCatalog] = useState<PosProductItem[]>(initialProducts ?? DEFAULT_PRODUCTS);
+  const [categories, setCategories] = useState<CategoryEntity[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
   const [ticketItems, setTicketItems] = useState<PosTicketItem[]>([]);
+  const [stockNotice, setStockNotice] = useState<string | null>(null);
 
-  // Escaneo reactivo mediante lector HID de código de barras
-  useBarcodeScanner({
-    target: keyEventTarget,
-    onScan: (scannedBarcode) => {
-      if (db) {
-        const found = findProductByBarcode(db, scannedBarcode);
-        if (found) {
-          addToCart({
-            id: found.productId,
-            sku: found.sku,
-            name: found.name,
-            priceUsd: found.priceUsd,
-          });
-          return;
-        }
-      }
-      const match = catalog.find((p) => p.sku === scannedBarcode || p.barcode === scannedBarcode);
-      if (match) {
-        addToCart(match);
-      }
-    },
-  });
+  const fileStore = useMemo(() => customFileStore ?? createDefaultFileStore(), [customFileStore]);
 
-  // Estado del modal de actualización de tasa
-  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
-  const [newRateInput, setNewRateInput] = useState("");
-  const [rateReasonInput, setRateReasonInput] = useState("");
-  const [rateError, setRateError] = useState<string | null>(null);
-
-  // Estado del modal de cobro (Checkout)
-  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("CASH_USD");
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [lastInvoiceSuccess, setLastInvoiceSuccess] = useState<string | null>(null);
-
-  // Carga reactiva de catálogo y tasa desde SQLite si el driver está presente
-  useEffect(() => {
+  // Carga reactiva de catálogo, categorías y tasa desde SQLite si el driver está presente
+  const refreshCatalog = useCallback(() => {
     if (db) {
-      const result = getCatalogWithBimonetaryPrices(db, initialExchangeRate);
+      const result = getCatalogWithBimonetaryPrices(db, initialExchangeRate, { tenantId });
       if (result.products.length > 0) {
         setCatalog(
           result.products.map((p) => ({
             id: p.id,
             sku: p.sku,
+            barcode: p.barcode,
             name: p.name,
             priceUsd: p.priceUsd,
+            category: p.categoryName ?? undefined,
+            categoryId: p.categoryId,
+            categoryName: p.categoryName,
+            currentStock: p.currentStock,
+            minStock: p.minStock,
+            isLowStock: p.isLowStock,
+            unit: p.unit,
+            imagePath: p.imagePath,
           })),
         );
       }
       setExchangeRate(result.activeRate);
-    }
-  }, [db, initialExchangeRate]);
 
-  const addToCart = (product: PosProductItem) => {
+      try {
+        const cats = listCategories(db);
+        setCategories(cats);
+      } catch {
+        // Ignorar si la tabla no está lista
+      }
+    }
+  }, [db, initialExchangeRate, tenantId]);
+
+  useEffect(() => {
+    refreshCatalog();
+  }, [refreshCatalog]);
+
+  const addToCart = useCallback((product: PosProductItem) => {
+    // Verificar si el producto tiene stock <= 0 para advertir
+    const stockVal = toDecimal(product.currentStock ?? "100.0000");
+    if (stockVal.lte(0)) {
+      setStockNotice(`Aviso: "${product.name}" se encuentra sin stock (0.0000). Se añade al ticket en modo contingencia.`);
+      setTimeout(() => setStockNotice(null), 3000);
+    }
+
     setTicketItems((prev) => {
       const existing = prev.find((i) => i.productId === product.id);
       if (existing) {
@@ -159,7 +178,66 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         },
       ];
     });
-  };
+  }, []);
+
+  // Escaneo reactivo mediante lector HID de código de barras
+  useBarcodeScanner({
+    target: keyEventTarget,
+    onScan: (scannedBarcode) => {
+      if (db) {
+        const found = findProductByBarcode(db, scannedBarcode);
+        if (found) {
+          // Buscar producto en catálogo en memoria para heredar currentStock y unit
+          const catItem = catalog.find((p) => p.id === found.productId);
+          addToCart({
+            id: found.productId,
+            sku: found.sku,
+            name: found.name,
+            priceUsd: found.priceUsd,
+            currentStock: catItem?.currentStock,
+            minStock: catItem?.minStock,
+            unit: catItem?.unit,
+          });
+          return;
+        }
+      }
+      const match = catalog.find((p) => p.sku === scannedBarcode || p.barcode === scannedBarcode);
+      if (match) {
+        addToCart(match);
+      }
+    },
+  });
+
+  // Filtrado reactivo por texto y categoría seleccionada
+  const filteredCatalog = useMemo(() => {
+    return catalog.filter((item) => {
+      const matchesSearch =
+        searchQuery.trim() === "" ||
+        item.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
+        item.sku.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
+        (item.barcode && item.barcode.toLowerCase().includes(searchQuery.toLowerCase().trim()));
+
+      const matchesCat =
+        selectedCategory === "ALL" ||
+        item.categoryId === selectedCategory ||
+        item.category === selectedCategory ||
+        item.categoryName === selectedCategory;
+
+      return matchesSearch && matchesCat;
+    });
+  }, [catalog, searchQuery, selectedCategory]);
+
+  // Estado del modal de actualización de tasa
+  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+  const [newRateInput, setNewRateInput] = useState("");
+  const [rateReasonInput, setRateReasonInput] = useState("");
+  const [rateError, setRateError] = useState<string | null>(null);
+
+  // Estado del modal de cobro (Checkout)
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("CASH_USD");
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [lastInvoiceSuccess, setLastInvoiceSuccess] = useState<string | null>(null);
 
   const updateQuantity = (productId: string, delta: number) => {
     setTicketItems((prev) => {
@@ -274,7 +352,12 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       {/* Columna Izquierda: Catálogo de Productos */}
       <View style={styles.catalogColumn}>
         <View style={styles.catalogHeader}>
-          <Text style={styles.sectionTitle}>Catálogo de Productos</Text>
+          <View>
+            <Text style={styles.sectionTitle}>Catálogo de Productos</Text>
+            <Text style={styles.catalogCountSub}>
+              {filteredCatalog.length} {filteredCatalog.length === 1 ? "producto" : "productos"}
+            </Text>
+          </View>
 
           {/* Botón táctil para ver/ajustar la tasa de cambio reactiva */}
           <TouchableOpacity
@@ -295,36 +378,167 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           </TouchableOpacity>
         </View>
 
+        {/* Notificación flotante de stock si se añade un producto agotado */}
+        {stockNotice ? (
+          <View style={styles.stockNoticeBox}>
+            <Text style={styles.stockNoticeText}>⚠️ {stockNotice}</Text>
+          </View>
+        ) : null}
+
+        {/* Barra de Búsqueda Reactiva */}
+        <View style={styles.searchContainer}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Buscar por nombre, SKU o código de barras..."
+            placeholderTextColor={colors.dark.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            clearButtonMode="while-editing"
+          />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.searchClearBtn}>
+              <Text style={styles.searchClearText}>✕</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {/* Chips de Filtro por Categorías */}
+        <View style={styles.categoryBarContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryScroll}
+          >
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setSelectedCategory("ALL")}
+              style={[
+                styles.categoryChip,
+                selectedCategory === "ALL" && styles.categoryChipActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.categoryChipText,
+                  selectedCategory === "ALL" && styles.categoryChipTextActive,
+                ]}
+              >
+                Todas ({catalog.length})
+              </Text>
+            </TouchableOpacity>
+
+            {categories.map((cat) => {
+              const isSelected = selectedCategory === cat.id || selectedCategory === cat.name;
+              const count = catalog.filter(
+                (p) => p.categoryId === cat.id || p.category === cat.name || p.categoryName === cat.name,
+              ).length;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  activeOpacity={0.8}
+                  onPress={() => setSelectedCategory(cat.id)}
+                  style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.categoryChipText,
+                      isSelected && styles.categoryChipTextActive,
+                    ]}
+                  >
+                    {cat.name} ({count})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         <FlatList
-          data={catalog}
+          data={filteredCatalog}
           keyExtractor={(item) => item.id}
           numColumns={2}
           contentContainerStyle={styles.catalogGrid}
           renderItem={({ item }) => {
             const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
+            const stockDecimal = toDecimal(item.currentStock ?? "0.0000");
+            const isOutOfStock = stockDecimal.lte(0);
+            const isLowStock = item.isLowStock || (stockDecimal.lte(toDecimal(item.minStock ?? "0.0000")) && !isOutOfStock);
+            const imageUri = resolveProductImageUri(fileStore, item.imagePath ?? null);
+
             return (
               <TouchableOpacity
                 activeOpacity={0.7}
                 onPress={() => addToCart(item)}
-                style={styles.productCard}
+                style={[styles.productCard, isOutOfStock && styles.productCardOutStock]}
               >
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{item.sku}</Text>
+                {/* Cabecera de la tarjeta: Imagen + SKU + Badge de Stock */}
+                <View style={styles.cardTopRow}>
+                  {imageUri ? (
+                    <Image source={{ uri: imageUri }} style={styles.productThumb} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.productThumbPlaceholder}>
+                      <Text style={styles.productThumbPlaceholderText}>📦</Text>
+                    </View>
+                  )}
+
+                  <View style={styles.cardHeaderMeta}>
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{item.sku}</Text>
+                    </View>
+
+                    {/* Badge de Stock */}
+                    {isOutOfStock ? (
+                      <View style={[styles.stockBadge, styles.stockBadgeOut]}>
+                        <Text style={styles.stockBadgeTextOut}>● Agotado (0)</Text>
+                      </View>
+                    ) : isLowStock ? (
+                      <View style={[styles.stockBadge, styles.stockBadgeLow]}>
+                        <Text style={styles.stockBadgeTextLow}>
+                          ● {formatFixed4(item.currentStock ?? "0")} {item.unit ?? "und"}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.stockBadge, styles.stockBadgeOk]}>
+                        <Text style={styles.stockBadgeTextOk}>
+                          ● {formatFixed4(item.currentStock ?? "0")} {item.unit ?? "und"}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
+
+                {/* Nombre del Producto */}
                 <Text style={styles.productName} numberOfLines={2}>
                   {item.name}
                 </Text>
+
+                {/* Precios bimoneda y Unidad */}
                 <View style={styles.priceRow}>
-                  <Text style={[styles.priceUsd, typography.tabularNumeric]}>
-                    {formatUsd(item.priceUsd)}
-                  </Text>
-                  <Text style={[styles.priceVes, typography.tabularNumeric]}>
-                    {formatVes(priceVes)}
-                  </Text>
+                  <View style={styles.priceContainer}>
+                    <Text style={[styles.priceUsd, typography.tabularNumeric]}>
+                      {formatUsd(item.priceUsd)}
+                    </Text>
+                    <Text style={[styles.priceVes, typography.tabularNumeric]}>
+                      {formatVes(priceVes)}
+                    </Text>
+                  </View>
+                  <Text style={styles.unitTag}>/ {item.unit ?? "und"}</Text>
                 </View>
               </TouchableOpacity>
             );
           }}
+          ListEmptyComponent={
+            <View style={styles.emptyCatalogContainer}>
+              <Text style={styles.emptyCatalogText}>No se encontraron productos</Text>
+              <Text style={styles.emptyCatalogSub}>
+                {searchQuery
+                  ? `Sin resultados para "${searchQuery}"`
+                  : "No hay productos en esta categoría"}
+              </Text>
+            </View>
+          }
         />
       </View>
 
@@ -567,6 +781,84 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
     color: colors.dark.textPrimary,
   },
+  catalogCountSub: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+    marginTop: 2,
+  },
+  stockNoticeBox: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    borderWidth: 1,
+    borderColor: colors.dark.warning,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: spacing.radiusMd,
+    marginBottom: spacing.sm,
+  },
+  stockNoticeText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.warning,
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.dark.surfaceContainerLow,
+    borderRadius: spacing.radiusMd,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    height: 44,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    height: "100%",
+    color: colors.dark.textPrimary,
+    fontSize: typography.sizes.body,
+  },
+  searchClearBtn: {
+    padding: spacing.xs,
+  },
+  searchClearText: {
+    color: colors.dark.textMuted,
+    fontSize: 14,
+    fontWeight: typography.weights.bold,
+  },
+  categoryBarContainer: {
+    marginBottom: spacing.sm,
+  },
+  categoryScroll: {
+    gap: spacing.xs,
+    paddingVertical: 2,
+  },
+  categoryChip: {
+    minHeight: 36,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.dark.surfaceContainerLow,
+    borderRadius: spacing.radiusFull,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  categoryChipActive: {
+    backgroundColor: colors.dark.primary,
+    borderColor: colors.dark.primaryGlow,
+  },
+  categoryChipText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.medium,
+    color: colors.dark.textSecondary,
+  },
+  categoryChipTextActive: {
+    color: colors.dark.textPrimary,
+    fontWeight: typography.weights.bold,
+  },
   ratePill: {
     flexDirection: "row",
     alignItems: "center",
@@ -599,13 +891,45 @@ const styles = StyleSheet.create({
   productCard: {
     flex: 1,
     margin: spacing.xs,
-    minHeight: 120,
+    minHeight: 140,
     backgroundColor: colors.dark.surfaceContainer,
     borderRadius: spacing.radiusLg,
     padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.dark.border,
     justifyContent: "space-between",
+  },
+  productCardOutStock: {
+    opacity: 0.75,
+    borderStyle: "dashed",
+    borderColor: "rgba(239, 68, 68, 0.4)",
+  },
+  cardTopRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    alignItems: "flex-start",
+    marginBottom: spacing.xs,
+  },
+  productThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: spacing.radiusMd,
+    backgroundColor: colors.dark.surfaceContainerHigh,
+  },
+  productThumbPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: spacing.radiusMd,
+    backgroundColor: colors.dark.surfaceContainerHigh,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  productThumbPlaceholderText: {
+    fontSize: 20,
+  },
+  cardHeaderMeta: {
+    flex: 1,
+    gap: 4,
   },
   badge: {
     alignSelf: "flex-start",
@@ -619,6 +943,36 @@ const styles = StyleSheet.create({
     color: colors.dark.primaryGlow,
     fontWeight: typography.weights.bold,
   },
+  stockBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: spacing.radiusSm,
+  },
+  stockBadgeOk: {
+    backgroundColor: "rgba(0, 176, 116, 0.15)",
+  },
+  stockBadgeTextOk: {
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.hero,
+  },
+  stockBadgeLow: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+  },
+  stockBadgeTextLow: {
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.warning,
+  },
+  stockBadgeOut: {
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+  },
+  stockBadgeTextOut: {
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
+  },
   productName: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
@@ -626,7 +980,35 @@ const styles = StyleSheet.create({
     marginVertical: spacing.xs,
   },
   priceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
     marginTop: spacing.xs,
+  },
+  priceContainer: {
+    flex: 1,
+  },
+  unitTag: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textMuted,
+    fontWeight: typography.weights.medium,
+    marginLeft: spacing.xs,
+  },
+  emptyCatalogContainer: {
+    flex: 1,
+    paddingVertical: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyCatalogText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textSecondary,
+  },
+  emptyCatalogSub: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textMuted,
+    marginTop: 4,
   },
   priceUsd: {
     fontSize: typography.sizes.body,

@@ -58,7 +58,9 @@ export const App: React.FC<AppProps> = ({
         return (
           <PosScreen
             db={db}
+            tenantId={tenantId}
             terminalId={terminalId}
+            fileStore={fileStore}
             onInvoiceCreated={() => refreshPendingCount()}
           />
         );

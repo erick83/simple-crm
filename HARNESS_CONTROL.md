@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-16 completado (Fases 1 a 6 cerradas al 100%). Pantalla de Inventario y `App.tsx` conectadas al motor SQLite real y al estado de sincronización P2P (`SyncBadge` reactivo), incluyendo listado sobre `v_product_current_stock` con miniatura local (`FileStore`), modal táctil CRUD de productos con selector de imagen local (`ExpoImageManipulatorEncoder` / `setProductImage`) y captura de código de barras HID (`useBarcodeScanner`), y modal táctil de entradas/ajustes de Kardex con historial inmutable a 4 decimales. 96 tests pasando al 100% (17 suites) y typecheck TypeScript sin errores.
-* **Próxima tarea a ejecutar:** Todas las fases planificadas (PR-01 a PR-16) han sido completadas y verificadas. Listo para pruebas en dispositivo o definición de Fase 7.
+* **Estado actual:** PR-17 completado (Fases 1 a 6 cerradas al 100%, Fase 7 en curso). Catálogo de Caja (`PosScreen.tsx`) conectado a existencias de Kardex en tiempo real (`v_product_current_stock`), soporte de miniaturas de imágenes locales (`FileStore`), barra de búsqueda reactiva instantánea por nombre/SKU/barcode, barra de filtros horizontales por categoría con conteo de ítems, badges de estado de inventario (`● X en stock`, `● Stock bajo`, `● Agotado`) y aviso de contingencia. 109 tests pasando al 100% (18 suites) y verificación TypeScript estricta sin errores.
+* **Próxima tarea a ejecutar:** PR-18: Ticket de Caja Avanzado con Numpad Táctil para Cantidades/Pesables (4 decimales), desglose de IVA real (`tax_rate`) y acciones rápidas de ticket.
 
 ---
 
@@ -74,3 +74,23 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-16: Pantalla de Inventario Conectada a SQLite (UI Táctil CRUD + Carga de Imagen + Ajuste de Kardex)**
   * *Descripción:* Conectar `InventoryScreen.tsx` y `App.tsx` al motor SQLite real y al estado de sincronización P2P. Incorporar: (1) listado reactivo desde `v_product_current_stock` con miniatura de imagen local, código de barras, SKU, precio USD/VES y badge de stock bajo; (2) modal táctil de Crear/Editar Producto con selector de imagen local y captura de `barcode` por lector HID o teclado; (3) modal táctil de Entrada/Ajuste de Stock (`RESTOCK` / `ADJUSTMENT`) con historial de movimientos.
   * *Criterio de éxito:* Flujo completo verificable en tests y UI: crear producto con código de barras e imagen local, editar precios/costos, ajustar existencias por Kardex y visualizar el estado de sincronización P2P.
+
+### Fase 7: Evolución Integral de Caja y Turnos (POS Venezuela Ready)
+- [x] **PR-17: Catálogo POS Reactivo con Stock, Imágenes, Buscador y Categorías**
+  * *Descripción:* Conectar `PosScreen.tsx` y `catalog.service.ts` a `listInventoryWithStock` (`v_product_current_stock`), soporte de imágenes locales (`FileStore`), buscador reactivo instantáneo por nombre/SKU/código de barras, selector táctil de categorías en carrusel horizontal con contadores y visualización de badges de stock (`● X en stock`, `● Stock bajo`, `● Agotado`) con aviso no bloqueante en modo contingencia.
+  * *Criterio de éxito:* Búsqueda y filtrado instantáneo en POS, renderizado de stock y fotos locales verificado con 109 tests pasando al 100% y typecheck limpio.
+- [ ] **PR-18: Ticket con Numpad para Cantidades/Pesables, IVA Real y Acciones Rápidas**
+  * *Descripción:* Integrar `Numpad.tsx` en el ticket para editar cantidades directamente (soporte de pesables `kg`/`g` a 4 decimales exactos o compras por bulto), botón de eliminar línea, vaciado de ticket y cálculo real de impuestos con desglose de Subtotal + IVA (`tax_rate`) + Total en USD y VES.
+  * *Criterio de éxito:* Tocar una línea permite digitar `0.7500` kg o `24` und; el ticket y la factura computan el IVA exacto según el producto.
+- [ ] **PR-19: Cobro Combinado (SPLIT), Calculadora de Vuelto Bimoneda y Numpad de Pago**
+  * *Descripción:* Rediseño del modal de cobro para soportar pagos combinados (`SPLIT`) distribuyendo montos en efectivo USD, efectivo VES, Pago Móvil y Tarjeta/Punto. Calculadora automática de saldo pendiente y vuelto exacto bimoneda, con desglose de métodos en `balance.repository.ts`.
+  * *Criterio de éxito:* Cobro mixto con efectivo USD y Pago Móvil calcula el vuelto correcto y se refleja desglosado en el arqueo y balance.
+- [ ] **PR-20: Estado Reactivo de Turno en App Shell, Banner de Turno en POS y Upsert de Tasa**
+  * *Descripción:* Conectar el indicador del sidebar en `App.tsx` al turno real (`getOpenShift`), banner de alerta en `PosScreen` si no hay turno abierto con acceso directo a abrir sesión, y permitir actualización de la tasa del día (`upsertRate`) sin fallar por clave duplicada.
+  * *Criterio de éxito:* El sidebar refleja el cajero y turno activo; actualizar la tasa múltiples veces en el día no genera error.
+- [ ] **PR-21: Movimientos de Gaveta (Sangrías/Ingresos) y Conteo por Denominación en Turnos**
+  * *Descripción:* Registrar entradas y salidas de efectivo justificadas (sangrías, fondo para vuelto, gastos menores), asistente táctil de arqueo ciego por denominación de billetes y reporte histórico de cierres Z.
+  * *Criterio de éxito:* Retiro parcial por seguridad queda registrado y se descuenta del efectivo esperado en el Cierre Z.
+- [ ] **PR-22: Historial de Ventas del Turno, Devoluciones (RETURN) y Sync P2P de Facturas**
+  * *Descripción:* Pestaña de facturas emitidas en el turno con vista de comprobante/recibo digital, opción de anulación/devolución que genera el delta `'RETURN'` en Kardex, y encolado de `INVOICE` en `peer_sync_outbox` para sincronización Wi-Fi LAN entre cajas.
+  * *Criterio de éxito:* Anular una factura restituye el stock y ambas cajas sincronizan las facturas de la tienda.
