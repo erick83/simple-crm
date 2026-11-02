@@ -120,7 +120,43 @@ export function generatePeriodicBalance(
     totalTaxVes = totalTaxVes.plus(tVes);
 
     const m = inv.payment_method;
-    if (methodAccumulator[m]) {
+    if (m === "SPLIT" && inv.payment_breakdown) {
+      try {
+        const bd = JSON.parse(inv.payment_breakdown);
+        let handledAny = false;
+        if (bd.cash_usd && toDecimal(bd.cash_usd).gt(0)) {
+          methodAccumulator.CASH_USD.totalUsd = methodAccumulator.CASH_USD.totalUsd.plus(toDecimal(bd.cash_usd));
+          methodAccumulator.CASH_USD.count += 1;
+          handledAny = true;
+        }
+        if (bd.cash_ves && toDecimal(bd.cash_ves).gt(0)) {
+          methodAccumulator.CASH_VES.totalVes = methodAccumulator.CASH_VES.totalVes.plus(toDecimal(bd.cash_ves));
+          methodAccumulator.CASH_VES.count += 1;
+          handledAny = true;
+        }
+        if (bd.pago_movil && toDecimal(bd.pago_movil).gt(0)) {
+          methodAccumulator.PAGO_MOVIL.totalVes = methodAccumulator.PAGO_MOVIL.totalVes.plus(toDecimal(bd.pago_movil));
+          methodAccumulator.PAGO_MOVIL.count += 1;
+          handledAny = true;
+        }
+        if (bd.card_ves && toDecimal(bd.card_ves).gt(0)) {
+          methodAccumulator.CARD_VES.totalVes = methodAccumulator.CARD_VES.totalVes.plus(toDecimal(bd.card_ves));
+          methodAccumulator.CARD_VES.count += 1;
+          handledAny = true;
+        }
+        if (!handledAny && methodAccumulator[m]) {
+          methodAccumulator[m].totalUsd = methodAccumulator[m].totalUsd.plus(usd);
+          methodAccumulator[m].totalVes = methodAccumulator[m].totalVes.plus(ves);
+          methodAccumulator[m].count += 1;
+        }
+      } catch {
+        if (methodAccumulator[m]) {
+          methodAccumulator[m].totalUsd = methodAccumulator[m].totalUsd.plus(usd);
+          methodAccumulator[m].totalVes = methodAccumulator[m].totalVes.plus(ves);
+          methodAccumulator[m].count += 1;
+        }
+      }
+    } else if (methodAccumulator[m]) {
       methodAccumulator[m].totalUsd = methodAccumulator[m].totalUsd.plus(usd);
       methodAccumulator[m].totalVes = methodAccumulator[m].totalVes.plus(ves);
       methodAccumulator[m].count += 1;
