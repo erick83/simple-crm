@@ -8,9 +8,17 @@ export interface NumpadProps {
   onDigit: (digit: string) => void;
   onClear: () => void;
   onBackspace: () => void;
+  onDecimal?: () => void;
+  showDecimal?: boolean;
 }
 
-export const Numpad: React.FC<NumpadProps> = ({ onDigit, onClear, onBackspace }) => {
+export const Numpad: React.FC<NumpadProps> = ({
+  onDigit,
+  onClear,
+  onBackspace,
+  onDecimal,
+  showDecimal = false,
+}) => {
   const renderKey = (key: string, onPress: () => void, isAction = false) => (
     <TouchableOpacity
       key={key}
@@ -47,10 +55,25 @@ export const Numpad: React.FC<NumpadProps> = ({ onDigit, onClear, onBackspace })
         {renderKey("9", () => onDigit("9"))}
       </View>
       <View style={styles.row}>
-        {renderKey("C", onClear, true)}
+        {showDecimal && onDecimal
+          ? renderKey(".", onDecimal, true)
+          : renderKey("C", onClear, true)}
         {renderKey("0", () => onDigit("0"))}
-        {renderKey("⌫", onBackspace, true)}
+        {showDecimal && onDecimal
+          ? renderKey("⌫", onBackspace, true)
+          : renderKey("⌫", onBackspace, true)}
       </View>
+      {showDecimal && onDecimal ? (
+        <View style={styles.row}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={onClear}
+            style={[styles.clearWideKey]}
+          >
+            <Text style={styles.clearWideText}>BORRAR TODO (C)</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </View>
   );
 };
@@ -85,6 +108,22 @@ const styles = StyleSheet.create({
   actionKeyText: {
     fontSize: typography.sizes.titleMd,
     color: colors.dark.primaryGlow,
+  },
+  clearWideKey: {
+    flex: 1,
+    height: 48,
+    backgroundColor: colors.dark.surfaceContainerHighest,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  clearWideText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textSecondary,
+    letterSpacing: 0.5,
   },
 });
 

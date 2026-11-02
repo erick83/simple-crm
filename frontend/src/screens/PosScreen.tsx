@@ -15,6 +15,7 @@ import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 import { ButtonHero } from "../components/ButtonHero";
 import { TouchStepper } from "../components/TouchStepper";
+import { Numpad } from "../components/Numpad";
 import {
   formatUsd,
   formatVes,
@@ -56,6 +57,7 @@ export interface PosProductItem {
   isLowStock?: boolean;
   unit?: string;
   imagePath?: string | null;
+  taxRate?: string;
 }
 
 export interface PosTicketItem {
@@ -65,6 +67,8 @@ export interface PosTicketItem {
   unitPriceUsd: string;
   quantity: string;
   lineTotalUsd: string;
+  unit?: string;
+  taxRate?: string;
 }
 
 export interface PosScreenProps {
@@ -129,6 +133,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             isLowStock: p.isLowStock,
             unit: p.unit,
             imagePath: p.imagePath,
+            taxRate: p.taxRate,
           })),
         );
       }
@@ -175,6 +180,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           unitPriceUsd: product.priceUsd,
           quantity: "1.0000",
           lineTotalUsd: product.priceUsd,
+          unit: product.unit ?? "und",
+          taxRate: product.taxRate ?? "0.1600",
         },
       ];
     });
@@ -197,6 +204,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             currentStock: catItem?.currentStock,
             minStock: catItem?.minStock,
             unit: catItem?.unit,
+            taxRate: catItem?.taxRate,
           });
           return;
         }
@@ -239,6 +247,14 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [lastInvoiceSuccess, setLastInvoiceSuccess] = useState<string | null>(null);
 
+  // Estado del modal táctil Numpad para edición de cantidad de línea
+  const [editingTicketItem, setEditingTicketItem] = useState<PosTicketItem | null>(null);
+  const [numpadValue, setNumpadValue] = useState("");
+  const [numpadError, setNumpadError] = useState<string | null>(null);
+
+  // Estado del modal de confirmación para vaciar ticket
+  const [isClearTicketModalOpen, setIsClearTicketModalOpen] = useState(false);
+
   const updateQuantity = (productId: string, delta: number) => {
     setTicketItems((prev) => {
       return prev
@@ -253,6 +269,72 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         })
         .filter((i): i is PosTicketItem => i !== null);
     });
+  };
+
+  const removeTicketItem = (productId: string) => {
+    setTicketItems((prev) => prev.filter((i) => i.productId !== productId));
+  };
+
+  const openNumpadForLine = (item: PosTicketItem) => {
+    setEditingTicketItem(item);
+    setNumpadValue(item.quantity);
+    setNumpadError(null);
+  };
+
+  const handleNumpadDigit = (digit: string) => {
+    setNumpadValue((prev) => {
+      if (prev === "0" || prev === "0.0000") return digit;
+      return prev + digit;
+    });
+  };
+
+  const handleNumpadDecimal = () => {
+    setNumpadValue((prev) => {
+      if (!prev) return "0.";
+      if (prev.includes(".")) return prev;
+      return prev + ".";
+    });
+  };
+
+  const handleNumpadBackspace = () => {
+    setNumpadValue((prev) => {
+      if (prev.length <= 1) return "";
+      return prev.slice(0, -1);
+    });
+  };
+
+  const handleNumpadClear = () => {
+    setNumpadValue("");
+    setNumpadError(null);
+  };
+
+  const handleConfirmNumpadQuantity = () => {
+    if (!editingTicketItem) return;
+    try {
+      const val = toDecimal(numpadValue || "0", "Cantidad");
+      if (val.lte(0)) {
+        throw new Error("La cantidad debe ser mayor a cero");
+      }
+      const qtyStr = val.toFixed(4);
+      const lineTotal = val.times(toDecimal(editingTicketItem.unitPriceUsd)).toFixed(4);
+
+      setTicketItems((prev) =>
+        prev.map((i) =>
+          i.productId === editingTicketItem.productId
+            ? { ...i, quantity: qtyStr, lineTotalUsd: lineTotal }
+            : i,
+        ),
+      );
+      setEditingTicketItem(null);
+      setNumpadValue("");
+    } catch (err) {
+      setNumpadError((err as Error).message);
+    }
+  };
+
+  const handleClearAllTicket = () => {
+    setTicketItems([]);
+    setIsClearTicketModalOpen(false);
   };
 
   const handleApplyRate = () => {
@@ -281,12 +363,38 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     }
   };
 
-  // Cálculo reactivo en vivo de totales
-  const totalUsd = ticketItems
-    .reduce((acc, item) => acc.plus(toDecimal(item.lineTotalUsd)), toDecimal("0"))
-    .toFixed(4);
+  // Cálculo reactivo en vivo de subtotales, IVA y totales bimoneda
+  const subtotalUsd = useMemo(() => {
+    return ticketItems
+      .reduce((acc, item) => acc.plus(toDecimal(item.lineTotalUsd)), toDecimal("0"))
+      .toFixed(4);
+  }, [ticketItems]);
 
-  const totalVes = convertUsdToVes(totalUsd, exchangeRate).toFixed(4);
+  const taxUsd = useMemo(() => {
+    return ticketItems
+      .reduce((acc, item) => {
+        const lineVal = toDecimal(item.lineTotalUsd);
+        const rateVal = toDecimal(item.taxRate ?? "0.1600");
+        return acc.plus(lineVal.times(rateVal));
+      }, toDecimal("0"))
+      .toFixed(4);
+  }, [ticketItems]);
+
+  const totalUsd = useMemo(() => {
+    return toDecimal(subtotalUsd).plus(toDecimal(taxUsd)).toFixed(4);
+  }, [subtotalUsd, taxUsd]);
+
+  const subtotalVes = useMemo(() => {
+    return convertUsdToVes(subtotalUsd, exchangeRate).toFixed(4);
+  }, [subtotalUsd, exchangeRate]);
+
+  const taxVes = useMemo(() => {
+    return convertUsdToVes(taxUsd, exchangeRate).toFixed(4);
+  }, [taxUsd, exchangeRate]);
+
+  const totalVes = useMemo(() => {
+    return convertUsdToVes(totalUsd, exchangeRate).toFixed(4);
+  }, [totalUsd, exchangeRate]);
 
   const handleOpenCheckout = () => {
     if (ticketItems.length === 0) return;
@@ -315,7 +423,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             unitPriceVes: unitVes,
             lineTotalUsd: item.lineTotalUsd,
             lineTotalVes: lineVes,
-            taxRate: "0.0000",
+            taxRate: item.taxRate ?? "0.1600",
           };
         });
 
@@ -323,11 +431,11 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           shiftId: openShift.id,
           terminalId,
           exchangeRate,
-          subtotalUsd: totalUsd,
-          taxUsd: "0.0000",
+          subtotalUsd,
+          taxUsd,
           totalUsd,
-          subtotalVes: totalVes,
-          taxVes: "0.0000",
+          subtotalVes,
+          taxVes,
           totalVes,
           paymentMethod: selectedPaymentMethod,
           items: itemsInput,
@@ -544,11 +652,23 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
       {/* Columna Derecha: Ticket Activo de Venta */}
       <View style={styles.ticketColumn}>
+        {/* Encabezado de Ticket con Contador y Botón Vaciar */}
         <View style={styles.ticketHeader}>
-          <Text style={styles.sectionTitle}>Ticket Actual</Text>
-          <Text style={styles.itemCountText}>
-            {ticketItems.length} {ticketItems.length === 1 ? "ítem" : "ítems"}
-          </Text>
+          <View>
+            <Text style={styles.sectionTitle}>Ticket Actual</Text>
+            <Text style={styles.itemCountText}>
+              {ticketItems.length} {ticketItems.length === 1 ? "ítem" : "ítems"}
+            </Text>
+          </View>
+          {ticketItems.length > 0 ? (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => setIsClearTicketModalOpen(true)}
+              style={styles.clearTicketBtn}
+            >
+              <Text style={styles.clearTicketText}>🗑️ Vaciar</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <FlatList
@@ -557,30 +677,65 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           style={styles.ticketList}
           renderItem={({ item }) => {
             const lineVes = convertUsdToVes(item.lineTotalUsd, exchangeRate).toFixed(4);
+            const isDecimalQty = !toDecimal(item.quantity).isInteger();
             return (
               <View style={styles.ticketLine}>
                 <View style={styles.ticketLineInfo}>
                   <Text style={styles.ticketLineName} numberOfLines={1}>
                     {item.name}
                   </Text>
-                  <Text style={[styles.ticketLineUnit, typography.tabularNumeric]}>
-                    {formatUsd(item.unitPriceUsd)} c/u
-                  </Text>
+                  <View style={styles.ticketLineMeta}>
+                    <Text style={[styles.ticketLineUnit, typography.tabularNumeric]}>
+                      {formatUsd(item.unitPriceUsd)} c/u
+                    </Text>
+                    {item.taxRate && toDecimal(item.taxRate).gt(0) ? (
+                      <View style={styles.taxBadge}>
+                        <Text style={styles.taxBadgeText}>IVA {toDecimal(item.taxRate).times(100).toFixed(0)}%</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.taxBadge, styles.taxBadgeExempt]}>
+                        <Text style={styles.taxBadgeTextExempt}>Exento</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
 
-                <TouchStepper
-                  value={toDecimal(item.quantity).toFixed(0)}
-                  onIncrement={() => updateQuantity(item.productId, 1)}
-                  onDecrement={() => updateQuantity(item.productId, -1)}
-                />
+                {/* TouchStepper y botón de edición Numpad */}
+                <View style={styles.stepperAndNumpadRow}>
+                  <TouchStepper
+                    value={isDecimalQty ? item.quantity : toDecimal(item.quantity).toFixed(0)}
+                    onIncrement={() => updateQuantity(item.productId, 1)}
+                    onDecrement={() => updateQuantity(item.productId, -1)}
+                  />
 
-                <View style={styles.ticketLineTotalContainer}>
-                  <Text style={[styles.ticketLineTotal, typography.tabularNumeric]}>
-                    {formatUsd(item.lineTotalUsd)}
-                  </Text>
-                  <Text style={[styles.ticketLineTotalVes, typography.tabularNumeric]}>
-                    {formatVes(lineVes)}
-                  </Text>
+                  {/* Botón táctil para abrir Numpad */}
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => openNumpadForLine(item)}
+                    style={styles.numpadTriggerBtn}
+                  >
+                    <Text style={styles.numpadTriggerText}>🔢</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Totales de línea y botón eliminar */}
+                <View style={styles.ticketLineRight}>
+                  <View style={styles.ticketLineTotalContainer}>
+                    <Text style={[styles.ticketLineTotal, typography.tabularNumeric]}>
+                      {formatUsd(item.lineTotalUsd)}
+                    </Text>
+                    <Text style={[styles.ticketLineTotalVes, typography.tabularNumeric]}>
+                      {formatVes(lineVes)}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => removeTicketItem(item.productId)}
+                    style={styles.deleteLineBtn}
+                  >
+                    <Text style={styles.deleteLineText}>✕</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             );
@@ -595,8 +750,26 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           }
         />
 
-        {/* Botón Maestro de Cobro */}
+        {/* Resumen Financiero: Subtotal, IVA y Botón Maestro de Cobro */}
         <View style={styles.checkoutFooter}>
+          {ticketItems.length > 0 ? (
+            <View style={styles.financialSummaryCard}>
+              <View style={styles.financialSummaryRow}>
+                <Text style={styles.finLabel}>Subtotal:</Text>
+                <Text style={[styles.finValue, typography.tabularNumeric]}>
+                  {formatUsd(subtotalUsd)} <Text style={styles.finSub}>({formatVes(subtotalVes)})</Text>
+                </Text>
+              </View>
+
+              <View style={styles.financialSummaryRow}>
+                <Text style={styles.finLabel}>IVA Estimado:</Text>
+                <Text style={[styles.finValue, typography.tabularNumeric]}>
+                  {formatUsd(taxUsd)} <Text style={styles.finSub}>({formatVes(taxVes)})</Text>
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
           <ButtonHero
             label="COBRAR TICKET"
             totalFormatted={formatUsd(totalUsd)}
@@ -624,10 +797,26 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               </View>
             ) : null}
 
-            {/* Resumen de Importes Bimoneda */}
+            {/* Resumen de Importes Bimoneda con desglose de IVA */}
             <View style={styles.checkoutSummaryCard}>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Total en Dólares (USD):</Text>
+                <Text style={styles.summaryLabel}>Subtotal Base Imponible:</Text>
+                <Text style={[styles.summarySubtotalUsd, typography.tabularNumeric]}>
+                  {formatUsd(subtotalUsd)}
+                </Text>
+              </View>
+
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Impuesto IVA Calculado:</Text>
+                <Text style={[styles.summaryTaxUsd, typography.tabularNumeric]}>
+                  {formatUsd(taxUsd)}
+                </Text>
+              </View>
+
+              <View style={styles.summaryDivider} />
+
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryTotalHeroLabel}>Total Legal en Dólares (USD):</Text>
                 <Text style={[styles.summaryTotalUsd, typography.tabularNumeric]}>
                   {formatUsd(totalUsd)}
                 </Text>
@@ -641,7 +830,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               </View>
 
               <View style={styles.summaryRowSmall}>
-                <Text style={styles.summaryLabelSmall}>Tasa Congelada:</Text>
+                <Text style={styles.summaryLabelSmall}>Tasa Oficial Congelada:</Text>
                 <Text style={[styles.summaryValueSmall, typography.tabularNumeric]}>
                   {formatVes(exchangeRate)}
                 </Text>
@@ -749,6 +938,103 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 style={styles.applyBtn}
               >
                 <Text style={styles.applyBtnText}>APLICAR TASA</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Táctil: Teclado Numérico para Cantidad (Pesables / Bultos) */}
+      <Modal visible={editingTicketItem !== null} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.numpadModalCard}>
+            <View style={styles.numpadHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Editar Cantidad</Text>
+                <Text style={styles.numpadProductName} numberOfLines={1}>
+                  {editingTicketItem?.name}
+                </Text>
+                <Text style={styles.numpadProductSub}>
+                  Precio unitario: {formatUsd(editingTicketItem?.unitPriceUsd ?? "0")} / {editingTicketItem?.unit ?? "und"}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setEditingTicketItem(null)}
+                style={styles.numpadCloseBtn}
+              >
+                <Text style={styles.numpadCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {numpadError ? <Text style={styles.errorText}>{numpadError}</Text> : null}
+
+            {/* Display de valor actual */}
+            <View style={styles.numpadDisplay}>
+              <Text style={styles.numpadDisplayLabel}>Cantidad ({editingTicketItem?.unit ?? "und"}):</Text>
+              <Text style={[styles.numpadDisplayValue, typography.tabularNumeric]}>
+                {numpadValue || "0"}
+              </Text>
+              {editingTicketItem ? (
+                <Text style={[styles.numpadDisplaySub, typography.tabularNumeric]}>
+                  Total estimado: {formatUsd(toDecimal(numpadValue || "0").times(toDecimal(editingTicketItem.unitPriceUsd)).toFixed(4))}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Numpad táctil con botón decimal para pesables */}
+            <Numpad
+              onDigit={handleNumpadDigit}
+              onClear={handleNumpadClear}
+              onBackspace={handleNumpadBackspace}
+              onDecimal={handleNumpadDecimal}
+              showDecimal={true}
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setEditingTicketItem(null)}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleConfirmNumpadQuantity}
+                style={styles.applyBtn}
+              >
+                <Text style={styles.applyBtnText}>APLICAR CANTIDAD</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Táctil: Confirmar Vaciar Ticket Completo */}
+      <Modal visible={isClearTicketModalOpen} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModalCard}>
+            <Text style={styles.modalTitle}>¿Vaciar Ticket de Venta?</Text>
+            <Text style={styles.modalNotice}>
+              Se eliminarán los {ticketItems.length} {ticketItems.length === 1 ? "ítem" : "ítems"} agregados al carrito actual. Esta acción no se puede deshacer.
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setIsClearTicketModalOpen(false)}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>Volver al Ticket</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleClearAllTicket}
+                style={styles.deleteConfirmBtn}
+              >
+                <Text style={styles.deleteConfirmBtnText}>SÍ, VACIAR TICKET</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1269,6 +1555,207 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
     color: colors.dark.textPrimary,
+  },
+  clearTicketBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    borderRadius: spacing.radiusMd,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+  },
+  clearTicketText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
+  },
+  ticketLineMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginTop: 2,
+  },
+  taxBadge: {
+    backgroundColor: "rgba(29, 97, 224, 0.15)",
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: spacing.radiusSm,
+  },
+  taxBadgeText: {
+    fontSize: 9,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.primaryGlow,
+  },
+  taxBadgeExempt: {
+    backgroundColor: "rgba(148, 163, 184, 0.15)",
+  },
+  taxBadgeTextExempt: {
+    fontSize: 9,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textMuted,
+  },
+  stepperAndNumpadRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  numpadTriggerBtn: {
+    width: 36,
+    height: 48,
+    backgroundColor: colors.dark.surfaceContainerHighest,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  numpadTriggerText: {
+    fontSize: 16,
+  },
+  ticketLineRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  deleteLineBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: spacing.radiusFull,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  deleteLineText: {
+    fontSize: 12,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
+  },
+  financialSummaryCard: {
+    backgroundColor: colors.dark.surfaceContainer,
+    borderRadius: spacing.radiusMd,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+    gap: 4,
+  },
+  financialSummaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  finLabel: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+  },
+  finValue: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  finSub: {
+    fontSize: 10,
+    color: colors.dark.textMuted,
+    fontWeight: typography.weights.regular,
+  },
+  summarySubtotalUsd: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textSecondary,
+  },
+  summaryTaxUsd: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.primaryGlow,
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: colors.dark.border,
+    marginVertical: 4,
+  },
+  summaryTotalHeroLabel: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  numpadModalCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: colors.dark.surfaceContainerLow,
+    borderRadius: spacing.radiusXl,
+    padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  numpadHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: spacing.md,
+  },
+  numpadProductName: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+    marginTop: 2,
+  },
+  numpadProductSub: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+    marginTop: 2,
+  },
+  numpadCloseBtn: {
+    padding: spacing.xs,
+  },
+  numpadCloseText: {
+    fontSize: 18,
+    color: colors.dark.textMuted,
+    fontWeight: typography.weights.bold,
+  },
+  numpadDisplay: {
+    backgroundColor: colors.dark.surfaceContainer,
+    borderRadius: spacing.radiusMd,
+    padding: spacing.md,
+    alignItems: "center",
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.dark.primaryGlow,
+  },
+  numpadDisplayLabel: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+    marginBottom: 4,
+  },
+  numpadDisplayValue: {
+    fontSize: 32,
+    fontWeight: typography.weights.extraBold,
+    color: colors.dark.textPrimary,
+  },
+  numpadDisplaySub: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.hero,
+    marginTop: 4,
+  },
+  confirmModalCard: {
+    width: "100%",
+    maxWidth: 460,
+    backgroundColor: colors.dark.surfaceContainerLow,
+    borderRadius: spacing.radiusXl,
+    padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  deleteConfirmBtn: {
+    height: spacing.touchTargetHero,
+    backgroundColor: colors.dark.error,
+    paddingHorizontal: spacing.xl,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: spacing.radiusLg,
+  },
+  deleteConfirmBtnText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+    letterSpacing: 1,
   },
   confirmCheckoutBtn: {
     height: spacing.touchTargetHero, // 64px hero height para cobro (AGENTS.md)

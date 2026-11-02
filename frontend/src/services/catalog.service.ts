@@ -18,6 +18,7 @@ export interface BimonetaryProduct {
   formattedUsd: string; // "$ X,XXX.0000"
   formattedVes: string; // "Bs. X,XXX.0000"
   costUsd: string;
+  taxRate: string; // Alícuota impositiva (ej. "0.1600")
   minStock: string;
   currentStock: string;
   isLowStock: boolean;
@@ -48,6 +49,7 @@ export function computeBimonetaryProducts(
         ? p.isLowStock
         : new Decimal(currentStock).lte(toDecimal(p.minStock ?? "0"));
     const categoryName = "categoryName" in p ? p.categoryName : null;
+    const taxRate = formatFixed4(p.taxRate ?? "0.1600");
 
     return {
       id: p.id,
@@ -59,6 +61,7 @@ export function computeBimonetaryProducts(
       formattedUsd: formatUsd(p.priceUsd),
       formattedVes: formatVes(priceVes),
       costUsd: formatFixed4(p.costUsd),
+      taxRate,
       minStock: formatFixed4(p.minStock),
       currentStock: formatFixed4(currentStock),
       isLowStock,

@@ -8,8 +8,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 * **Fecha:** 2026-11-01
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-17 completado (Fases 1 a 6 cerradas al 100%, Fase 7 en curso). Catálogo de Caja (`PosScreen.tsx`) conectado a existencias de Kardex en tiempo real (`v_product_current_stock`), soporte de miniaturas de imágenes locales (`FileStore`), barra de búsqueda reactiva instantánea por nombre/SKU/barcode, barra de filtros horizontales por categoría con conteo de ítems, badges de estado de inventario (`● X en stock`, `● Stock bajo`, `● Agotado`) y aviso de contingencia. 109 tests pasando al 100% (18 suites) y verificación TypeScript estricta sin errores.
-* **Próxima tarea a ejecutar:** PR-18: Ticket de Caja Avanzado con Numpad Táctil para Cantidades/Pesables (4 decimales), desglose de IVA real (`tax_rate`) y acciones rápidas de ticket.
+* **Estado actual:** PR-18 completado (Fases 1 a 6 cerradas al 100%, Fase 7 en curso). Ticket de Caja (`PosScreen.tsx`) mejorado con soporte para pesables (4 decimales exactos), modal táctil con teclado numérico ampliado (`Numpad.tsx`) con tecla de punto decimal y borrado rápido, botón de eliminar línea individual (`✕`), modal de confirmación para vaciar el ticket por completo (`🗑️ Vaciar`), badge de IVA/Exento por línea, y cálculo financiero reactivo en vivo de Subtotal Base Imponible, Impuesto IVA (`tax_rate`) y Total en USD y VES congelados permanentemente en la factura. 112 tests pasando al 100% (19 suites) y verificación TypeScript estricta sin errores.
+* **Próxima tarea a ejecutar:** PR-19: Cobro Combinado (`SPLIT`), Calculadora de Vuelto Bimoneda y Numpad de Pago.
 
 ---
 
@@ -79,9 +79,9 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-17: Catálogo POS Reactivo con Stock, Imágenes, Buscador y Categorías**
   * *Descripción:* Conectar `PosScreen.tsx` y `catalog.service.ts` a `listInventoryWithStock` (`v_product_current_stock`), soporte de imágenes locales (`FileStore`), buscador reactivo instantáneo por nombre/SKU/código de barras, selector táctil de categorías en carrusel horizontal con contadores y visualización de badges de stock (`● X en stock`, `● Stock bajo`, `● Agotado`) con aviso no bloqueante en modo contingencia.
   * *Criterio de éxito:* Búsqueda y filtrado instantáneo en POS, renderizado de stock y fotos locales verificado con 109 tests pasando al 100% y typecheck limpio.
-- [ ] **PR-18: Ticket con Numpad para Cantidades/Pesables, IVA Real y Acciones Rápidas**
-  * *Descripción:* Integrar `Numpad.tsx` en el ticket para editar cantidades directamente (soporte de pesables `kg`/`g` a 4 decimales exactos o compras por bulto), botón de eliminar línea, vaciado de ticket y cálculo real de impuestos con desglose de Subtotal + IVA (`tax_rate`) + Total en USD y VES.
-  * *Criterio de éxito:* Tocar una línea permite digitar `0.7500` kg o `24` und; el ticket y la factura computan el IVA exacto según el producto.
+- [x] **PR-18: Ticket con Numpad para Cantidades/Pesables, IVA Real y Acciones Rápidas**
+  * *Descripción:* Integrar `Numpad.tsx` ampliado (con punto decimal para pesables `kg`/`g` y borrado rápido) en el ticket, botón de eliminar línea individual, confirmación táctil para vaciar el ticket y cálculo real de impuestos con desglose de Subtotal Base Imponible + IVA (`tax_rate`) + Total en USD y VES congelados en la factura.
+  * *Criterio de éxito:* Tocar una línea permite digitar `0.7500` kg o `24` und; el ticket y la factura computan el IVA exacto según el producto. 112 tests pasando y typecheck limpio.
 - [ ] **PR-19: Cobro Combinado (SPLIT), Calculadora de Vuelto Bimoneda y Numpad de Pago**
   * *Descripción:* Rediseño del modal de cobro para soportar pagos combinados (`SPLIT`) distribuyendo montos en efectivo USD, efectivo VES, Pago Móvil y Tarjeta/Punto. Calculadora automática de saldo pendiente y vuelto exacto bimoneda, con desglose de métodos en `balance.repository.ts`.
   * *Criterio de éxito:* Cobro mixto con efectivo USD y Pago Móvil calcula el vuelto correcto y se refleja desglosado en el arqueo y balance.
