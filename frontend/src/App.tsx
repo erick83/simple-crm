@@ -9,7 +9,7 @@ import { PosScreen } from "./screens/PosScreen";
 import { ShiftsScreen } from "./screens/ShiftsScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { MonthlyBalanceScreen } from "./screens/MonthlyBalanceScreen";
-import { createDefaultSqlDriver } from "./database/connection";
+import { getOrCreateDefaultSqlDriver } from "./database/connection";
 import type { SqlDriver } from "./database/connection";
 import { createDefaultFileStore } from "./services/image-compressor.service";
 import type { FileStore } from "./services/image-compressor.service";
@@ -32,9 +32,7 @@ export const App: React.FC<AppProps> = ({
   fileStore: customFileStore,
 }) => {
   const [currentTab, setCurrentTab] = useState<NavTab>("pos");
-  const [db] = useState<SqlDriver | undefined>(
-    () => initialDb ?? createDefaultSqlDriver({ tenantId, terminalId }),
-  );
+  const db = initialDb ?? getOrCreateDefaultSqlDriver({ tenantId, terminalId });
   const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
   const [pendingCount, setPendingCount] = useState<number>(() =>
     db ? P2pSyncService.getPendingCount(db) : 0,

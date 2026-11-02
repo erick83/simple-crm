@@ -14,6 +14,7 @@ import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 import { formatUsd, formatVes, convertUsdToVes, formatFixed4, toDecimal } from "../utils/decimal";
+import { getOrCreateDefaultSqlDriver } from "../database/connection";
 import type { SqlDriver } from "../database/connection";
 import {
   listInventoryWithStock,
@@ -33,6 +34,7 @@ import {
   resolveProductImageUri,
   setProductImage,
   removeProductImage,
+  uint8ToBase64,
 } from "../services/image-compressor.service";
 import type { FileStore, ImageEncoder } from "../services/image-compressor.service";
 import { useBarcodeScanner } from "../services/barcode-scanner.service";
@@ -109,9 +111,9 @@ const DEFAULT_ITEMS: InventoryItemWithStock[] = [
 ];
 
 export const InventoryScreen: React.FC<InventoryScreenProps> = ({
-  db,
-  tenantId = "T01",
-  terminalId = "C01",
+  db: propDb,
+  tenantId = "TENANT-001",
+  terminalId = "TERM-01",
   fileStore: customFileStore,
   imageEncoder: customImageEncoder,
   keyEventTarget,
@@ -120,6 +122,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   onProductSaved,
   onStockAdjusted,
 }) => {
+  const db = propDb ?? getOrCreateDefaultSqlDriver({ tenantId, terminalId });
   const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
   const [imageEncoder] = useState<ImageEncoder>(
     () => customImageEncoder ?? createDefaultImageEncoder(),
@@ -137,6 +140,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   const [formPriceUsd, setFormPriceUsd] = useState("");
   const [formCostUsd, setFormCostUsd] = useState("");
   const [formMinStock, setFormMinStock] = useState("5.0000");
+  const [formInitialStock, setFormInitialStock] = useState("0.0000");
   const [formImagePath, setFormImagePath] = useState<string | null>(null);
   const [pendingImageBytes, setPendingImageBytes] = useState<Uint8Array | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
@@ -189,6 +193,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormPriceUsd("");
     setFormCostUsd("");
     setFormMinStock("5.0000");
+    setFormInitialStock("0.0000");
     setFormImagePath(null);
     setPendingImageBytes(null);
     setRemoveExistingImage(false);
@@ -205,6 +210,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormPriceUsd(item.priceUsd);
     setFormCostUsd(item.costUsd);
     setFormMinStock(item.minStock);
+    setFormInitialStock(item.currentStock);
     setFormImagePath(item.imagePath);
     setPendingImageBytes(null);
     setRemoveExistingImage(false);
@@ -222,6 +228,22 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
           setPendingImageBytes(picked);
           setRemoveExistingImage(false);
         }
+        return;
+      }
+      // En navegador / escritorio Web, abrir el selector de archivos nativo
+      if (typeof document !== "undefined" && typeof document.createElement === "function") {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        input.onchange = async () => {
+          const file = input.files?.[0];
+          if (file) {
+            const buf = await file.arrayBuffer();
+            setPendingImageBytes(new Uint8Array(buf));
+            setRemoveExistingImage(false);
+          }
+        };
+        input.click();
       }
     } catch (err) {
       setProductFormError((err as Error).message);
@@ -242,8 +264,16 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
       if (!formName.trim()) throw new Error("El nombre del producto es obligatorio");
       if (!formSku.trim()) throw new Error("El SKU es obligatorio");
 
-      const priceDec = toDecimal(formPriceUsd || "0", "Precio");
-      const costDec = toDecimal(formCostUsd || "0", "Costo");
+      const rawPrice = (formPriceUsd || "0").replace(",", ".");
+      const rawCost = (formCostUsd || "0").replace(",", ".");
+      const rawMinStock = (formMinStock || "5").replace(",", ".");
+      const rawInitialStock = (formInitialStock || "0").replace(",", ".");
+
+      const priceDec = toDecimal(rawPrice, "Precio");
+      const costDec = toDecimal(rawCost, "Costo");
+      const minStockDec = toDecimal(rawMinStock, "Stock Mínimo");
+      const initialStockDec = toDecimal(rawInitialStock, "Stock Inicial");
+
       if (priceDec.isNegative() || costDec.isNegative()) {
         throw new Error("El precio y el costo no pueden ser negativos");
       }
@@ -261,11 +291,25 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               barcode: formBarcode.trim() || undefined,
               priceUsd: priceDec.toFixed(4),
               costUsd: costDec.toFixed(4),
-              minStock: toDecimal(formMinStock || "5", "Stock Mínimo").toFixed(4),
+              minStock: minStockDec.toFixed(4),
             },
             now,
             terminalId,
           );
+
+          if (!initialStockDec.isZero()) {
+            addStockMovement(
+              db,
+              {
+                productId: savedId,
+                terminalId,
+                delta: initialStockDec.toFixed(4),
+                type: "RESTOCK",
+                referenceId: "Stock Inicial de Alta",
+              },
+              now + 1,
+            );
+          }
         } else {
           updateProduct(
             db,
@@ -276,7 +320,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               barcode: formBarcode.trim() || null,
               priceUsd: priceDec.toFixed(4),
               costUsd: costDec.toFixed(4),
-              minStock: toDecimal(formMinStock || "5", "Stock Mínimo").toFixed(4),
+              minStock: minStockDec.toFixed(4),
               imagePath: formImagePath,
               terminalId,
             },
@@ -289,17 +333,31 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
             { db, encoder: imageEncoder, files: fileStore, terminalId },
             savedId,
             pendingImageBytes,
-            now + 1,
+            now + 2,
           );
         } else if (savedId && removeExistingImage) {
           await removeProductImage(
             { db, files: fileStore, terminalId },
             savedId,
-            now + 1,
+            now + 2,
           );
         }
 
-        reloadData();
+        // Si había un filtro de búsqueda que ocultaría el producto recién guardado, limpiarlo
+        const activeFilter = search.trim().toLowerCase();
+        const matchesFilter =
+          !activeFilter ||
+          formName.toLowerCase().includes(activeFilter) ||
+          formSku.toLowerCase().includes(activeFilter) ||
+          formBarcode.toLowerCase().includes(activeFilter);
+
+        const nextSearch = matchesFilter ? search : "";
+        if (!matchesFilter) {
+          setSearch("");
+        }
+
+        const updatedList = listInventoryWithStock(db, { search: nextSearch, tenantId });
+        setItems(updatedList);
         if (savedId) onProductSaved?.(savedId);
       }
       setIsProductModalOpen(false);
@@ -327,7 +385,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     try {
       setKardexError(null);
       if (!kardexProduct) return;
-      const parsedDelta = toDecimal(kardexDelta, "Cantidad");
+      const parsedDelta = toDecimal((kardexDelta || "0").replace(",", "."), "Cantidad");
       if (parsedDelta.isZero()) {
         throw new Error("La cantidad debe ser distinta de cero");
       }
@@ -566,6 +624,20 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                     onChangeText={setFormMinStock}
                   />
                 </View>
+
+                {!editingProductId && (
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.inputLabel}>Stock Inicial (Unds)</Text>
+                    <TextInput
+                      style={[styles.modalInput, typography.tabularNumeric]}
+                      placeholder="0.0000"
+                      keyboardType="decimal-pad"
+                      placeholderTextColor={colors.dark.textMuted}
+                      value={formInitialStock}
+                      onChangeText={setFormInitialStock}
+                    />
+                  </View>
+                )}
               </View>
 
               {/* Selector Táctil de Imagen Local (WebP/JPEG < 80 KB) */}
@@ -578,7 +650,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                     {pendingImageBytes ? (
                       <Image
                         source={{
-                          uri: `data:image/webp;base64,${Buffer.from(pendingImageBytes).toString("base64")}`,
+                          uri: `data:image/webp;base64,${uint8ToBase64(pendingImageBytes)}`,
                         }}
                         style={styles.thumbnail}
                       />

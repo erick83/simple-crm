@@ -109,6 +109,29 @@ export async function removeProductImage(
   }
 }
 
+export function uint8ToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return typeof btoa === "function" ? btoa(binary) : "";
+}
+
+export function base64ToUint8(b64: string): Uint8Array {
+  if (typeof Buffer !== "undefined") {
+    return Uint8Array.from(Buffer.from(b64, "base64"));
+  }
+  const binary = typeof atob === "function" ? atob(b64) : "";
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    out[i] = binary.charCodeAt(i);
+  }
+  return out;
+}
+
 /**
  * Adaptador en memoria para pruebas, Web y entornos sin sistema de archivos nativo
  */
@@ -130,7 +153,7 @@ export class MemoryFileStore implements FileStore {
   resolveUri(relativePath: string): string | null {
     const data = this.files.get(relativePath);
     if (!data) return null;
-    const base64 = Buffer.from(data).toString("base64");
+    const base64 = uint8ToBase64(data);
     return `data:image/webp;base64,${base64}`;
   }
 }
@@ -164,7 +187,7 @@ export class ExpoFileSystemStore implements FileStore {
     if (parent) {
       await FileSystem.makeDirectoryAsync(parent, { intermediates: true });
     }
-    const base64 = Buffer.from(data).toString("base64");
+    const base64 = uint8ToBase64(data);
     await FileSystem.writeAsStringAsync(fullPath, base64, {
       encoding: FileSystem.EncodingType.Base64,
     });
@@ -179,7 +202,7 @@ export class ExpoFileSystemStore implements FileStore {
     const base64 = await FileSystem.readAsStringAsync(fullPath, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    return Uint8Array.from(Buffer.from(base64, "base64"));
+    return base64ToUint8(base64);
   }
 
   async deleteFile(relativePath: string): Promise<void> {
@@ -232,7 +255,7 @@ export class ExpoImageManipulatorEncoder implements ImageEncoder {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const ImageManipulator = require("expo-image-manipulator");
       if (ImageManipulator?.manipulateAsync) {
-        const base64In = Buffer.from(input).toString("base64");
+        const base64In = uint8ToBase64(input);
         const sourceUri = `data:image/jpeg;base64,${base64In}`;
         const result = await ImageManipulator.manipulateAsync(
           sourceUri,
@@ -244,7 +267,7 @@ export class ExpoImageManipulatorEncoder implements ImageEncoder {
           },
         );
         if (result?.base64) {
-          return Uint8Array.from(Buffer.from(result.base64, "base64"));
+          return base64ToUint8(result.base64);
         }
       }
     } catch {

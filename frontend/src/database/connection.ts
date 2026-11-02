@@ -1,3 +1,6 @@
+import { Platform } from "react-native";
+import { createWebDesktopSqliteDriver, seedInitialPosData } from "./web-sqlite-driver";
+
 export type SqlValue = string | number | null;
 
 export interface SqlDriver {
@@ -56,14 +59,15 @@ export function createOpSqliteDriver(dbName = "bisync_pos.db"): SqlDriver {
 export function createDefaultSqlDriver(
   opts: { dbName?: string; tenantId?: string; terminalId?: string; seedIfEmpty?: boolean } = {},
 ): SqlDriver {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createWebDesktopSqliteDriver, seedInitialPosData } = require("./web-sqlite-driver") as typeof import("./web-sqlite-driver");
-
   let driver: SqlDriver;
-  try {
-    driver = createOpSqliteDriver(opts.dbName);
-  } catch {
+  if (Platform.OS === "web") {
     driver = createWebDesktopSqliteDriver();
+  } else {
+    try {
+      driver = createOpSqliteDriver(opts.dbName);
+    } catch {
+      driver = createWebDesktopSqliteDriver();
+    }
   }
 
   if (opts.seedIfEmpty !== false) {
@@ -74,5 +78,21 @@ export function createDefaultSqlDriver(
   }
 
   return driver;
+}
+
+let sharedDefaultDriver: SqlDriver | null = null;
+
+/**
+ * Obtiene o inicializa el SqlDriver compartido de la aplicación.
+ * Garantiza que incluso durante Fast Refresh (HMR) en el navegador, la instancia exista
+ * y comparta el estado entre Caja (POS), Inventario, Turnos y Balance.
+ */
+export function getOrCreateDefaultSqlDriver(
+  opts: { dbName?: string; tenantId?: string; terminalId?: string } = {},
+): SqlDriver {
+  if (!sharedDefaultDriver) {
+    sharedDefaultDriver = createDefaultSqlDriver(opts);
+  }
+  return sharedDefaultDriver;
 }
 
