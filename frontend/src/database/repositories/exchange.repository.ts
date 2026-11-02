@@ -50,3 +50,53 @@ export function getLatestRate(db: SqlDriver): StoredRate | undefined {
   return r && { rateDate: r.rate_date, rateToVes: r.rate_to_ves, source: r.source, notes: r.notes };
 }
 
+export interface RateHistoryOptions {
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+  order?: "ASC" | "DESC";
+}
+
+export function getRateHistory(
+  db: SqlDriver,
+  options: RateHistoryOptions = {},
+): StoredRate[] {
+  const { startDate, endDate, limit, order = "DESC" } = options;
+  const conditions: string[] = ["currency_code = 'USD'"];
+  const params: (string | number)[] = [];
+
+  if (startDate) {
+    conditions.push("rate_date >= ?");
+    params.push(startDate);
+  }
+  if (endDate) {
+    conditions.push("rate_date <= ?");
+    params.push(endDate);
+  }
+
+  const orderDirection = order === "ASC" ? "ASC" : "DESC";
+  let sql = `SELECT rate_date, rate_to_ves, source, notes FROM exchange_rates WHERE ${conditions.join(
+    " AND ",
+  )} ORDER BY rate_date ${orderDirection}`;
+
+  if (typeof limit === "number" && limit > 0) {
+    sql += " LIMIT ?";
+    params.push(limit);
+  }
+
+  const rows = db.all<{
+    rate_date: string;
+    rate_to_ves: string;
+    source: StoredRate["source"];
+    notes: string | null;
+  }>(sql, params);
+
+  return rows.map((r) => ({
+    rateDate: r.rate_date,
+    rateToVes: r.rate_to_ves,
+    source: r.source,
+    notes: r.notes,
+  }));
+}
+
+

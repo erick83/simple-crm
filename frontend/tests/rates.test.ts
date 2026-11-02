@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { createTestDb } from "./helpers";
 import { fetchBcvRate, parseBcvHtml, parseManualRate, type FetchLike } from "../src/rates/bcv";
-import { getRateForDate, registerManualRate, resolveDailyRate } from "../src/rates/rates";
+import {
+  getRateForDate,
+  getLatestRate,
+  getRateHistory,
+  insertRate,
+  registerManualRate,
+  resolveDailyRate,
+} from "../src/rates/rates";
 
 const HTML = `<div id="dolar"><div><span>USD</span><div><strong> 36,50129999 </strong></div></div></div>`;
 const okFetch: FetchLike = async () => ({ ok: true, status: 200, text: async () => HTML });
@@ -63,4 +70,75 @@ describe("resolveDailyRate", () => {
     expect(r.status).toBe("MANUAL_REQUIRED");
   });
 });
+
+describe("histórico de tasas de cambio", () => {
+  it("persiste en SQLite con UUIDv7, auditoría y estructura relacional completa", () => {
+    const db = createTestDb();
+    const now = Date.now();
+    insertRate(db, "2026-11-01", "36.4500", "BCV_AUTO", null, now);
+
+    const rows = db.all<{
+      id: string;
+      rate_date: string;
+      currency_code: string;
+      rate_to_ves: string;
+      source: string;
+      fetched_at: number;
+      created_at: number;
+      notes: string | null;
+    }>("SELECT * FROM exchange_rates WHERE rate_date = '2026-11-01'");
+
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(row.rate_date).toBe("2026-11-01");
+    expect(row.currency_code).toBe("USD");
+    expect(row.rate_to_ves).toBe("36.4500");
+    expect(row.source).toBe("BCV_AUTO");
+    expect(row.fetched_at).toBe(now);
+    expect(row.created_at).toBe(now);
+    expect(row.notes).toBeNull();
+  });
+
+  it("almacena múltiples tasas por fecha y genera el histórico ordenado", () => {
+    const db = createTestDb();
+    insertRate(db, "2026-11-01", "36.4500", "BCV_AUTO", null, 1700000000000);
+    insertRate(db, "2026-11-02", "36.5013", "BCV_AUTO", null, 1700086400000);
+    registerManualRate(
+      db,
+      { rateDate: "2026-11-03", rate: "36.6200", reason: "Falla eléctrica en sede" },
+      1700172800000,
+    );
+
+    // Consulta de la más reciente
+    const latest = getLatestRate(db);
+    expect(latest?.rateDate).toBe("2026-11-03");
+    expect(latest?.rateToVes).toBe("36.6200");
+
+    // Histórico completo por defecto (DESC: más reciente primero)
+    const historyDesc = getRateHistory(db);
+    expect(historyDesc).toHaveLength(3);
+    expect(historyDesc.map((h) => h.rateDate)).toEqual(["2026-11-03", "2026-11-02", "2026-11-01"]);
+    expect(historyDesc[0]).toMatchObject({
+      rateDate: "2026-11-03",
+      rateToVes: "36.6200",
+      source: "MANUAL",
+      notes: "Falla eléctrica en sede",
+    });
+
+    // Histórico ascendente
+    const historyAsc = getRateHistory(db, { order: "ASC" });
+    expect(historyAsc.map((h) => h.rateDate)).toEqual(["2026-11-01", "2026-11-02", "2026-11-03"]);
+
+    // Filtrado por rango de fechas
+    const range = getRateHistory(db, { startDate: "2026-11-02", endDate: "2026-11-03" });
+    expect(range.map((h) => h.rateDate)).toEqual(["2026-11-03", "2026-11-02"]);
+
+    // Paginación / límite
+    const limited = getRateHistory(db, { limit: 2 });
+    expect(limited).toHaveLength(2);
+    expect(limited.map((h) => h.rateDate)).toEqual(["2026-11-03", "2026-11-02"]);
+  });
+});
+
 

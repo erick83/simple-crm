@@ -624,10 +624,35 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         if (norm.includes("WHERE rate_date = ?")) {
           return store.exchange_rates.filter((r) => r.rate_date === params[0]) as unknown as T[];
         }
-        const sorted = [...store.exchange_rates].sort((a, b) =>
-          String(b.rate_date).localeCompare(String(a.rate_date)),
+
+          let list = [...store.exchange_rates];
+        if (norm.includes("rate_date >=")) {
+          const startVal = params[0] as string;
+          list = list.filter((r) => String(r.rate_date) >= startVal);
+        }
+        if (norm.includes("rate_date <=")) {
+          const endParamIdx = norm.includes("rate_date >=") ? 1 : 0;
+          const endVal = params[endParamIdx] as string;
+          list = list.filter((r) => String(r.rate_date) <= endVal);
+        }
+
+        const isAsc = norm.includes("ORDER BY rate_date ASC");
+        list.sort((a, b) =>
+          isAsc
+            ? String(a.rate_date).localeCompare(String(b.rate_date))
+            : String(b.rate_date).localeCompare(String(a.rate_date)),
         );
-        return sorted.slice(0, 1) as unknown as T[];
+
+        if (norm.includes("LIMIT 1")) {
+          return list.slice(0, 1) as unknown as T[];
+        }
+        if (norm.includes("LIMIT ?")) {
+          const limitVal = Number(params[params.length - 1]);
+          if (!isNaN(limitVal)) {
+            list = list.slice(0, limitVal);
+          }
+        }
+        return list as unknown as T[];
       }
 
       // 7. Turnos de caja (cash_shifts)
