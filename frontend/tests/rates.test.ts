@@ -5,6 +5,7 @@ import {
   getRateForDate,
   getLatestRate,
   getRateHistory,
+  generateExchangeRateReport,
   insertRate,
   registerManualRate,
   resolveDailyRate,
@@ -138,6 +139,60 @@ describe("histórico de tasas de cambio", () => {
     const limited = getRateHistory(db, { limit: 2 });
     expect(limited).toHaveLength(2);
     expect(limited.map((h) => h.rateDate)).toEqual(["2026-11-03", "2026-11-02"]);
+  });
+
+  it("genera el reporte estadístico de tasas BCV con deltas interdiarios y agregaciones", () => {
+    const db = createTestDb();
+
+    // 1. Reporte en base de datos vacía
+    const emptyReport = generateExchangeRateReport(db);
+    expect(emptyReport.totalDays).toBe(0);
+    expect(emptyReport.latestRate).toBe("0.0000");
+    expect(emptyReport.rates).toHaveLength(0);
+
+    // 2. Insertar historial de tasas
+    // Día 1: 36.4500 (BCV)
+    // Día 2: 36.5013 (BCV) -> Delta +0.0513 (+0.14%)
+    // Día 3: 36.6200 (Manual) -> Delta +0.1187 (+0.33%)
+    insertRate(db, "2026-11-01", "36.4500", "BCV_AUTO", null, 1700000000000);
+    insertRate(db, "2026-11-02", "36.5013", "BCV_AUTO", null, 1700086400000);
+    registerManualRate(
+      db,
+      { rateDate: "2026-11-03", rate: "36.6200", reason: "Sin internet en tienda" },
+      1700172800000,
+    );
+
+    const report = generateExchangeRateReport(db);
+
+    expect(report.totalDays).toBe(3);
+    expect(report.periodFrom).toBe("2026-11-01");
+    expect(report.periodTo).toBe("2026-11-03");
+    expect(report.latestRate).toBe("36.6200");
+    expect(report.minRate).toBe("36.4500");
+    expect(report.maxRate).toBe("36.6200");
+    // Promedio: (36.4500 + 36.5013 + 36.6200) / 3 = 109.5713 / 3 = 36.5238
+    expect(report.averageRate).toBe("36.5238");
+    // Variación período: 36.6200 - 36.4500 = +0.1700 (+0.47%)
+    expect(report.variationAbsolute).toBe("+0.1700");
+    expect(report.variationPercent).toBe("+0.47");
+    expect(report.bcvAutoCount).toBe(2);
+    expect(report.manualCount).toBe(1);
+
+    // Las filas deben estar por defecto en orden DESC (más reciente primero)
+    expect(report.rates).toHaveLength(3);
+    const [r3, r2, r1] = report.rates;
+    expect(r3?.rateDate).toBe("2026-11-03");
+    expect(r3?.deltaPreviousDay).toBe("+0.1187");
+    expect(r3?.percentPreviousDay).toBe("+0.33%");
+    expect(r3?.source).toBe("MANUAL");
+    expect(r3?.notes).toBe("Sin internet en tienda");
+
+    expect(r2?.rateDate).toBe("2026-11-02");
+    expect(r2?.deltaPreviousDay).toBe("+0.0513");
+    expect(r2?.percentPreviousDay).toBe("+0.14%");
+
+    expect(r1?.rateDate).toBe("2026-11-01");
+    expect(r1?.deltaPreviousDay).toBeUndefined(); // Primer día no tiene día previo
   });
 });
 

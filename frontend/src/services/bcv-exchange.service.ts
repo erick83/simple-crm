@@ -5,14 +5,28 @@ import {
   insertRate,
   getLatestRate,
   getRateHistory,
+  generateExchangeRateReport,
 } from "../database/repositories/exchange.repository";
 import type {
   StoredRate,
   RateHistoryOptions,
+  ExchangeRateHistoryItem,
+  ExchangeRateReport,
 } from "../database/repositories/exchange.repository";
 
-export { getRateForDate, insertRate, getLatestRate, getRateHistory };
-export type { StoredRate, RateHistoryOptions };
+export {
+  getRateForDate,
+  insertRate,
+  getLatestRate,
+  getRateHistory,
+  generateExchangeRateReport,
+};
+export type {
+  StoredRate,
+  RateHistoryOptions,
+  ExchangeRateHistoryItem,
+  ExchangeRateReport,
+};
 
 export const BCV_URL = "https://www.bcv.org.ve/";
 export const BCV_TIMEOUT_MS = 5000;

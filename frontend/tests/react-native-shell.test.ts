@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import React from "react";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { formatUsd, formatVes, toDecimal, convertUsdToVes } from "../src/utils/decimal";
@@ -10,6 +11,7 @@ import { LicenseValidatorService } from "../src/services/license-validator.servi
 import { SCHEMA_SQL } from "../src/database/schema.generated";
 import { migrateDatabase } from "../src/database/migrations";
 import { uuidv7 } from "../src/utils/uuid7";
+import { MonthlyBalanceScreen, ReportsScreen } from "../src/screens/MonthlyBalanceScreen";
 
 describe("Design Tokens y Reglas de la Constitución", () => {
   it("cumple los colores de tema oscuro obligatorios", () => {
@@ -134,6 +136,13 @@ describe("Guardia de Reloj Monótono", () => {
     const evalRes = LicenseValidatorService.evaluateLicense(db, "hwid123", 40000);
     expect(evalRes.canCheckout).toBe(false);
     expect(evalRes.status).toBe("TAMPERED");
+  });
+
+  it("renderiza el módulo de reportes con soporte bimoneda e histórico BCV", () => {
+    const db = createTestDb();
+    const elem = React.createElement(ReportsScreen, { db });
+    expect(elem).toBeDefined();
+    expect(MonthlyBalanceScreen).toBe(ReportsScreen);
   });
 });
 

@@ -1,11 +1,32 @@
 import type { SqlDriver } from "../connection";
 import { uuidv7 } from "../../utils/uuid7";
+import { Decimal, toDecimal } from "../../utils/decimal";
 
 export interface StoredRate {
   rateDate: string;
   rateToVes: string;
   source: "BCV_AUTO" | "MANUAL";
   notes: string | null;
+}
+
+export interface ExchangeRateHistoryItem extends StoredRate {
+  deltaPreviousDay?: string;
+  percentPreviousDay?: string;
+}
+
+export interface ExchangeRateReport {
+  periodFrom: string;
+  periodTo: string;
+  totalDays: number;
+  latestRate: string;
+  minRate: string;
+  maxRate: string;
+  averageRate: string;
+  variationAbsolute: string;
+  variationPercent: string;
+  bcvAutoCount: number;
+  manualCount: number;
+  rates: ExchangeRateHistoryItem[];
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -97,6 +118,111 @@ export function getRateHistory(
     source: r.source,
     notes: r.notes,
   }));
+}
+
+export function generateExchangeRateReport(
+  db: SqlDriver,
+  options: RateHistoryOptions = {},
+): ExchangeRateReport {
+  // Consultar en orden ascendente para calcular correctamente los deltas interdiarios
+  const ascRates = getRateHistory(db, {
+    ...options,
+    order: "ASC",
+  });
+
+  if (ascRates.length === 0) {
+    return {
+      periodFrom: options.startDate ?? "",
+      periodTo: options.endDate ?? "",
+      totalDays: 0,
+      latestRate: "0.0000",
+      minRate: "0.0000",
+      maxRate: "0.0000",
+      averageRate: "0.0000",
+      variationAbsolute: "0.0000",
+      variationPercent: "0.00",
+      bcvAutoCount: 0,
+      manualCount: 0,
+      rates: [],
+    };
+  }
+
+  let min = toDecimal(ascRates[0]!.rateToVes);
+  let max = toDecimal(ascRates[0]!.rateToVes);
+  let sum = new Decimal(0);
+  let bcvAutoCount = 0;
+  let manualCount = 0;
+
+  const itemsWithDelta: ExchangeRateHistoryItem[] = [];
+
+  for (let i = 0; i < ascRates.length; i++) {
+    const item = ascRates[i]!;
+    const rateDec = toDecimal(item.rateToVes);
+
+    if (rateDec.lt(min)) min = rateDec;
+    if (rateDec.gt(max)) max = rateDec;
+    sum = sum.plus(rateDec);
+
+    if (item.source === "BCV_AUTO") bcvAutoCount++;
+    else manualCount++;
+
+    let deltaPreviousDay: string | undefined;
+    let percentPreviousDay: string | undefined;
+
+    if (i > 0) {
+      const prevDec = toDecimal(ascRates[i - 1]!.rateToVes);
+      const diff = rateDec.minus(prevDec);
+      const sign = diff.isPositive() && !diff.isZero() ? "+" : "";
+      deltaPreviousDay = `${sign}${diff.toFixed(4)}`;
+
+      if (!prevDec.isZero()) {
+        const pct = diff.dividedBy(prevDec).times(100);
+        const pctSign = pct.isPositive() && !pct.isZero() ? "+" : "";
+        percentPreviousDay = `${pctSign}${pct.toFixed(2)}%`;
+      } else {
+        percentPreviousDay = "0.00%";
+      }
+    }
+
+    itemsWithDelta.push({
+      ...item,
+      deltaPreviousDay,
+      percentPreviousDay,
+    });
+  }
+
+  const firstRate = toDecimal(ascRates[0]!.rateToVes);
+  const lastRate = toDecimal(ascRates[ascRates.length - 1]!.rateToVes);
+  const totalDiff = lastRate.minus(firstRate);
+  const totalDiffSign = totalDiff.isPositive() && !totalDiff.isZero() ? "+" : "";
+  const variationAbsolute = `${totalDiffSign}${totalDiff.toFixed(4)}`;
+
+  let variationPercent = "0.00";
+  if (!firstRate.isZero()) {
+    const totalPct = totalDiff.dividedBy(firstRate).times(100);
+    const totalPctSign = totalPct.isPositive() && !totalPct.isZero() ? "+" : "";
+    variationPercent = `${totalPctSign}${totalPct.toFixed(2)}`;
+  }
+
+  const averageRate = sum.dividedBy(ascRates.length).toFixed(4);
+
+  const resultRates =
+    options.order === "ASC" ? itemsWithDelta : [...itemsWithDelta].reverse();
+
+  return {
+    periodFrom: ascRates[0]!.rateDate,
+    periodTo: ascRates[ascRates.length - 1]!.rateDate,
+    totalDays: ascRates.length,
+    latestRate: lastRate.toFixed(4),
+    minRate: min.toFixed(4),
+    maxRate: max.toFixed(4),
+    averageRate,
+    variationAbsolute,
+    variationPercent,
+    bcvAutoCount,
+    manualCount,
+    rates: resultRates,
+  };
 }
 
 
