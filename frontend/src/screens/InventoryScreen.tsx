@@ -276,6 +276,12 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     return { byCat, lowStock, outOfStock };
   }, [items]);
 
+  // Categoría seleccionada como entidad (para acciones de eliminar en barra fija)
+  const selectedCategoryObj = useMemo(() => {
+    if (selectedCategory === "ALL" || selectedCategory === "UNCATEGORIZED") return null;
+    return categories.find((c) => c.id === selectedCategory) ?? null;
+  }, [categories, selectedCategory]);
+
   // Lista filtrada y ordenada con precisión fija (Decimal)
   const organizedItems = useMemo(() => {
     const filtered = items.filter((item) => {
@@ -744,20 +750,22 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
 
       {/* Panel de Organización: Categorías, Estado de Stock y Ordenamiento */}
       <View style={styles.organizationPanel}>
-        {/* Fila 1: Píldoras Táctiles de Categorías + Crear Categoría */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryScrollContent}
-        >
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => setSelectedCategory("ALL")}
-            style={[
-              styles.categoryChip,
-              selectedCategory === "ALL" && styles.categoryChipActive,
-            ]}
-          >
+            {/* Fila 1: Píldoras Táctiles de Categorías (scroll) + Acciones fijadas a la derecha */}
+        <View style={styles.categoryBarRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.categoryScrollView}
+              contentContainerStyle={styles.categoryScrollContent}
+            >
+                <TouchableOpacity
+              activeOpacity={0.8}
+                onPress={() => setSelectedCategory("ALL")}
+                style={[
+                  styles.categoryChip,
+                  selectedCategory === "ALL" && styles.categoryChipActive,
+                ]}
+              >
             <Text
               style={[
                 styles.categoryChipText,
@@ -768,101 +776,105 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
             </Text>
           </TouchableOpacity>
 
-          {categories.map((cat) => {
-            const isSelected = selectedCategory === cat.id;
-            const count = organizationCounts.byCat[cat.id] ?? 0;
-            return (
-              <View key={cat.id} style={styles.categoryChipWrapper}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => setSelectedCategory(cat.id)}
-                  style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
-                >
-                  <Text
-                    style={[
-                      styles.categoryChipText,
-                      isSelected && styles.categoryChipTextActive,
-                    ]}
-                  >
-                    {cat.name} ({count})
-                  </Text>
-                </TouchableOpacity>
-                {isSelected && (
+                {categories.map((cat) => {
+                  const isSelected = selectedCategory === cat.id;
+                  const count = organizationCounts.byCat[cat.id] ?? 0;
+                  return (
+                    <TouchableOpacity
+                      key={cat.id}
+                      activeOpacity={0.8}
+                      onPress={() => setSelectedCategory(cat.id)}
+                      style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.categoryChipText,
+                          isSelected && styles.categoryChipTextActive,
+                        ]}
+                      >
+                        {cat.name} ({count})
+                      </Text>
+                    </TouchableOpacity>
+          );
+            })}
+
+                {(organizationCounts.byCat.UNCATEGORIZED ?? 0) > 0 && (
                   <TouchableOpacity
                     activeOpacity={0.8}
-                    onPress={() => handleOpenDeleteCategory(cat)}
-                    style={styles.deleteCategoryChipBtn}
+                    onPress={() => setSelectedCategory("UNCATEGORIZED")}
+                    style={[
+                      styles.categoryChip,
+                      selectedCategory === "UNCATEGORIZED" && styles.categoryChipActive,
+                    ]}
                   >
-                    <Text style={styles.deleteCategoryChipBtnText}>🗑 Eliminar Categoría</Text>
-                  </TouchableOpacity>
-                )}
+          <Text
+            style={[
+              styles.categoryChipText,
+              selectedCategory === "UNCATEGORIZED" && styles.categoryChipTextActive,
+            ]}
+          >
+            Sin Categoría ({organizationCounts.byCat.UNCATEGORIZED})
+          </Text>
+        </TouchableOpacity>
+            )}
+      </ScrollView>
+
+          {/* Acciones flotantes a la derecha al final de la barra */}
+          <View style={styles.categoryActionsRight}>
+            {selectedCategoryObj && (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => handleOpenDeleteCategory(selectedCategoryObj)}
+                style={styles.deleteCategoryFixedBtn}
+              >
+                <Text style={styles.deleteCategoryFixedBtnText}>🗑 Eliminar Categoría</Text>
+              </TouchableOpacity>
+            )}
+
+            {isCreatingCategoryInline ? (
+              <View style={styles.inlineCategoryBox}>
+                <TextInput
+                  style={styles.inlineCategoryInput}
+                  placeholder="Nueva categoría..."
+                  placeholderTextColor={colors.dark.textMuted}
+                  value={inlineCategoryName}
+                  onChangeText={setInlineCategoryName}
+                  onSubmitEditing={() => handleCreateQuickCategory(inlineCategoryName, false)}
+                />
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => handleCreateQuickCategory(inlineCategoryName, false)}
+                  style={styles.inlineCategoryConfirmBtn}
+                >
+                  <Text style={styles.inlineCategoryConfirmText}>✓ Crear</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setIsCreatingCategoryInline(false);
+                    setInlineCategoryName("");
+                  }}
+                  style={styles.inlineCategoryCancelBtn}
+                >
+                  <Text style={styles.inlineCategoryCancelText}>✕</Text>
+                </TouchableOpacity>
               </View>
-            );
-          })}
-
-          {(organizationCounts.byCat.UNCATEGORIZED ?? 0) > 0 && (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setSelectedCategory("UNCATEGORIZED")}
-              style={[
-                styles.categoryChip,
-                selectedCategory === "UNCATEGORIZED" && styles.categoryChipActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.categoryChipText,
-                  selectedCategory === "UNCATEGORIZED" && styles.categoryChipTextActive,
-                ]}
-              >
-                Sin Categoría ({organizationCounts.byCat.UNCATEGORIZED})
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {isCreatingCategoryInline ? (
-            <View style={styles.inlineCategoryBox}>
-              <TextInput
-                style={styles.inlineCategoryInput}
-                placeholder="Nueva categoría..."
-                placeholderTextColor={colors.dark.textMuted}
-                value={inlineCategoryName}
-                onChangeText={setInlineCategoryName}
-                onSubmitEditing={() => handleCreateQuickCategory(inlineCategoryName, false)}
-              />
+            ) : (
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={() => handleCreateQuickCategory(inlineCategoryName, false)}
-                style={styles.inlineCategoryConfirmBtn}
+                onPress={() => setIsCreatingCategoryInline(true)}
+                style={styles.addCategoryChip}
               >
-                <Text style={styles.inlineCategoryConfirmText}>✓ Crear</Text>
+                <Text style={styles.addCategoryChipText}>+ Categoría</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => {
-                  setIsCreatingCategoryInline(false);
-                  setInlineCategoryName("");
-                }}
-                style={styles.inlineCategoryCancelBtn}
-              >
-                <Text style={styles.inlineCategoryCancelText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setIsCreatingCategoryInline(true)}
-              style={styles.addCategoryChip}
-            >
-              <Text style={styles.addCategoryChipText}>+ Categoría</Text>
-            </TouchableOpacity>
-          )}
-        </ScrollView>
+      )}
+    </View>
+        </View >
 
-        {/* Fila 2: Filtros Rápidos de Stock (Semáforo) + Ordenamiento + Valorización */}
-        <View style={styles.controlsAndKpiRow}>
-          {/* Filtro por estado de stock */}
-          <View style={styles.filterGroup}>
+  {/* Fila 2: Filtros Rápidos de Stock (Semáforo) + Ordenamiento + Valorización */ }
+  < View style = { styles.controlsAndKpiRow } >
+    {/* Filtro por estado de stock */ }
+    < View style = { styles.filterGroup } >
             <Text style={styles.controlGroupLabel}>ESTADO:</Text>
             <TouchableOpacity
               activeOpacity={0.8}
@@ -922,39 +934,41 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 🚫 Agotados ({organizationCounts.outOfStock})
               </Text>
             </TouchableOpacity>
-          </View>
+          </View >
 
-          {/* Selector táctil de ordenamiento */}
-          <View style={styles.filterGroup}>
-            <Text style={styles.controlGroupLabel}>ORDENAR POR:</Text>
-            {(
-              [
-                { id: "NAME_ASC", label: "A → Z" },
-                { id: "STOCK_ASC", label: "Stock ↑" },
-                { id: "STOCK_DESC", label: "Stock ↓" },
-                { id: "PRICE_ASC", label: "Precio ↑" },
-                { id: "PRICE_DESC", label: "Precio ↓" },
-                { id: "RECENT", label: "Recientes" },
-              ] as const
-            ).map((opt) => {
-              const active = sortBy === opt.id;
-              return (
-                <TouchableOpacity
-                  key={opt.id}
-                  activeOpacity={0.8}
-                  onPress={() => setSortBy(opt.id)}
-                  style={[styles.sortPill, active && styles.sortPillActive]}
-                >
-                  <Text style={[styles.sortPillText, active && styles.sortPillTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+  {/* Selector táctil de ordenamiento */ }
+  < View style = { styles.filterGroup } >
+    <Text style={styles.controlGroupLabel}>ORDENAR POR:</Text>
+{
+  (
+    [
+      { id: "NAME_ASC", label: "A → Z" },
+      { id: "STOCK_ASC", label: "Stock ↑" },
+      { id: "STOCK_DESC", label: "Stock ↓" },
+      { id: "PRICE_ASC", label: "Precio ↑" },
+      { id: "PRICE_DESC", label: "Precio ↓" },
+      { id: "RECENT", label: "Recientes" },
+    ] as const
+  ).map((opt) => {
+    const active = sortBy === opt.id;
+    return (
+      <TouchableOpacity
+        key={opt.id}
+        activeOpacity={0.8}
+        onPress={() => setSortBy(opt.id)}
+        style={[styles.sortPill, active && styles.sortPillActive]}
+      >
+        <Text style={[styles.sortPillText, active && styles.sortPillTextActive]}>
+          {opt.label}
+        </Text>
+      </TouchableOpacity>
+    );
+  })
+}
+          </View >
 
-          {/* Resumen de Valorización de la vista actual */}
-          <View style={styles.kpiStrip}>
+  {/* Resumen de Valorización de la vista actual */ }
+  < View style = { styles.kpiStrip } >
             <View style={styles.kpiItem}>
               <Text style={styles.kpiLabel}>MOSTRANDO</Text>
               <Text style={[styles.kpiValue, typography.tabularNumeric]}>
@@ -975,710 +989,712 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 {formatUsd(inventorySummary.totalSaleUsd)}
               </Text>
             </View>
+          </View >
+        </View >
+      </View >
+
+  {/* Listado de Productos Organizado con Stock Actual */ }
+  < FlatList
+data = { organizedItems }
+keyExtractor = {(item) => item.id}
+renderItem = {({ item }) => {
+  const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
+  const imageUri = resolveProductImageUri(fileStore, item.imagePath);
+
+  return (
+    <View style={styles.row}>
+      {/* Miniatura de Imagen Local */}
+      <View style={styles.imageCol}>
+        {imageUri ? (
+          <Image source={{ uri: imageUri }} style={styles.thumbnail} />
+        ) : (
+          <View style={styles.thumbnailPlaceholder}>
+            <Text style={styles.thumbnailPlaceholderText}>📦</Text>
           </View>
-        </View>
+        )}
       </View>
 
-      {/* Listado de Productos Organizado con Stock Actual */}
-      <FlatList
-        data={organizedItems}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => {
-          const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
-          const imageUri = resolveProductImageUri(fileStore, item.imagePath);
+      {/* Información del Producto */}
+      <View style={styles.colInfo}>
+        <View style={styles.productHeaderRow}>
+          <Text style={styles.productName}>{item.name}</Text>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() =>
+              setSelectedCategory(item.categoryId ? item.categoryId : "UNCATEGORIZED")
+            }
+            style={styles.rowCategoryTag}
+          >
+            <Text style={styles.rowCategoryTagText}>
+              {item.categoryName ?? "Sin categoría"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.metaText}>
+          SKU: <Text style={styles.metaHighlight}>{item.sku}</Text>
+          {item.barcode ? ` | Barcode: ${item.barcode}` : " | Sin código"}
+          {item.categoryName ? ` | Cat: ${item.categoryName}` : ""}
+        </Text>
+      </View>
 
-          return (
-            <View style={styles.row}>
-              {/* Miniatura de Imagen Local */}
-              <View style={styles.imageCol}>
-                {imageUri ? (
-                  <Image source={{ uri: imageUri }} style={styles.thumbnail} />
-                ) : (
-                  <View style={styles.thumbnailPlaceholder}>
-                    <Text style={styles.thumbnailPlaceholderText}>📦</Text>
-                  </View>
-                )}
-              </View>
+      {/* Precios Bimoneda */}
+      <View style={styles.colPrice}>
+        <Text style={[styles.priceText, typography.tabularNumeric]}>
+          {formatUsd(item.priceUsd)}
+        </Text>
+        <Text style={[styles.priceVesText, typography.tabularNumeric]}>
+          ≈ {formatVes(priceVes)}
+        </Text>
+        <Text style={styles.costText}>Costo: {formatUsd(item.costUsd)}</Text>
+      </View>
 
-              {/* Información del Producto */}
-              <View style={styles.colInfo}>
-                <View style={styles.productHeaderRow}>
-                  <Text style={styles.productName}>{item.name}</Text>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() =>
-                      setSelectedCategory(item.categoryId ? item.categoryId : "UNCATEGORIZED")
-                    }
-                    style={styles.rowCategoryTag}
-                  >
-                    <Text style={styles.rowCategoryTagText}>
-                      {item.categoryName ?? "Sin categoría"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.metaText}>
-                  SKU: <Text style={styles.metaHighlight}>{item.sku}</Text>
-                  {item.barcode ? ` | Barcode: ${item.barcode}` : " | Sin código"}
-                  {item.categoryName ? ` | Cat: ${item.categoryName}` : ""}
-                </Text>
-              </View>
+      {/* Stock Actual y Badge */}
+      <View style={styles.colStock}>
+        <View
+          style={[
+            styles.stockBadge,
+            item.isLowStock ? styles.lowStockBadge : styles.normalStockBadge,
+          ]}
+        >
+          <Text
+            style={[
+              styles.stockText,
+              typography.tabularNumeric,
+              item.isLowStock ? styles.lowStockText : styles.normalStockText,
+            ]}
+          >
+            {formatQuantity(item.currentStock, item.unit)}
+          </Text>
+        </View>
+        {item.isLowStock && <Text style={styles.alertText}>Alerta Stock Bajo</Text>}
+      </View>
 
-              {/* Precios Bimoneda */}
-              <View style={styles.colPrice}>
-                <Text style={[styles.priceText, typography.tabularNumeric]}>
-                  {formatUsd(item.priceUsd)}
-                </Text>
-                <Text style={[styles.priceVesText, typography.tabularNumeric]}>
-                  ≈ {formatVes(priceVes)}
-                </Text>
-                <Text style={styles.costText}>Costo: {formatUsd(item.costUsd)}</Text>
-              </View>
+      {/* Acciones Táctiles (>= 48px) */}
+      <View style={styles.colActions}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => handleOpenKardex(item)}
+          style={styles.kardexBtn}
+        >
+          <Text style={styles.kardexBtnText}>Ajustar Stock</Text>
+        </TouchableOpacity>
 
-              {/* Stock Actual y Badge */}
-              <View style={styles.colStock}>
-                <View
-                  style={[
-                    styles.stockBadge,
-                    item.isLowStock ? styles.lowStockBadge : styles.normalStockBadge,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.stockText,
-                      typography.tabularNumeric,
-                      item.isLowStock ? styles.lowStockText : styles.normalStockText,
-                    ]}
-                  >
-                    {formatQuantity(item.currentStock, item.unit)}
-                  </Text>
-                </View>
-                {item.isLowStock && <Text style={styles.alertText}>Alerta Stock Bajo</Text>}
-              </View>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => handleOpenEditProduct(item)}
+          style={styles.editBtn}
+        >
+          <Text style={styles.editBtnText}>✎ Editar</Text>
+        </TouchableOpacity>
 
-              {/* Acciones Táctiles (>= 48px) */}
-              <View style={styles.colActions}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => handleOpenKardex(item)}
-                  style={styles.kardexBtn}
-                >
-                  <Text style={styles.kardexBtnText}>Ajustar Stock</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => handleOpenEditProduct(item)}
-                  style={styles.editBtn}
-                >
-                  <Text style={styles.editBtnText}>✎ Editar</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => handleOpenDeleteProduct(item)}
-                  style={styles.deleteRowBtn}
-                >
-                  <Text style={styles.deleteRowBtnText}>🗑 Eliminar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => handleOpenDeleteProduct(item)}
+          style={styles.deleteRowBtn}
+        >
+          <Text style={styles.deleteRowBtnText}>🗑 Eliminar</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}}
+ListEmptyComponent = {
+          < View style = { styles.emptyContainer } >
             <Text style={styles.emptyText}>No se encontraron productos en esta vista</Text>
             <Text style={styles.emptySubText}>
               {selectedCategory !== "ALL" || stockFilter !== "ALL" || search.trim()
                 ? "Pruebe limpiando los filtros de categoría o estado de stock"
                 : 'Presione "+ NUEVO PRODUCTO" o escanee un código de barras para darlo de alta'}
             </Text>
-            {(selectedCategory !== "ALL" || stockFilter !== "ALL" || search.trim() !== "") && (
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => {
-                  setSelectedCategory("ALL");
-                  setStockFilter("ALL");
-                  setSearch("");
-                }}
-                style={styles.resetFiltersBtn}
-              >
-                <Text style={styles.resetFiltersBtnText}>Restablecer Filtros</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+{
+  (selectedCategory !== "ALL" || stockFilter !== "ALL" || search.trim() !== "") && (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={() => {
+        setSelectedCategory("ALL");
+        setStockFilter("ALL");
+        setSearch("");
+      }}
+      style={styles.resetFiltersBtn}
+    >
+      <Text style={styles.resetFiltersBtnText}>Restablecer Filtros</Text>
+    </TouchableOpacity>
+  )
+}
+          </View >
         }
       />
 
-      {/* Modal 1: Crear / Editar Producto */}
-      <Modal visible={isProductModalOpen} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {editingProductId ? "Editar Producto" : "Nuevo Producto en Inventario"}
-            </Text>
-            <Text style={styles.modalSubtitle}>
-              Soporta captura directa con pistola/lector HID y almacenamiento de foto local
-            </Text>
+{/* Modal 1: Crear / Editar Producto */ }
+<Modal visible={isProductModalOpen} transparent animationType="fade">
+  <View style={styles.modalOverlay}>
+    <View style={styles.modalCard}>
+      <Text style={styles.modalTitle}>
+        {editingProductId ? "Editar Producto" : "Nuevo Producto en Inventario"}
+      </Text>
+      <Text style={styles.modalSubtitle}>
+        Soporta captura directa con pistola/lector HID y almacenamiento de foto local
+      </Text>
 
-            {productFormError && <Text style={styles.errorText}>{productFormError}</Text>}
+      {productFormError && <Text style={styles.errorText}>{productFormError}</Text>}
 
-            <ScrollView style={styles.formScroll}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Descripción / Nombre del Producto *</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="Ej. Harina PAN 1kg"
-                  placeholderTextColor={colors.dark.textMuted}
-                  value={formName}
-                  onChangeText={setFormName}
-                />
-              </View>
+      <ScrollView style={styles.formScroll}>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Descripción / Nombre del Producto *</Text>
+          <TextInput
+            style={styles.modalInput}
+            placeholder="Ej. Harina PAN 1kg"
+            placeholderTextColor={colors.dark.textMuted}
+            value={formName}
+            onChangeText={setFormName}
+          />
+        </View>
 
-              <View style={styles.rowInputs}>
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>SKU (Código Interno) *</Text>
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="HAR-01"
-                    placeholderTextColor={colors.dark.textMuted}
-                    value={formSku}
-                    onChangeText={setFormSku}
-                  />
-                </View>
+        <View style={styles.rowInputs}>
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.inputLabel}>SKU (Código Interno) *</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="HAR-01"
+              placeholderTextColor={colors.dark.textMuted}
+              value={formSku}
+              onChangeText={setFormSku}
+            />
+          </View>
 
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>Código de Barras (Lector HID)</Text>
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="Escanee con el lector..."
-                    placeholderTextColor={colors.dark.textMuted}
-                    value={formBarcode}
-                    onChangeText={setFormBarcode}
-                  />
-                </View>
-              </View>
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.inputLabel}>Código de Barras (Lector HID)</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Escanee con el lector..."
+              placeholderTextColor={colors.dark.textMuted}
+              value={formBarcode}
+              onChangeText={setFormBarcode}
+            />
+          </View>
+        </View>
 
-              {/* Selector Táctil de Categoría en el Modal */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Categoría de Organización</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.modalCategoryRow}
-                >
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setFormCategoryId(null)}
-                    style={[
-                      styles.modalCategoryOption,
-                      formCategoryId === null &&
-                        !newModalCategoryName.trim() &&
-                        styles.modalCategoryOptionActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.modalCategoryOptionText,
-                        formCategoryId === null &&
-                          !newModalCategoryName.trim() &&
-                          styles.modalCategoryOptionTextActive,
-                      ]}
-                    >
-                      Sin categoría
-                    </Text>
-                  </TouchableOpacity>
+        {/* Selector Táctil de Categoría en el Modal */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Categoría de Organización</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.modalCategoryRow}
+          >
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setFormCategoryId(null)}
+              style={[
+                styles.modalCategoryOption,
+                formCategoryId === null &&
+                !newModalCategoryName.trim() &&
+                styles.modalCategoryOptionActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.modalCategoryOptionText,
+                  formCategoryId === null &&
+                  !newModalCategoryName.trim() &&
+                  styles.modalCategoryOptionTextActive,
+                ]}
+              >
+                Sin categoría
+              </Text>
+            </TouchableOpacity>
 
-                  {categories.map((cat) => {
-                    const isSelected =
-                      formCategoryId === cat.id && !newModalCategoryName.trim();
-                    return (
-                      <TouchableOpacity
-                        key={cat.id}
-                        activeOpacity={0.8}
-                        onPress={() => {
-                          setFormCategoryId(cat.id);
-                          setNewModalCategoryName("");
-                        }}
-                        style={[
-                          styles.modalCategoryOption,
-                          isSelected && styles.modalCategoryOptionActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.modalCategoryOptionText,
-                            isSelected && styles.modalCategoryOptionTextActive,
-                          ]}
-                        >
-                          {cat.name}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-
-                <View style={styles.modalNewCategoryRow}>
-                  <TextInput
-                    style={[styles.modalInput, { flex: 1 }]}
-                    placeholder="O escriba una nueva categoría (ej. Lácteos, Charcutería)..."
-                    placeholderTextColor={colors.dark.textMuted}
-                    value={newModalCategoryName}
-                    onChangeText={setNewModalCategoryName}
-                  />
-                  {newModalCategoryName.trim().length > 0 && (
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => handleCreateQuickCategory(newModalCategoryName, true)}
-                      style={styles.modalCreateCatBtn}
-                    >
-                      <Text style={styles.modalCreateCatBtnText}>+ Agregar</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              {/* Selector Táctil de Unidad de Medida */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Unidad de Medida *</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.modalCategoryRow}
-                >
-                  {UNIT_OPTIONS.map((u) => {
-                    const isSelected = formUnit === u.id;
-                    return (
-                      <TouchableOpacity
-                        key={u.id}
-                        activeOpacity={0.8}
-                        onPress={() => setFormUnit(u.id)}
-                        style={[
-                          styles.modalCategoryOption,
-                          isSelected && styles.modalCategoryOptionActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.modalCategoryOptionText,
-                            isSelected && styles.modalCategoryOptionTextActive,
-                          ]}
-                        >
-                          {u.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View style={styles.rowInputs}>
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>Precio Base USD ($) *</Text>
-                  <TextInput
-                    style={[styles.modalInput, typography.tabularNumeric]}
-                    placeholder="0.0000"
-                    keyboardType="decimal-pad"
-                    placeholderTextColor={colors.dark.textMuted}
-                    value={formPriceUsd}
-                    onChangeText={setFormPriceUsd}
-                  />
-                </View>
-
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>Costo Reposición USD ($) *</Text>
-                  <TextInput
-                    style={[styles.modalInput, typography.tabularNumeric]}
-                    placeholder="0.0000"
-                    keyboardType="decimal-pad"
-                    placeholderTextColor={colors.dark.textMuted}
-                    value={formCostUsd}
-                    onChangeText={setFormCostUsd}
-                  />
-                </View>
-
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>Stock Mínimo ({formUnit})</Text>
-                  <TextInput
-                    style={[styles.modalInput, typography.tabularNumeric]}
-                    placeholder="5"
-                    keyboardType="decimal-pad"
-                    placeholderTextColor={colors.dark.textMuted}
-                    value={formMinStock}
-                    onChangeText={setFormMinStock}
-                  />
-                </View>
-
-                {!editingProductId && (
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.inputLabel}>Stock Inicial ({formUnit})</Text>
-                    <TextInput
-                      style={[styles.modalInput, typography.tabularNumeric]}
-                      placeholder="0"
-                      keyboardType="decimal-pad"
-                      placeholderTextColor={colors.dark.textMuted}
-                      value={formInitialStock}
-                      onChangeText={setFormInitialStock}
-                    />
-                  </View>
-                )}
-              </View>
-
-              {/* Selector Táctil de Imagen Local (WebP/JPEG < 80 KB) */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>
-                  Imagen del Producto (Almacenamiento Local &lt; 80 KB)
-                </Text>
-                <View style={styles.imageSelectorRow}>
-                  <View style={styles.imagePreviewBox}>
-                    {pendingImageBytes ? (
-                      <Image
-                        source={{
-                          uri: `data:image/webp;base64,${uint8ToBase64(pendingImageBytes)}`,
-                        }}
-                        style={styles.thumbnail}
-                      />
-                    ) : formImagePath && resolveProductImageUri(fileStore, formImagePath) ? (
-                      <Image
-                        source={{ uri: resolveProductImageUri(fileStore, formImagePath)! }}
-                        style={styles.thumbnail}
-                      />
-                    ) : (
-                      <Text style={styles.thumbnailPlaceholderText}>📷</Text>
-                    )}
-                  </View>
-
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={handlePickProductImage}
-                    style={styles.pickImageBtn}
-                  >
-                    <Text style={styles.pickImageBtnText}>Seleccionar Foto Local</Text>
-                  </TouchableOpacity>
-
-                  {(pendingImageBytes || formImagePath) && (
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={handleClearProductImage}
-                      style={styles.removeImageBtn}
-                    >
-                      <Text style={styles.removeImageBtnText}>✕ Quitar Foto</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              {editingProductId && (
+            {categories.map((cat) => {
+              const isSelected =
+                formCategoryId === cat.id && !newModalCategoryName.trim();
+              return (
                 <TouchableOpacity
+                  key={cat.id}
                   activeOpacity={0.8}
                   onPress={() => {
-                    const found = items.find((p) => p.id === editingProductId);
-                    if (found) handleOpenDeleteProduct(found);
+                    setFormCategoryId(cat.id);
+                    setNewModalCategoryName("");
                   }}
-                  style={styles.modalDeleteProductBtn}
+                  style={[
+                    styles.modalCategoryOption,
+                    isSelected && styles.modalCategoryOptionActive,
+                  ]}
                 >
-                  <Text style={styles.modalDeleteProductBtnText}>🗑 Eliminar Producto</Text>
+                  <Text
+                    style={[
+                      styles.modalCategoryOptionText,
+                      isSelected && styles.modalCategoryOptionTextActive,
+                    ]}
+                  >
+                    {cat.name}
+                  </Text>
                 </TouchableOpacity>
-              )}
+              );
+            })}
+          </ScrollView>
 
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => setIsProductModalOpen(false)}
-                style={styles.cancelBtn}
-              >
-                <Text style={styles.cancelBtnText}>Cancelar</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={handleSaveProduct}
-                style={styles.saveBtn}
-              >
-                <Text style={styles.saveBtnText}>GUARDAR PRODUCTO</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal 2: Ajuste de Kardex (Entradas / Ajustes de Inventario) */}
-      <Modal visible={isKardexModalOpen} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Ajuste de Stock y Kardex</Text>
-            {kardexProduct && (
-              <Text style={styles.modalSubtitle}>
-                {kardexProduct.name} (SKU: {kardexProduct.sku}) — Stock actual:{" "}
-                <Text style={{ color: colors.dark.hero, fontWeight: "bold" }}>
-                  {formatQuantity(kardexProduct.currentStock, kardexProduct.unit)}
-                </Text>
-              </Text>
-            )}
-
-            {kardexError && <Text style={styles.errorText}>{kardexError}</Text>}
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Tipo de Movimiento:</Text>
-              <View style={styles.movementTypeRow}>
-                {(["RESTOCK", "ADJUSTMENT", "RETURN"] as const).map((type) => {
-                  const isSelected = kardexType === type;
-                  const label =
-                    type === "RESTOCK"
-                      ? "Entrada (Reabastecer)"
-                      : type === "ADJUSTMENT"
-                        ? "Ajuste Directo"
-                        : "Devolución";
-                  return (
-                    <TouchableOpacity
-                      key={type}
-                      activeOpacity={0.8}
-                      onPress={() => setKardexType(type)}
-                      style={[styles.typeBtn, isSelected && styles.typeBtnActive]}
-                    >
-                      <Text style={[styles.typeBtnText, isSelected && styles.typeBtnTextActive]}>
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={styles.rowInputs}>
-              <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.inputLabel}>
-                  Cantidad Delta {kardexProduct?.unit ? `(${kardexProduct.unit})` : ""}:
-                </Text>
-                <TextInput
-                  style={[styles.modalInput, typography.tabularNumeric]}
-                  placeholder="0"
-                  keyboardType="decimal-pad"
-                  placeholderTextColor={colors.dark.textMuted}
-                  value={kardexDelta}
-                  onChangeText={setKardexDelta}
-                />
-              </View>
-
-              <View style={[styles.inputGroup, { flex: 2 }]}>
-                <Text style={styles.inputLabel}>Motivo / Referencia (Opcional):</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="Ej. Factura proveedor #1234"
-                  placeholderTextColor={colors.dark.textMuted}
-                  value={kardexReason}
-                  onChangeText={setKardexReason}
-                />
-              </View>
-            </View>
-
-            {/* Historial Reciente de Kardex */}
-            {kardexHistory.length > 0 && (
-              <View style={styles.historyBox}>
-                <Text style={styles.historyTitle}>Últimos Movimientos:</Text>
-                {kardexHistory.map((mov) => (
-                  <View key={mov.id} style={styles.historyRow}>
-                    <Text style={styles.historyType}>{mov.movementType}</Text>
-                    <Text
-                      style={[
-                        styles.historyDelta,
-                        typography.tabularNumeric,
-                        mov.quantityDelta.startsWith("-")
-                          ? styles.historyNegative
-                          : styles.historyPositive,
-                      ]}
-                    >
-                      {formatQuantity(mov.quantityDelta, kardexProduct?.unit)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => setIsKardexModalOpen(false)}
-                style={styles.cancelBtn}
-              >
-                <Text style={styles.cancelBtnText}>Cancelar</Text>
-              </TouchableOpacity>
-
+          <View style={styles.modalNewCategoryRow}>
+            <TextInput
+              style={[styles.modalInput, { flex: 1 }]}
+              placeholder="O escriba una nueva categoría (ej. Lácteos, Charcutería)..."
+              placeholderTextColor={colors.dark.textMuted}
+              value={newModalCategoryName}
+              onChangeText={setNewModalCategoryName}
+            />
+            {newModalCategoryName.trim().length > 0 && (
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={handleSaveKardex}
-                style={styles.saveBtn}
+                onPress={() => handleCreateQuickCategory(newModalCategoryName, true)}
+                style={styles.modalCreateCatBtn}
               >
-                <Text style={styles.saveBtnText}>REGISTRAR EN KARDEX</Text>
+                <Text style={styles.modalCreateCatBtnText}>+ Agregar</Text>
               </TouchableOpacity>
-            </View>
+            )}
           </View>
         </View>
-      </Modal>
 
-      {/* Modal 3: Confirmación de Eliminación con Validación Estricta ("BORRAR") */}
-      <Modal visible={deleteTarget !== null} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, styles.dangerModalCard]}>
-            <Text style={styles.dangerModalTitle}>
-              {deleteTarget?.kind === "PRODUCT"
-                ? "⚠️ Confirmar Eliminación de Producto"
-                : "⚠️ Confirmar Eliminación de Categoría"}
-            </Text>
+        {/* Selector Táctil de Unidad de Medida */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Unidad de Medida *</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.modalCategoryRow}
+          >
+            {UNIT_OPTIONS.map((u) => {
+              const isSelected = formUnit === u.id;
+              return (
+                <TouchableOpacity
+                  key={u.id}
+                  activeOpacity={0.8}
+                  onPress={() => setFormUnit(u.id)}
+                  style={[
+                    styles.modalCategoryOption,
+                    isSelected && styles.modalCategoryOptionActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.modalCategoryOptionText,
+                      isSelected && styles.modalCategoryOptionTextActive,
+                    ]}
+                  >
+                    {u.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
 
-            {deleteTarget?.kind === "PRODUCT" && (
-              <View style={styles.deleteSummaryBox}>
-                <Text style={styles.deleteEntityName}>
-                  {deleteTarget.product.name} (SKU: {deleteTarget.product.sku})
-                </Text>
-                <Text style={styles.deleteEntitySub}>
-                  Stock actual:{" "}
-                  <Text style={typography.tabularNumeric}>
-                    {formatQuantity(deleteTarget.product.currentStock, deleteTarget.product.unit)}
-                  </Text>{" "}
-                  • Precio: {formatUsd(deleteTarget.product.priceUsd)}
-                </Text>
-                <Text style={styles.deleteNoticeText}>
-                  El producto se dará de baja del catálogo activo (sincronizado por P2P) sin
-                  alterar las facturas emitidas ni el historial de auditoría del Kardex.
-                </Text>
+        <View style={styles.rowInputs}>
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.inputLabel}>Precio Base USD ($) *</Text>
+            <TextInput
+              style={[styles.modalInput, typography.tabularNumeric]}
+              placeholder="0.0000"
+              keyboardType="decimal-pad"
+              placeholderTextColor={colors.dark.textMuted}
+              value={formPriceUsd}
+              onChangeText={setFormPriceUsd}
+            />
+          </View>
 
-                {!toDecimal(deleteTarget.product.currentStock).isZero() && (
-                  <View style={styles.stockWarningBox}>
-                    <Text style={styles.stockWarningTitle}>
-                      ⚠️ Atención: Este producto tiene stock distinto de cero (
-                      {formatQuantity(deleteTarget.product.currentStock, deleteTarget.product.unit)})
-                    </Text>
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.inputLabel}>Costo Reposición USD ($) *</Text>
+            <TextInput
+              style={[styles.modalInput, typography.tabularNumeric]}
+              placeholder="0.0000"
+              keyboardType="decimal-pad"
+              placeholderTextColor={colors.dark.textMuted}
+              value={formCostUsd}
+              onChangeText={setFormCostUsd}
+            />
+          </View>
 
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => setClearStockOnDelete((prev) => !prev)}
-                      style={styles.checkboxRow}
-                    >
-                      <View
-                        style={[
-                          styles.checkboxSquare,
-                          clearStockOnDelete && styles.checkboxSquareActive,
-                        ]}
-                      >
-                        {clearStockOnDelete && <Text style={styles.checkboxMark}>✓</Text>}
-                      </View>
-                      <Text style={styles.checkboxLabel}>
-                        Registrar ajuste automático en Kardex para dejar el stock en 0 {deleteTarget.product.unit}
-                      </Text>
-                    </TouchableOpacity>
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.inputLabel}>Stock Mínimo ({formUnit})</Text>
+            <TextInput
+              style={[styles.modalInput, typography.tabularNumeric]}
+              placeholder="5"
+              keyboardType="decimal-pad"
+              placeholderTextColor={colors.dark.textMuted}
+              value={formMinStock}
+              onChangeText={setFormMinStock}
+            />
+          </View>
 
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => setAckImpactCheckbox((prev) => !prev)}
-                      style={styles.checkboxRow}
-                    >
-                      <View
-                        style={[
-                          styles.checkboxSquare,
-                          ackImpactCheckbox && styles.checkboxSquareDangerActive,
-                        ]}
-                      >
-                        {ackImpactCheckbox && <Text style={styles.checkboxMark}>✓</Text>}
-                      </View>
-                      <Text style={styles.checkboxLabel}>
-                        Confirmo que revisé las existencias físicas de este producto antes de
-                        eliminarlo *
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {deleteTarget?.kind === "CATEGORY" && (
-              <View style={styles.deleteSummaryBox}>
-                <Text style={styles.deleteEntityName}>
-                  Categoría: {deleteTarget.category.name}
-                </Text>
-                <Text style={styles.deleteEntitySub}>
-                  Productos asociados actualmente: {deleteTarget.affectedCount} SKU(s)
-                </Text>
-                <Text style={styles.deleteNoticeText}>
-                  Los productos dentro de esta categoría NO serán eliminados; pasarán
-                  automáticamente a &quot;Sin Categoría&quot;.
-                </Text>
-
-                {deleteTarget.affectedCount > 0 && (
-                  <View style={styles.stockWarningBox}>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => setAckImpactCheckbox((prev) => !prev)}
-                      style={styles.checkboxRow}
-                    >
-                      <View
-                        style={[
-                          styles.checkboxSquare,
-                          ackImpactCheckbox && styles.checkboxSquareDangerActive,
-                        ]}
-                      >
-                        {ackImpactCheckbox && <Text style={styles.checkboxMark}>✓</Text>}
-                      </View>
-                      <Text style={styles.checkboxLabel}>
-                        Entiendo que {deleteTarget.affectedCount} producto(s) quedarán bajo
-                        &quot;Sin Categoría&quot; *
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {deleteError && <Text style={styles.errorText}>{deleteError}</Text>}
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>
-                Para prevenir errores accidentales, escriba exactamente{" "}
-                <Text style={{ color: colors.dark.error }}>BORRAR</Text> en el campo:
-              </Text>
+          {!editingProductId && (
+            <View style={[styles.inputGroup, { flex: 1 }]}>
+              <Text style={styles.inputLabel}>Stock Inicial ({formUnit})</Text>
               <TextInput
-                style={[
-                  styles.modalInput,
-                  deleteConfirmInput.trim().toUpperCase() === "BORRAR" &&
-                    styles.deleteInputConfirmed,
-                ]}
-                placeholder='Escriba "BORRAR" aquí...'
+                style={[styles.modalInput, typography.tabularNumeric]}
+                placeholder="0"
+                keyboardType="decimal-pad"
                 placeholderTextColor={colors.dark.textMuted}
-                autoCapitalize="characters"
-                value={deleteConfirmInput}
-                onChangeText={setDeleteConfirmInput}
+                value={formInitialStock}
+                onChangeText={setFormInitialStock}
               />
             </View>
+          )}
+        </View>
 
-            <View style={styles.modalActions}>
+        {/* Selector Táctil de Imagen Local (WebP/JPEG < 80 KB) */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>
+            Imagen del Producto (Almacenamiento Local &lt; 80 KB)
+          </Text>
+          <View style={styles.imageSelectorRow}>
+            <View style={styles.imagePreviewBox}>
+              {pendingImageBytes ? (
+                <Image
+                  source={{
+                    uri: `data:image/webp;base64,${uint8ToBase64(pendingImageBytes)}`,
+                  }}
+                  style={styles.thumbnail}
+                />
+              ) : formImagePath && resolveProductImageUri(fileStore, formImagePath) ? (
+                <Image
+                  source={{ uri: resolveProductImageUri(fileStore, formImagePath)! }}
+                  style={styles.thumbnail}
+                />
+              ) : (
+                <Text style={styles.thumbnailPlaceholderText}>📷</Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={handlePickProductImage}
+              style={styles.pickImageBtn}
+            >
+              <Text style={styles.pickImageBtnText}>Seleccionar Foto Local</Text>
+            </TouchableOpacity>
+
+            {(pendingImageBytes || formImagePath) && (
               <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  setDeleteTarget(null);
-                  setDeleteConfirmInput("");
-                  setDeleteError(null);
-                }}
-                style={styles.cancelBtn}
+                activeOpacity={0.8}
+                onPress={handleClearProductImage}
+                style={styles.removeImageBtn}
               >
-                <Text style={styles.cancelBtnText}>Cancelar</Text>
+                <Text style={styles.removeImageBtnText}>✕ Quitar Foto</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </ScrollView>
+
+      <View style={styles.modalActions}>
+        {editingProductId && (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              const found = items.find((p) => p.id === editingProductId);
+              if (found) handleOpenDeleteProduct(found);
+            }}
+            style={styles.modalDeleteProductBtn}
+          >
+            <Text style={styles.modalDeleteProductBtnText}>🗑 Eliminar Producto</Text>
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setIsProductModalOpen(false)}
+          style={styles.cancelBtn}
+        >
+          <Text style={styles.cancelBtnText}>Cancelar</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handleSaveProduct}
+          style={styles.saveBtn}
+        >
+          <Text style={styles.saveBtnText}>GUARDAR PRODUCTO</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </View>
+</Modal>
+
+{/* Modal 2: Ajuste de Kardex (Entradas / Ajustes de Inventario) */ }
+<Modal visible={isKardexModalOpen} transparent animationType="fade">
+  <View style={styles.modalOverlay}>
+    <View style={styles.modalCard}>
+      <Text style={styles.modalTitle}>Ajuste de Stock y Kardex</Text>
+      {kardexProduct && (
+        <Text style={styles.modalSubtitle}>
+          {kardexProduct.name} (SKU: {kardexProduct.sku}) — Stock actual:{" "}
+          <Text style={{ color: colors.dark.hero, fontWeight: "bold" }}>
+            {formatQuantity(kardexProduct.currentStock, kardexProduct.unit)}
+          </Text>
+        </Text>
+      )}
+
+      {kardexError && <Text style={styles.errorText}>{kardexError}</Text>}
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Tipo de Movimiento:</Text>
+        <View style={styles.movementTypeRow}>
+          {(["RESTOCK", "ADJUSTMENT", "RETURN"] as const).map((type) => {
+            const isSelected = kardexType === type;
+            const label =
+              type === "RESTOCK"
+                ? "Entrada (Reabastecer)"
+                : type === "ADJUSTMENT"
+                  ? "Ajuste Directo"
+                  : "Devolución";
+            return (
+              <TouchableOpacity
+                key={type}
+                activeOpacity={0.8}
+                onPress={() => setKardexType(type)}
+                style={[styles.typeBtn, isSelected && styles.typeBtnActive]}
+              >
+                <Text style={[styles.typeBtnText, isSelected && styles.typeBtnTextActive]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.rowInputs}>
+        <View style={[styles.inputGroup, { flex: 1 }]}>
+          <Text style={styles.inputLabel}>
+            Cantidad Delta {kardexProduct?.unit ? `(${kardexProduct.unit})` : ""}:
+          </Text>
+          <TextInput
+            style={[styles.modalInput, typography.tabularNumeric]}
+            placeholder="0"
+            keyboardType="decimal-pad"
+            placeholderTextColor={colors.dark.textMuted}
+            value={kardexDelta}
+            onChangeText={setKardexDelta}
+          />
+        </View>
+
+        <View style={[styles.inputGroup, { flex: 2 }]}>
+          <Text style={styles.inputLabel}>Motivo / Referencia (Opcional):</Text>
+          <TextInput
+            style={styles.modalInput}
+            placeholder="Ej. Factura proveedor #1234"
+            placeholderTextColor={colors.dark.textMuted}
+            value={kardexReason}
+            onChangeText={setKardexReason}
+          />
+        </View>
+      </View>
+
+      {/* Historial Reciente de Kardex */}
+      {kardexHistory.length > 0 && (
+        <View style={styles.historyBox}>
+          <Text style={styles.historyTitle}>Últimos Movimientos:</Text>
+          {kardexHistory.map((mov) => (
+            <View key={mov.id} style={styles.historyRow}>
+              <Text style={styles.historyType}>{mov.movementType}</Text>
+              <Text
+                style={[
+                  styles.historyDelta,
+                  typography.tabularNumeric,
+                  mov.quantityDelta.startsWith("-")
+                    ? styles.historyNegative
+                    : styles.historyPositive,
+                ]}
+              >
+                {formatQuantity(mov.quantityDelta, kardexProduct?.unit)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <View style={styles.modalActions}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setIsKardexModalOpen(false)}
+          style={styles.cancelBtn}
+        >
+          <Text style={styles.cancelBtnText}>Cancelar</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handleSaveKardex}
+          style={styles.saveBtn}
+        >
+          <Text style={styles.saveBtnText}>REGISTRAR EN KARDEX</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </View>
+</Modal>
+
+{/* Modal 3: Confirmación de Eliminación con Validación Estricta ("BORRAR") */ }
+<Modal visible={deleteTarget !== null} transparent animationType="fade">
+  <View style={styles.modalOverlay}>
+    <View style={[styles.modalCard, styles.dangerModalCard]}>
+      <Text style={styles.dangerModalTitle}>
+        {deleteTarget?.kind === "PRODUCT"
+          ? "⚠️ Confirmar Eliminación de Producto"
+          : "⚠️ Confirmar Eliminación de Categoría"}
+      </Text>
+
+      {deleteTarget?.kind === "PRODUCT" && (
+        <View style={styles.deleteSummaryBox}>
+          <Text style={styles.deleteEntityName}>
+            {deleteTarget.product.name} (SKU: {deleteTarget.product.sku})
+          </Text>
+          <Text style={styles.deleteEntitySub}>
+            Stock actual:{" "}
+            <Text style={typography.tabularNumeric}>
+              {formatQuantity(deleteTarget.product.currentStock, deleteTarget.product.unit)}
+            </Text>{" "}
+            • Precio: {formatUsd(deleteTarget.product.priceUsd)}
+          </Text>
+          <Text style={styles.deleteNoticeText}>
+            El producto se dará de baja del catálogo activo (sincronizado por P2P) sin
+            alterar las facturas emitidas ni el historial de auditoría del Kardex.
+          </Text>
+
+          {!toDecimal(deleteTarget.product.currentStock).isZero() && (
+            <View style={styles.stockWarningBox}>
+              <Text style={styles.stockWarningTitle}>
+                ⚠️ Atención: Este producto tiene stock distinto de cero (
+                {formatQuantity(deleteTarget.product.currentStock, deleteTarget.product.unit)})
+              </Text>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setClearStockOnDelete((prev) => !prev)}
+                style={styles.checkboxRow}
+              >
+                <View
+                  style={[
+                    styles.checkboxSquare,
+                    clearStockOnDelete && styles.checkboxSquareActive,
+                  ]}
+                >
+                  {clearStockOnDelete && <Text style={styles.checkboxMark}>✓</Text>}
+                </View>
+                <Text style={styles.checkboxLabel}>
+                  Registrar ajuste automático en Kardex para dejar el stock en 0 {deleteTarget.product.unit}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={handleConfirmDelete}
-                style={[
-                  styles.confirmDeleteBtn,
-                  deleteConfirmInput.trim().toUpperCase() !== "BORRAR" &&
-                    styles.confirmDeleteBtnDisabled,
-                ]}
+                onPress={() => setAckImpactCheckbox((prev) => !prev)}
+                style={styles.checkboxRow}
               >
-                <Text style={styles.confirmDeleteBtnText}>CONFIRMAR Y BORRAR</Text>
+                <View
+                  style={[
+                    styles.checkboxSquare,
+                    ackImpactCheckbox && styles.checkboxSquareDangerActive,
+                  ]}
+                >
+                  {ackImpactCheckbox && <Text style={styles.checkboxMark}>✓</Text>}
+                </View>
+                <Text style={styles.checkboxLabel}>
+                  Confirmo que revisé las existencias físicas de este producto antes de
+                  eliminarlo *
+                </Text>
               </TouchableOpacity>
             </View>
-          </View>
+          )}
         </View>
-      </Modal>
+      )}
+
+      {deleteTarget?.kind === "CATEGORY" && (
+        <View style={styles.deleteSummaryBox}>
+          <Text style={styles.deleteEntityName}>
+            Categoría: {deleteTarget.category.name}
+          </Text>
+          <Text style={styles.deleteEntitySub}>
+            Productos asociados actualmente: {deleteTarget.affectedCount} SKU(s)
+          </Text>
+          <Text style={styles.deleteNoticeText}>
+            Los productos dentro de esta categoría NO serán eliminados; pasarán
+            automáticamente a &quot;Sin Categoría&quot;.
+          </Text>
+
+          {deleteTarget.affectedCount > 0 && (
+            <View style={styles.stockWarningBox}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setAckImpactCheckbox((prev) => !prev)}
+                style={styles.checkboxRow}
+              >
+                <View
+                  style={[
+                    styles.checkboxSquare,
+                    ackImpactCheckbox && styles.checkboxSquareDangerActive,
+                  ]}
+                >
+                  {ackImpactCheckbox && <Text style={styles.checkboxMark}>✓</Text>}
+                </View>
+                <Text style={styles.checkboxLabel}>
+                  Entiendo que {deleteTarget.affectedCount} producto(s) quedarán bajo
+                  &quot;Sin Categoría&quot; *
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+
+      {deleteError && <Text style={styles.errorText}>{deleteError}</Text>}
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>
+          Para prevenir errores accidentales, escriba exactamente{" "}
+          <Text style={{ color: colors.dark.error }}>BORRAR</Text> en el campo:
+        </Text>
+        <TextInput
+          style={[
+            styles.modalInput,
+            deleteConfirmInput.trim().toUpperCase() === "BORRAR" &&
+            styles.deleteInputConfirmed,
+          ]}
+          placeholder='Escriba "BORRAR" aquí...'
+          placeholderTextColor={colors.dark.textMuted}
+          autoCapitalize="characters"
+          value={deleteConfirmInput}
+          onChangeText={setDeleteConfirmInput}
+        />
+      </View>
+
+      <View style={styles.modalActions}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            setDeleteTarget(null);
+            setDeleteConfirmInput("");
+            setDeleteError(null);
+          }}
+          style={styles.cancelBtn}
+        >
+          <Text style={styles.cancelBtnText}>Cancelar</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handleConfirmDelete}
+          style={[
+            styles.confirmDeleteBtn,
+            deleteConfirmInput.trim().toUpperCase() !== "BORRAR" &&
+            styles.confirmDeleteBtnDisabled,
+          ]}
+        >
+          <Text style={styles.confirmDeleteBtnText}>CONFIRMAR Y BORRAR</Text>
+        </TouchableOpacity>
+      </View>
     </View>
+  </View>
+</Modal>
+    </View >
   );
 };
 
@@ -1740,6 +1756,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.dark.border,
     gap: spacing.sm,
+  },
+  categoryBarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  categoryScrollView: {
+    flex: 1,
+  },
+  categoryActionsRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingLeft: spacing.sm,
+  },
+  deleteCategoryFixedBtn: {
+    height: spacing.touchTargetMin, // 48px
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.radiusFull,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.dark.error,
+  },
+  deleteCategoryFixedBtnText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
   },
   categoryScrollContent: {
     flexDirection: "row",
