@@ -4,6 +4,7 @@
     "slug": "bisync-pos",
     "version": "0.1.0",
     "orientation": "landscape",
+    "newArchEnabled": true,
     "userInterfaceStyle": "dark",
     "backgroundColor": "#061426",
     "android": { "package": "com.bisync.pos" },
