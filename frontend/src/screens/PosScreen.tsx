@@ -28,8 +28,15 @@ import type { SqlDriver } from "../database/connection";
 import { getCatalogWithBimonetaryPrices } from "../services/catalog.service";
 import type { BimonetaryProduct } from "../services/catalog.service";
 import { registerManualRate } from "../services/bcv-exchange.service";
-import { createInvoice } from "../database/repositories/invoice.repository";
-import type { PaymentMethod } from "../database/repositories/invoice.repository";
+import {
+  createInvoice,
+  listInvoicesByShift,
+  voidInvoice,
+} from "../database/repositories/invoice.repository";
+import type {
+  PaymentMethod,
+  InvoiceEntity,
+} from "../database/repositories/invoice.repository";
 import { getOpenShift } from "../database/repositories/shift.repository";
 import type { ShiftEntity } from "../database/repositories/shift.repository";
 import {
@@ -116,6 +123,14 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   const [stockNotice, setStockNotice] = useState<string | null>(null);
   const [activeShift, setActiveShift] = useState<ShiftEntity | null>(null);
 
+  // Pestaña derecha (Ticket vs Ventas del Turno)
+  const [rightPanelTab, setRightPanelTab] = useState<"ticket" | "history">("ticket");
+  const [shiftInvoices, setShiftInvoices] = useState<InvoiceEntity[]>([]);
+  const [selectedReceipt, setSelectedReceipt] = useState<InvoiceEntity | null>(null);
+  const [isVoidConfirmOpen, setIsVoidConfirmOpen] = useState(false);
+  const [voidReasonInput, setVoidReasonInput] = useState("");
+  const [voidError, setVoidError] = useState<string | null>(null);
+
   const fileStore = useMemo(() => customFileStore ?? createDefaultFileStore(), [customFileStore]);
 
   const checkShift = useCallback(() => {
@@ -131,9 +146,24 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     }
   }, [db, terminalId]);
 
+  const refreshShiftInvoices = useCallback(() => {
+    if (!db) return;
+    try {
+      const openShift = getOpenShift(db, terminalId);
+      if (openShift) {
+        setShiftInvoices(listInvoicesByShift(db, openShift.id));
+      } else {
+        setShiftInvoices([]);
+      }
+    } catch {
+      setShiftInvoices([]);
+    }
+  }, [db, terminalId]);
+
   useEffect(() => {
     checkShift();
-  }, [checkShift]);
+    refreshShiftInvoices();
+  }, [checkShift, refreshShiftInvoices]);
 
   // Carga reactiva de catálogo, categorías y tasa desde SQLite si el driver está presente
   const refreshCatalog = useCallback(() => {
@@ -637,6 +667,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         });
 
         onInvoiceCreated?.(invoiceId);
+        refreshShiftInvoices();
+        refreshCatalog();
       }
 
       setLastInvoiceSuccess(`¡Venta cobrada con éxito!`);
@@ -647,6 +679,25 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       }, 1200);
     } catch (err) {
       setCheckoutError((err as Error).message);
+    }
+  };
+
+  const handleConfirmVoid = () => {
+    if (!selectedReceipt || !db) return;
+    try {
+      setVoidError(null);
+      const updated = voidInvoice(db, {
+        invoiceId: selectedReceipt.id,
+        reason: voidReasonInput,
+        terminalId,
+      });
+      setSelectedReceipt(updated);
+      setIsVoidConfirmOpen(false);
+      setVoidReasonInput("");
+      refreshShiftInvoices();
+      refreshCatalog();
+    } catch (err) {
+      setVoidError((err as Error).message);
     }
   };
 
@@ -873,16 +924,45 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         />
       </View>
 
-      {/* Columna Derecha: Ticket Activo de Venta */}
+      {/* Columna Derecha: Ticket Activo o Ventas del Turno */}
       <View style={styles.ticketColumn}>
-        {/* Encabezado de Ticket con Contador y Botón Vaciar */}
-        <View style={styles.ticketHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>Ticket Actual</Text>
-            <Text style={styles.itemCountText}>
-              {ticketItems.length} {ticketItems.length === 1 ? "ítem" : "ítems"}
+        {/* Selector de Pestaña: Ticket vs Ventas del Turno */}
+        <View style={styles.rightTabRow}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => setRightPanelTab("ticket")}
+            style={[styles.rightTabBtn, rightPanelTab === "ticket" && styles.rightTabBtnActive]}
+            testID="tab-btn-ticket"
+          >
+            <Text style={[styles.rightTabText, rightPanelTab === "ticket" && styles.rightTabTextActive]}>
+              🛒 Ticket ({ticketItems.length})
             </Text>
-          </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              setRightPanelTab("history");
+              refreshShiftInvoices();
+            }}
+            style={[styles.rightTabBtn, rightPanelTab === "history" && styles.rightTabBtnActive]}
+            testID="tab-btn-history"
+          >
+            <Text style={[styles.rightTabText, rightPanelTab === "history" && styles.rightTabTextActive]}>
+              📜 Ventas ({shiftInvoices.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {rightPanelTab === "ticket" ? (
+          <>
+            {/* Encabezado de Ticket con Contador y Botón Vaciar */}
+            <View style={styles.ticketHeader}>
+              <View>
+                <Text style={styles.sectionTitle}>Ticket Actual</Text>
+                <Text style={styles.itemCountText}>
+                  {ticketItems.length} {ticketItems.length === 1 ? "ítem" : "ítems"}
+                </Text>
+              </View>
           {ticketItems.length > 0 ? (
             <TouchableOpacity
               activeOpacity={0.7}
@@ -1001,8 +1081,65 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             onPress={handleOpenCheckout}
           />
         </View>
+      </>
+    ) : (
+      /* Pestaña Historial de Ventas del Turno */
+      <View style={styles.historyTabContainer}>
+        <FlatList
+          data={shiftInvoices}
+          keyExtractor={(inv) => inv.id}
+          style={styles.shiftInvoicesList}
+          renderItem={({ item: inv }) => {
+            const isVoid = inv.status === "VOID";
+            const dateStr = new Date(inv.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            return (
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setSelectedReceipt(inv)}
+                style={[styles.invoiceCard, isVoid && styles.invoiceCardVoid]}
+                testID={`invoice-card-${inv.id}`}
+              >
+                <View style={styles.invoiceCardHeader}>
+                  <View style={styles.invoiceNumberRow}>
+                    <Text style={styles.invoiceNumberText}>{inv.invoiceNumber}</Text>
+                    <Text style={styles.invoiceTimeText}>{dateStr}</Text>
+                  </View>
+                  <View style={[styles.invoiceStatusBadge, isVoid ? styles.badgeVoid : styles.badgeCompleted]}>
+                    <Text style={styles.invoiceStatusBadgeText}>
+                      {isVoid ? "ANULADA" : "COBRADA"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.invoiceCardMeta}>
+                  <Text style={styles.invoiceMethodText}>
+                    {inv.paymentMethod} • {inv.items.length} {inv.items.length === 1 ? "ítem" : "ítems"}
+                  </Text>
+                  <View style={styles.invoiceAmounts}>
+                    <Text style={[styles.invoiceTotalUsd, isVoid && styles.textLineThrough, typography.tabularNumeric]}>
+                      {formatUsd(inv.totalUsd)}
+                    </Text>
+                    <Text style={[styles.invoiceTotalVes, isVoid && styles.textLineThrough, typography.tabularNumeric]}>
+                      ≈ {formatVes(inv.totalVes)}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+          ListEmptyComponent={
+            <View style={styles.emptyHistoryBox}>
+              <Text style={styles.emptyHistoryText}>No hay ventas en este turno</Text>
+              <Text style={styles.emptyHistorySub}>
+                Las ventas cobradas se listarán aquí con opción de comprobante y devolución.
+              </Text>
+            </View>
+          }
+        />
       </View>
-      </View>
+    )}
+  </View>
+  </View>
 
       {/* Modal Táctil de Cobro / Emisión de Factura */}
       <Modal visible={isCheckoutModalOpen} transparent animationType="fade">
@@ -1399,6 +1536,175 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 style={styles.deleteConfirmBtn}
               >
                 <Text style={styles.deleteConfirmBtnText}>SÍ, VACIAR TICKET</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Comprobante / Recibo Digital de Venta */}
+      <Modal visible={!!selectedReceipt} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, styles.receiptCard]}>
+            {selectedReceipt ? (
+              <ScrollView style={styles.receiptScroll} contentContainerStyle={styles.receiptContent}>
+                {/* Cabecera del Recibo Térmico */}
+                <View style={styles.receiptHeader}>
+                  <Text style={styles.receiptBrand}>BISYNC POS</Text>
+                  <Text style={styles.receiptSubBrand}>P2P Local-First • Comprobante de Venta</Text>
+                  <Text style={styles.receiptTerminal}>
+                    Terminal: {selectedReceipt.terminalId} • Turno #{selectedReceipt.shiftId.slice(-4).toUpperCase()}
+                  </Text>
+                  <Text style={styles.receiptInvoiceNum}>{selectedReceipt.invoiceNumber}</Text>
+                  <Text style={styles.receiptDate}>
+                    {new Date(selectedReceipt.createdAt).toLocaleString()}
+                  </Text>
+                </View>
+
+                {/* Badge de Estado */}
+                <View style={[styles.receiptStatusBadge, selectedReceipt.status === "VOID" ? styles.receiptBadgeVoid : styles.receiptBadgeOk]}>
+                  <Text style={styles.receiptStatusText}>
+                    {selectedReceipt.status === "VOID" ? "⚠️ VENTA ANULADA (DEVOLUCIÓN)" : "✅ VENTA COBRADA VÁLIDA"}
+                  </Text>
+                  {selectedReceipt.status === "VOID" && selectedReceipt.voidReason ? (
+                    <Text style={styles.receiptVoidReason}>Motivo: {selectedReceipt.voidReason}</Text>
+                  ) : null}
+                </View>
+
+                <View style={styles.receiptDivider} />
+
+                {/* Detalle de Productos */}
+                <View style={styles.receiptItemsTable}>
+                  <View style={styles.receiptTableHeader}>
+                    <Text style={[styles.receiptTh, { flex: 3 }]}>Producto (ID)</Text>
+                    <Text style={[styles.receiptTh, { flex: 1, textAlign: "center" }]}>Cant.</Text>
+                    <Text style={[styles.receiptTh, { flex: 2, textAlign: "right" }]}>Precio</Text>
+                    <Text style={[styles.receiptTh, { flex: 2, textAlign: "right" }]}>Total</Text>
+                  </View>
+                  {selectedReceipt.items.map((it) => (
+                    <View key={it.id} style={styles.receiptItemRow}>
+                      <Text style={[styles.receiptItemName, { flex: 3 }]} numberOfLines={1}>
+                        {it.productId}
+                      </Text>
+                      <Text style={[styles.receiptItemQty, { flex: 1, textAlign: "center" }, typography.tabularNumeric]}>
+                        {formatFixed4(it.quantity)}
+                      </Text>
+                      <Text style={[styles.receiptItemPrice, { flex: 2, textAlign: "right" }, typography.tabularNumeric]}>
+                        {formatUsd(it.unitPriceUsd)}
+                      </Text>
+                      <Text style={[styles.receiptItemTotal, { flex: 2, textAlign: "right" }, typography.tabularNumeric]}>
+                        {formatUsd(it.lineTotalUsd)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.receiptDivider} />
+
+                {/* Totales Bimoneda */}
+                <View style={styles.receiptTotalsBox}>
+                  <View style={styles.receiptTotalRow}>
+                    <Text style={styles.receiptTotalLabel}>Subtotal Base:</Text>
+                    <Text style={[styles.receiptTotalVal, typography.tabularNumeric]}>
+                      {formatUsd(selectedReceipt.subtotalUsd)} ({formatVes(selectedReceipt.subtotalVes)})
+                    </Text>
+                  </View>
+                  <View style={styles.receiptTotalRow}>
+                    <Text style={styles.receiptTotalLabel}>IVA Estimado:</Text>
+                    <Text style={[styles.receiptTotalVal, typography.tabularNumeric]}>
+                      {formatUsd(selectedReceipt.taxUsd)} ({formatVes(selectedReceipt.taxVes)})
+                    </Text>
+                  </View>
+                  <View style={[styles.receiptTotalRow, styles.receiptTotalRowMain]}>
+                    <Text style={styles.receiptGrandTotalLabel}>TOTAL LEGAL:</Text>
+                    <View style={styles.receiptGrandTotalValues}>
+                      <Text style={[styles.receiptGrandTotalUsd, typography.tabularNumeric]}>
+                        {formatUsd(selectedReceipt.totalUsd)}
+                      </Text>
+                      <Text style={[styles.receiptGrandTotalVes, typography.tabularNumeric]}>
+                        ≈ {formatVes(selectedReceipt.totalVes)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.receiptRateNotice}>
+                    <Text style={styles.receiptRateNoticeText}>
+                      Tasa congelada: {formatVes(selectedReceipt.exchangeRate)} / USD
+                    </Text>
+                    <Text style={styles.receiptRateNoticeText}>
+                      Método de pago: {selectedReceipt.paymentMethod}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Acciones: Anular Venta o Cerrar Recibo */}
+                <View style={styles.receiptActions}>
+                  {selectedReceipt.status !== "VOID" ? (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setVoidReasonInput("");
+                        setVoidError(null);
+                        setIsVoidConfirmOpen(true);
+                      }}
+                      style={styles.receiptVoidBtn}
+                      testID="btn-open-void-modal"
+                    >
+                      <Text style={styles.receiptVoidBtnText}>🔴 ANULAR VENTA (DEVOLUCIÓN)</Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => setSelectedReceipt(null)}
+                    style={styles.receiptCloseBtn}
+                  >
+                    <Text style={styles.receiptCloseBtnText}>Cerrar Comprobante</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Confirmación de Anulación / Devolución */}
+      <Modal visible={isVoidConfirmOpen} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Confirmar Anulación de Venta</Text>
+            <Text style={styles.modalNotice}>
+              Al anular esta factura, se generará inmediatamente un movimiento de inventario conmutativo
+              tipo RETURN para reintegrar el stock vendido y se excluirá de la recaudación del turno.
+            </Text>
+
+            {voidError ? <Text style={styles.errorText}>{voidError}</Text> : null}
+
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.inputLabel}>Motivo de Anulación Obligatorio</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Ej. Devolución de cliente / Error en método de pago"
+                placeholderTextColor={colors.dark.textMuted}
+                value={voidReasonInput}
+                onChangeText={setVoidReasonInput}
+              />
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setIsVoidConfirmOpen(false)}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleConfirmVoid}
+                style={styles.deleteConfirmBtn}
+                testID="btn-confirm-void"
+              >
+                <Text style={styles.deleteConfirmBtnText}>SÍ, ANULAR Y RESTITUIR STOCK</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2299,5 +2605,317 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.extraBold,
     color: colors.dark.textPrimary,
     letterSpacing: 1,
+  },
+  rightTabRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dark.border,
+    backgroundColor: colors.dark.surfaceContainer,
+  },
+  rightTabBtn: {
+    flex: 1,
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  rightTabBtnActive: {
+    borderBottomColor: colors.dark.primary,
+    backgroundColor: colors.dark.surfaceContainerLow,
+  },
+  rightTabText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textSecondary,
+  },
+  rightTabTextActive: {
+    color: colors.dark.textPrimary,
+    fontWeight: typography.weights.bold,
+  },
+  historyTabContainer: {
+    flex: 1,
+    backgroundColor: colors.dark.surfaceContainerLow,
+  },
+  shiftInvoicesList: {
+    padding: spacing.md,
+  },
+  invoiceCard: {
+    backgroundColor: colors.dark.surfaceContainer,
+    borderRadius: spacing.radiusMd,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.dark.border,
+  },
+  invoiceCardVoid: {
+    opacity: 0.65,
+    borderColor: "rgba(239, 68, 68, 0.4)",
+    backgroundColor: "rgba(239, 68, 68, 0.05)",
+  },
+  invoiceCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.xs,
+  },
+  invoiceNumberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  invoiceNumberText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  invoiceTimeText: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+  },
+  invoiceStatusBadge: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: spacing.radiusSm,
+  },
+  badgeVoid: {
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+  },
+  badgeCompleted: {
+    backgroundColor: "rgba(0, 176, 116, 0.2)",
+  },
+  invoiceStatusBadgeText: {
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  invoiceCardMeta: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  invoiceMethodText: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+  },
+  invoiceAmounts: {
+    alignItems: "flex-end",
+  },
+  invoiceTotalUsd: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.hero,
+  },
+  invoiceTotalVes: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+  },
+  textLineThrough: {
+    textDecorationLine: "line-through",
+    color: colors.dark.textMuted,
+  },
+  emptyHistoryBox: {
+    paddingVertical: 60,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyHistoryText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textSecondary,
+  },
+  emptyHistorySub: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textMuted,
+    marginTop: 4,
+    textAlign: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  receiptCard: {
+    maxWidth: 580,
+    maxHeight: "92%",
+    padding: 0,
+    backgroundColor: colors.dark.surfaceContainerLow,
+    overflow: "hidden",
+  },
+  receiptScroll: {
+    flex: 1,
+  },
+  receiptContent: {
+    padding: spacing.xl,
+  },
+  receiptHeader: {
+    alignItems: "center",
+    marginBottom: spacing.md,
+  },
+  receiptBrand: {
+    fontSize: typography.sizes.titleLg,
+    fontWeight: typography.weights.extraBold,
+    color: colors.dark.textPrimary,
+    letterSpacing: 2,
+  },
+  receiptSubBrand: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+    marginBottom: 4,
+  },
+  receiptTerminal: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textMuted,
+  },
+  receiptInvoiceNum: {
+    fontSize: typography.sizes.titleMd,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.primary,
+    marginTop: 4,
+  },
+  receiptDate: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+  },
+  receiptStatusBadge: {
+    padding: spacing.xs,
+    borderRadius: spacing.radiusMd,
+    alignItems: "center",
+    marginVertical: spacing.xs,
+  },
+  receiptBadgeOk: {
+    backgroundColor: "rgba(0, 176, 116, 0.15)",
+  },
+  receiptBadgeVoid: {
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+  },
+  receiptStatusText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  receiptVoidReason: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.error,
+    marginTop: 2,
+  },
+  receiptDivider: {
+    height: 1,
+    backgroundColor: colors.dark.border,
+    marginVertical: spacing.md,
+  },
+  receiptItemsTable: {
+    gap: 4,
+  },
+  receiptTableHeader: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: colors.dark.border,
+    paddingBottom: 4,
+  },
+  receiptTh: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textSecondary,
+  },
+  receiptItemRow: {
+    flexDirection: "row",
+    paddingVertical: 3,
+  },
+  receiptItemName: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textPrimary,
+  },
+  receiptItemQty: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+  },
+  receiptItemPrice: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+  },
+  receiptItemTotal: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
+  },
+  receiptTotalsBox: {
+    backgroundColor: colors.dark.surfaceContainer,
+    borderRadius: spacing.radiusMd,
+    padding: spacing.md,
+    gap: 4,
+  },
+  receiptTotalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  receiptTotalRowMain: {
+    borderTopWidth: 1,
+    borderTopColor: colors.dark.border,
+    paddingTop: 6,
+    marginTop: 4,
+  },
+  receiptTotalLabel: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+  },
+  receiptTotalVal: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textPrimary,
+  },
+  receiptGrandTotalLabel: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.extraBold,
+    color: colors.dark.textPrimary,
+  },
+  receiptGrandTotalValues: {
+    alignItems: "flex-end",
+  },
+  receiptGrandTotalUsd: {
+    fontSize: typography.sizes.titleMd,
+    fontWeight: typography.weights.extraBold,
+    color: colors.dark.hero,
+  },
+  receiptGrandTotalVes: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textSecondary,
+  },
+  receiptRateNotice: {
+    marginTop: spacing.xs,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: colors.dark.border,
+  },
+  receiptRateNoticeText: {
+    fontSize: typography.sizes.caption,
+    color: colors.dark.textMuted,
+  },
+  receiptActions: {
+    marginTop: spacing.lg,
+    gap: spacing.sm,
+  },
+  receiptVoidBtn: {
+    height: spacing.touchTargetMin,
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    borderWidth: 1,
+    borderColor: colors.dark.error,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  receiptVoidBtnText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.error,
+  },
+  receiptCloseBtn: {
+    height: spacing.touchTargetMin,
+    backgroundColor: colors.dark.surfaceContainerHighest,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  receiptCloseBtnText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textPrimary,
   },
 });

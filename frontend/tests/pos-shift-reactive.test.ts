@@ -182,7 +182,7 @@ describe("PR-20: Sincronización Reactiva de Turno y Tasa Cambiaria Auditada", (
       terminalId: TERMINAL_1,
       tenantId: TENANT_1,
       initialExchangeRate: "45.0000",
-      onNavigateToShifts: () => { },
+      onNavigateToShifts: () => {},
     });
     expect(posElement).toBeDefined();
 

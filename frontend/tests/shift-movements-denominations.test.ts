@@ -69,8 +69,8 @@ describe("PR-21: Movimientos de Gaveta (Sangrías/Ingresos) y Conteo por Denomin
     // 3. Listar movimientos del turno
     const movements = listCashMovements(db, shiftId);
     expect(movements.length).toBe(2);
-    expect(movements[0].movementType).toBe("DROP");
-    expect(movements[1].movementType).toBe("INFLOW");
+    expect(movements[0]!.movementType).toBe("DROP");
+    expect(movements[1]!.movementType).toBe("INFLOW");
   });
 
   it("valida reglas de negocio en movimientos de gaveta (montos > 0, motivo obligatorio y turno abierto)", () => {
@@ -246,8 +246,8 @@ describe("PR-21: Movimientos de Gaveta (Sangrías/Ingresos) y Conteo por Denomin
     // Verificar en lista de turnos cerrados
     const history = listClosedShifts(db, TERMINAL_1);
     expect(history.length).toBe(1);
-    expect(history[0].id).toBe(shiftId);
-    expect(history[0].status).toBe("CLOSED");
+    expect(history[0]!.id).toBe(shiftId);
+    expect(history[0]!.status).toBe("CLOSED");
   });
 
   it("calcula totales exactos con el Asistente de Billetes por Denominación", () => {

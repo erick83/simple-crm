@@ -55,5 +55,21 @@ export function migrateDatabase(driver: SqlDriver, customSchemaSql?: string): vo
   } catch {
     // Ignorar si ya existe
   }
+
+  try {
+    driver.run("ALTER TABLE invoices ADD COLUMN status TEXT NOT NULL DEFAULT 'COMPLETED'");
+  } catch {
+    // Ignorar si ya existe
+  }
+  try {
+    driver.run("ALTER TABLE invoices ADD COLUMN voided_at INTEGER");
+  } catch {
+    // Ignorar si ya existe
+  }
+  try {
+    driver.run("ALTER TABLE invoices ADD COLUMN void_reason TEXT");
+  } catch {
+    // Ignorar si ya existe
+  }
 }
 

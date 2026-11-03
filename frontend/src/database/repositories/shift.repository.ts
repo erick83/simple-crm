@@ -192,7 +192,7 @@ export function calculateShiftAuditTotals(db: SqlDriver, shiftId: string): Shift
     payment_breakdown: string | null;
     total_usd: string;
     total_ves: string;
-  }>("SELECT payment_method, payment_breakdown, total_usd, total_ves FROM invoices WHERE shift_id = ?", [
+  }>("SELECT payment_method, payment_breakdown, total_usd, total_ves FROM invoices WHERE shift_id = ? AND (status IS NULL OR status != 'VOID')", [
     shiftId,
   ]);
 

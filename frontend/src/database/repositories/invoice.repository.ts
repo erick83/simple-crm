@@ -3,15 +3,18 @@ import { uuidv7 } from "../../utils/uuid7";
 import { toDecimal, formatFixed4, Decimal, convertUsdToVes } from "../../utils/decimal";
 import { addStockMovement, getCurrentStock } from "./product.repository";
 import { LicenseValidatorService } from "../../services/license-validator.service";
+import { P2pSyncService } from "../../services/p2p-sync.service";
 
 export interface InvoiceItemInput {
   productId: string;
   quantity: string;
   unitPriceUsd: string;
-  unitPriceVes: string;
-  lineTotalUsd: string;
-  lineTotalVes: string;
+  unitPriceVes?: string;
+  lineTotalUsd?: string;
+  lineTotalVes?: string;
   taxRate?: string;
+  productName?: string;
+  isExempt?: boolean;
 }
 
 export type PaymentMethod =
@@ -32,9 +35,15 @@ export interface CreateInvoiceInput {
   subtotalVes?: string;
   taxVes?: string;
   totalVes?: string;
-  paymentMethod: PaymentMethod;
-  paymentBreakdown?: string;
+  paymentMethod?: PaymentMethod | string;
+  paymentBreakdown?: string | null;
   items: InvoiceItemInput[];
+  payments?: {
+    method: string;
+    amountUsd: string;
+    amountVes: string;
+    currency: string;
+  }[];
 }
 
 export interface InvoiceItemEntity {
@@ -63,6 +72,9 @@ export interface InvoiceEntity {
   totalVes: string;
   paymentMethod: PaymentMethod;
   paymentBreakdown: string | null;
+  status: "COMPLETED" | "VOID";
+  voidedAt: number | null;
+  voidReason: string | null;
   createdAt: number;
   items: InvoiceItemEntity[];
 }
@@ -129,6 +141,7 @@ export function createInvoice(
     // 2. Calcular o validar sumatorias monetarias con Decimal exacto
     let computedSubtotalUsd = new Decimal("0");
     let computedSubtotalVes = new Decimal("0");
+    let computedTaxUsd = new Decimal("0");
 
     for (const it of input.items) {
       const q = toDecimal(it.quantity, "Cantidad item");
@@ -139,6 +152,10 @@ export function createInvoice(
 
       computedSubtotalUsd = computedSubtotalUsd.plus(lineUsd);
       computedSubtotalVes = computedSubtotalVes.plus(lineVes);
+
+      if (it.taxRate && toDecimal(it.taxRate).gt(0)) {
+        computedTaxUsd = computedTaxUsd.plus(lineUsd.times(toDecimal(it.taxRate)));
+      }
     }
 
     const subtotalUsdStr = input.subtotalUsd
@@ -147,7 +164,7 @@ export function createInvoice(
 
     const taxUsdStr = input.taxUsd
       ? formatFixed4(input.taxUsd)
-      : "0.0000";
+      : computedTaxUsd.toFixed(4);
 
     const totalUsdStr = input.totalUsd
       ? formatFixed4(input.totalUsd)
@@ -159,19 +176,31 @@ export function createInvoice(
 
     const taxVesStr = input.taxVes
       ? formatFixed4(input.taxVes)
-      : "0.0000";
+      : convertUsdToVes(toDecimal(taxUsdStr), rate).toFixed(4);
 
     const totalVesStr = input.totalVes
       ? formatFixed4(input.totalVes)
       : toDecimal(subtotalVesStr).plus(toDecimal(taxVesStr)).toFixed(4);
+
+    const derivedPaymentMethod =
+      input.paymentMethod ??
+      (input.payments && input.payments.length === 1
+        ? input.payments[0]!.method
+        : input.payments && input.payments.length > 1
+        ? "SPLIT"
+        : "CASH_USD");
+
+    const derivedPaymentBreakdown =
+      input.paymentBreakdown ??
+      (input.payments ? JSON.stringify(input.payments) : null);
 
     // 3. Persistir Factura (invoices) - Congelamiento permanente inmutable
     db.run(
       `INSERT INTO invoices (
         id, shift_id, terminal_id, invoice_number, exchange_rate,
         subtotal_usd, tax_usd, total_usd, subtotal_ves, tax_ves, total_ves,
-        payment_method, payment_breakdown, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        payment_method, payment_breakdown, status, voided_at, void_reason, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', NULL, NULL, ?)`,
       [
         invoiceId,
         input.shiftId,
@@ -184,8 +213,8 @@ export function createInvoice(
         subtotalVesStr,
         taxVesStr,
         totalVesStr,
-        input.paymentMethod,
-        input.paymentBreakdown ?? null,
+        derivedPaymentMethod,
+        derivedPaymentBreakdown,
         now,
       ],
     );
@@ -193,7 +222,11 @@ export function createInvoice(
     // 4. Persistir Detalle de Items y Deltas Conmutativos de Inventario
     for (const item of input.items) {
       const itemId = uuidv7(now);
-      const q = toDecimal(item.quantity);
+      const q = toDecimal(item.quantity, "item.quantity");
+      const unitUsd = toDecimal(item.unitPriceUsd, "item.unitPriceUsd");
+      const lineUsd = item.lineTotalUsd ? toDecimal(item.lineTotalUsd) : q.times(unitUsd);
+      const unitVes = item.unitPriceVes ? toDecimal(item.unitPriceVes) : convertUsdToVes(unitUsd, rate);
+      const lineVes = item.lineTotalVes ? toDecimal(item.lineTotalVes) : convertUsdToVes(lineUsd, rate);
 
       db.run(
         `INSERT INTO invoice_items (
@@ -205,10 +238,10 @@ export function createInvoice(
           invoiceId,
           item.productId,
           formatFixed4(q),
-          formatFixed4(item.unitPriceUsd),
-          formatFixed4(item.lineTotalUsd),
-          formatFixed4(item.unitPriceVes),
-          formatFixed4(item.lineTotalVes),
+          formatFixed4(unitUsd),
+          formatFixed4(lineUsd),
+          formatFixed4(unitVes),
+          formatFixed4(lineVes),
           formatFixed4(item.taxRate ?? "0.1600"),
         ],
       );
@@ -228,6 +261,36 @@ export function createInvoice(
         now,
       );
     }
+
+    // 5. Encolar evento INVOICE en outbox para replicación P2P
+    P2pSyncService.enqueueEvent(
+      db,
+      {
+        originTerminalId: input.terminalId,
+        entityType: "INVOICE",
+        entityId: invoiceId,
+        action: "UPSERT",
+        payload: {
+          id: invoiceId,
+          shiftId: input.shiftId,
+          terminalId: input.terminalId,
+          invoiceNumber,
+          exchangeRate: formatFixed4(rate),
+          subtotalUsd: subtotalUsdStr,
+          taxUsd: taxUsdStr,
+          totalUsd: totalUsdStr,
+          subtotalVes: subtotalVesStr,
+          taxVes: taxVesStr,
+          totalVes: totalVesStr,
+          paymentMethod: derivedPaymentMethod,
+          paymentBreakdown: derivedPaymentBreakdown,
+          status: "COMPLETED",
+          createdAt: now,
+          items: input.items,
+        },
+      },
+      now,
+    );
 
     return invoiceId;
   });
@@ -251,6 +314,9 @@ export function getInvoiceById(db: SqlDriver, invoiceId: string): InvoiceEntity 
     total_ves: string;
     payment_method: PaymentMethod;
     payment_breakdown: string | null;
+    status: "COMPLETED" | "VOID" | null;
+    voided_at: number | null;
+    void_reason: string | null;
     created_at: number;
   }>("SELECT * FROM invoices WHERE id = ?", [invoiceId]);
 
@@ -282,6 +348,9 @@ export function getInvoiceById(db: SqlDriver, invoiceId: string): InvoiceEntity 
     totalVes: inv.total_ves,
     paymentMethod: inv.payment_method,
     paymentBreakdown: inv.payment_breakdown,
+    status: (inv.status as "COMPLETED" | "VOID") ?? "COMPLETED",
+    voidedAt: inv.voided_at ?? null,
+    voidReason: inv.void_reason ?? null,
     createdAt: inv.created_at,
     items: items.map((it) => ({
       id: it.id,
@@ -295,4 +364,94 @@ export function getInvoiceById(db: SqlDriver, invoiceId: string): InvoiceEntity 
       taxRate: it.tax_rate,
     })),
   };
+}
+
+/**
+ * Consulta el listado de facturas emitidas en un turno de caja específico.
+ */
+export function listInvoicesByShift(db: SqlDriver, shiftId: string): InvoiceEntity[] {
+  const rows = db.all<{
+    id: string;
+  }>("SELECT id FROM invoices WHERE shift_id = ? ORDER BY created_at DESC, id DESC", [shiftId]);
+
+  return rows.map((r) => getInvoiceById(db, r.id)!).filter(Boolean);
+}
+
+/**
+ * Anula una factura con motivo auditado obligatorio:
+ * 1. Marca la factura como 'VOID'.
+ * 2. Revierte el stock atómicamente creando movimientos delta conmutativos 'RETURN' (+quantity).
+ * 3. Encola la actualización en outbox P2P.
+ */
+export function voidInvoice(
+  db: SqlDriver,
+  args: {
+    invoiceId: string;
+    reason: string;
+    cashierName?: string;
+    terminalId?: string;
+  },
+  now: number = Date.now(),
+): InvoiceEntity {
+  const cleanReason = args.reason.trim();
+  if (!cleanReason) {
+    throw new Error("El motivo de anulación es obligatorio para auditoría fiscal y de inventario");
+  }
+
+  return db.transaction(() => {
+    const invoice = getInvoiceById(db, args.invoiceId);
+    if (!invoice) {
+      throw new Error(`Factura no encontrada: ${args.invoiceId}`);
+    }
+    if (invoice.status === "VOID") {
+      throw new Error(`La factura ${invoice.invoiceNumber} ya se encuentra anulada`);
+    }
+
+    // 1. Marcar como VOID
+    db.run(
+      "UPDATE invoices SET status = 'VOID', voided_at = ?, void_reason = ? WHERE id = ?",
+      [now, cleanReason, invoice.id],
+    );
+
+    // 2. Restituir inventario por deltas conmutativos con signo positivo ('RETURN')
+    for (const item of invoice.items) {
+      const q = toDecimal(item.quantity);
+      const returnDelta = q.abs().toFixed(4); // Siempre positivo para reingreso
+
+      addStockMovement(
+        db,
+        {
+          productId: item.productId,
+          terminalId: args.terminalId ?? invoice.terminalId,
+          delta: returnDelta,
+          type: "RETURN",
+          referenceId: invoice.id,
+        },
+        now,
+      );
+    }
+
+    // 3. Encolar evento de anulación en outbox P2P
+    P2pSyncService.enqueueEvent(
+      db,
+      {
+        originTerminalId: args.terminalId ?? invoice.terminalId,
+        entityType: "INVOICE",
+        entityId: invoice.id,
+        action: "UPSERT",
+        payload: {
+          id: invoice.id,
+          shiftId: invoice.shiftId,
+          terminalId: invoice.terminalId,
+          invoiceNumber: invoice.invoiceNumber,
+          status: "VOID",
+          voidedAt: now,
+          voidReason: cleanReason,
+        },
+      },
+      now,
+    );
+
+    return getInvoiceById(db, invoice.id)!;
+  });
 }

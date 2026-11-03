@@ -438,8 +438,22 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           total_ves: total_ves ?? "0.0000",
           payment_method: payment_method ?? "CASH_USD",
           payment_breakdown: payment_breakdown ?? null,
+          status: "COMPLETED",
+          voided_at: null,
+          void_reason: null,
           created_at: created_at ?? Date.now(),
         });
+        return;
+      }
+
+      if (/^UPDATE invoices SET status = 'VOID'/i.test(norm)) {
+        const [voided_at, void_reason, id] = params;
+        const inv = store.invoices.find((i) => i.id === id);
+        if (inv) {
+          inv.status = "VOID";
+          inv.voided_at = voided_at ?? Date.now();
+          inv.void_reason = void_reason ?? "";
+        }
         return;
       }
 

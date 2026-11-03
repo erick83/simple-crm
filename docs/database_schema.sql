@@ -156,6 +156,9 @@ CREATE TABLE IF NOT EXISTS invoices (
     total_ves TEXT NOT NULL,                   -- Total legal en Bolívares (VES)
     payment_method TEXT NOT NULL,              -- 'CASH_USD', 'CASH_VES', 'PAGO_MOVIL', 'CARD_VES', 'SPLIT'
     payment_breakdown TEXT,                    -- JSON detallando montos por método
+    status TEXT NOT NULL DEFAULT 'COMPLETED',  -- 'COMPLETED', 'VOID'
+    voided_at INTEGER,                         -- Timestamp Unix de anulación
+    void_reason TEXT,                          -- Motivo auditado de anulación
     created_at INTEGER NOT NULL,               -- Timestamp Unix de cobro
     FOREIGN KEY(shift_id) REFERENCES cash_shifts(id) ON DELETE RESTRICT
 );
