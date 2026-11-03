@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { colors } from "../theme/colors";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import type { Palette } from "../theme/tokens";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 import { formatUsd, formatVes } from "../utils/decimal";
@@ -33,6 +34,8 @@ function toIsoDate(ts: number): string {
 }
 
 export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }) => {
+  const { colors: theme } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const [activeSection, setActiveSection] = useState<ReportSection>("BALANCE");
 
   // Filtros de Balance Financiero
@@ -182,7 +185,7 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
         <>
           {/* Cabecera y Filtros de Rango */}
           <View style={styles.headerRow}>
-            <View>
+            <View style={styles.titleBlock}>
               <Text style={styles.title}>Balance Consolidado del Período</Text>
               <Text style={styles.subtitle}>
                 Acumulados contables, margen comercial y métodos de pago en SQLite
@@ -311,7 +314,7 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
         <>
           {/* Cabecera y Filtros de Rango de Tasas */}
           <View style={styles.headerRow}>
-            <View>
+            <View style={styles.titleBlock}>
               <Text style={styles.title}>Reporte Histórico de Tasas BCV</Text>
               <Text style={styles.subtitle}>
                 Historial oficial de cambio USD / VES y auditoría de capturas manuales
@@ -578,20 +581,22 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
 
 export { MonthlyBalanceScreen as ReportsScreen };
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.dark.surfaceBase,
+    backgroundColor: c.surfaceBase,
   },
   content: {
     padding: spacing.xl,
   },
   sectionTabsRow: {
+    flexWrap: "wrap",
     flexDirection: "row",
     gap: spacing.md,
     marginBottom: spacing.xl,
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
+    borderBottomColor: c.border,
     paddingBottom: spacing.md,
   },
   sectionTabBtn: {
@@ -600,46 +605,55 @@ const styles = StyleSheet.create({
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   sectionTabBtnActive: {
-    backgroundColor: colors.dark.primary,
-    borderColor: colors.dark.primaryGlow,
+    backgroundColor: c.primary,
+    borderColor: c.primaryGlow,
   },
   sectionTabBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   sectionTabBtnTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
     fontWeight: typography.weights.bold,
   },
   headerRow: {
+    flexWrap: "wrap",
+    gap: spacing.md,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: spacing.xl,
   },
+  titleBlock: {
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: "100%",
+  },
   title: {
     fontSize: typography.sizes.titleLg,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
+    maxWidth: "100%",
   },
   subtitle: {
     fontSize: typography.sizes.subText,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginTop: 2,
+    maxWidth: "100%",
   },
   filterGroup: {
     flexDirection: "row",
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusMd,
     padding: 4,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     gap: 4,
   },
   filterBtn: {
@@ -650,53 +664,55 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   filterBtnActive: {
-    backgroundColor: colors.dark.primary,
+    backgroundColor: c.primary,
   },
   filterBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   filterBtnTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
     fontWeight: typography.weights.bold,
   },
   cardsRow: {
+    flexWrap: "wrap",
     flexDirection: "row",
     gap: spacing.md,
     marginBottom: spacing.xl,
   },
   card: {
+    minWidth: 200,
     flex: 1,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusLg,
     padding: spacing.lg,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   cardLabel: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: spacing.xs,
   },
   cardValue: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   cardSub: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     marginTop: 4,
   },
   marginValue: {
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   deltaPositive: {
-    color: "#F59E0B",
+    color: c.warningText,
   },
   deltaNegative: {
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   viewModeRow: {
     flexDirection: "row",
@@ -707,15 +723,15 @@ const styles = StyleSheet.create({
   viewModeTitle: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   viewModeGroup: {
     flexDirection: "row",
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusMd,
     padding: 4,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     gap: 4,
   },
   viewModeBtn: {
@@ -726,69 +742,69 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   viewModeBtnActive: {
-    backgroundColor: colors.dark.primary,
+    backgroundColor: c.primary,
   },
   viewModeBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   viewModeBtnTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
     fontWeight: typography.weights.bold,
   },
   tableCard: {
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusLg,
     padding: spacing.lg,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     marginBottom: spacing.lg,
   },
   tableTitle: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     marginBottom: spacing.md,
   },
   tableHeader: {
     flexDirection: "row",
     paddingBottom: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
+    borderBottomColor: c.border,
   },
   th: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   tableRow: {
     flexDirection: "row",
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
+    borderBottomColor: c.border,
     alignItems: "center",
   },
   td: {
     fontSize: typography.sizes.body,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   tdMuted: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
   },
   tdSub: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
     fontWeight: typography.weights.bold,
   },
   rateValueText: {
     fontWeight: typography.weights.bold,
-    color: "#60A5FA",
+    color: c.primaryGlow,
   },
   notesText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   textRight: {
     textAlign: "right",
@@ -800,24 +816,24 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   sourceBadgeBcv: {
-    backgroundColor: "rgba(0, 176, 116, 0.15)",
+    backgroundColor: c.heroSoft,
     borderWidth: 1,
-    borderColor: "rgba(0, 176, 116, 0.4)",
+    borderColor: c.hero,
   },
   sourceBadgeManual: {
-    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    backgroundColor: c.warningSoft,
     borderWidth: 1,
-    borderColor: "rgba(245, 158, 11, 0.4)",
+    borderColor: c.warning,
   },
   sourceBadgeText: {
     fontSize: 11,
     fontWeight: typography.weights.bold,
   },
   sourceTextBcv: {
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   sourceTextManual: {
-    color: "#F59E0B",
+    color: c.warningText,
   },
   deltaBadge: {
     paddingHorizontal: spacing.sm,
@@ -825,27 +841,27 @@ const styles = StyleSheet.create({
     borderRadius: spacing.radiusSm,
   },
   deltaBadgeWarn: {
-    backgroundColor: "rgba(245, 158, 11, 0.12)",
+    backgroundColor: c.warningSoft,
   },
   deltaBadgeGood: {
-    backgroundColor: "rgba(0, 176, 116, 0.12)",
+    backgroundColor: c.heroSoft,
   },
   deltaBadgeText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
   },
   deltaTextWarn: {
-    color: "#F59E0B",
+    color: c.warningText,
   },
   deltaTextGood: {
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   emptyContainer: {
     paddingVertical: spacing.xl,
     alignItems: "center",
   },
   emptyText: {
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     fontSize: typography.sizes.body,
   },
 });

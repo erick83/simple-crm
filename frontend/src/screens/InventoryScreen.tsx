@@ -10,9 +10,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import { useBreakpoint } from "../theme/responsive";
+import type { Palette } from "../theme/tokens";
 import {
   formatUsd,
   formatVes,
@@ -164,6 +166,9 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   onProductDeleted,
   onCategoryDeleted,
 }) => {
+  const { colors: theme } = useTheme();
+  const styles = useThemedStyles(makeStyles);
+  const { isMobile } = useBreakpoint();
   const db = propDb ?? getOrCreateDefaultSqlDriver({ tenantId, terminalId });
   const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
   const [imageEncoder] = useState<ImageEncoder>(
@@ -721,10 +726,10 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isMobile && styles.containerMobile]}>
       {/* Barra Superior con Buscador y Botón de Nuevo Producto */}
       <View style={styles.topBar}>
-        <View style={styles.titleContainer}>
+        <View style={[styles.titleContainer, isMobile && styles.fullWidth]}>
           <Text style={styles.title}>Control de Inventario y Kardex</Text>
           <Text style={styles.subtitle}>
             Stock computado por deltas conmutativos • Tasa: {formatVes(exchangeRate)}
@@ -732,9 +737,9 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
         </View>
 
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, isMobile && styles.fullWidth]}
           placeholder="Buscar por Nombre, SKU o Código de Barras (HID)..."
-          placeholderTextColor={colors.dark.textMuted}
+          placeholderTextColor={theme.textMuted}
           value={search}
           onChangeText={setSearch}
         />
@@ -742,7 +747,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={handleOpenCreateProduct}
-          style={styles.newProductBtn}
+          style={[styles.newProductBtn, isMobile && styles.fullWidth]}
         >
           <Text style={styles.newProductBtnText}>+ NUEVO PRODUCTO</Text>
         </TouchableOpacity>
@@ -836,7 +841,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 <TextInput
                   style={styles.inlineCategoryInput}
                   placeholder="Nueva categoría..."
-                  placeholderTextColor={colors.dark.textMuted}
+                  placeholderTextColor={theme.textMuted}
                   value={inlineCategoryName}
                   onChangeText={setInlineCategoryName}
                   onSubmitEditing={() => handleCreateQuickCategory(inlineCategoryName, false)}
@@ -907,7 +912,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                   stockFilter === "LOW_STOCK"
                     ? styles.filterPillWarningTextActive
                     : organizationCounts.lowStock > 0
-                      ? { color: colors.dark.warning }
+                      ? { color: theme.warning }
                       : undefined,
                 ]}
               >
@@ -1002,7 +1007,7 @@ renderItem = {({ item }) => {
   const imageUri = resolveProductImageUri(fileStore, item.imagePath);
 
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, isMobile && styles.rowMobile]}>
       {/* Miniatura de Imagen Local */}
       <View style={styles.imageCol}>
         {imageUri ? (
@@ -1015,7 +1020,7 @@ renderItem = {({ item }) => {
       </View>
 
       {/* Información del Producto */}
-      <View style={styles.colInfo}>
+      <View style={[styles.colInfo, isMobile && styles.colInfoMobile]}>
         <View style={styles.productHeaderRow}>
           <Text style={styles.productName}>{item.name}</Text>
           <TouchableOpacity
@@ -1038,7 +1043,7 @@ renderItem = {({ item }) => {
       </View>
 
       {/* Precios Bimoneda */}
-      <View style={styles.colPrice}>
+      <View style={[styles.colPrice, isMobile && styles.colPriceMobile]}>
         <Text style={[styles.priceText, typography.tabularNumeric]}>
           {formatUsd(item.priceUsd)}
         </Text>
@@ -1049,7 +1054,7 @@ renderItem = {({ item }) => {
       </View>
 
       {/* Stock Actual y Badge */}
-      <View style={styles.colStock}>
+      <View style={[styles.colStock, isMobile && styles.colStockMobile]}>
         <View
           style={[
             styles.stockBadge,
@@ -1070,11 +1075,11 @@ renderItem = {({ item }) => {
       </View>
 
       {/* Acciones Táctiles (>= 48px) */}
-      <View style={styles.colActions}>
+      <View style={[styles.colActions, isMobile && styles.colActionsMobile]}>
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={() => handleOpenKardex(item)}
-          style={styles.kardexBtn}
+          style={[styles.kardexBtn, isMobile && styles.actionBtnMobile]}
         >
           <Text style={styles.kardexBtnText}>Ajustar Stock</Text>
         </TouchableOpacity>
@@ -1082,7 +1087,7 @@ renderItem = {({ item }) => {
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={() => handleOpenEditProduct(item)}
-          style={styles.editBtn}
+          style={[styles.editBtn, isMobile && styles.actionBtnMobile]}
         >
           <Text style={styles.editBtnText}>✎ Editar</Text>
         </TouchableOpacity>
@@ -1090,7 +1095,7 @@ renderItem = {({ item }) => {
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={() => handleOpenDeleteProduct(item)}
-          style={styles.deleteRowBtn}
+          style={[styles.deleteRowBtn, isMobile && styles.actionBtnMobile]}
         >
           <Text style={styles.deleteRowBtnText}>🗑 Eliminar</Text>
         </TouchableOpacity>
@@ -1144,7 +1149,7 @@ ListEmptyComponent = {
           <TextInput
             style={styles.modalInput}
             placeholder="Ej. Harina PAN 1kg"
-            placeholderTextColor={colors.dark.textMuted}
+            placeholderTextColor={theme.textMuted}
             value={formName}
             onChangeText={setFormName}
           />
@@ -1156,7 +1161,7 @@ ListEmptyComponent = {
             <TextInput
               style={styles.modalInput}
               placeholder="HAR-01"
-              placeholderTextColor={colors.dark.textMuted}
+              placeholderTextColor={theme.textMuted}
               value={formSku}
               onChangeText={setFormSku}
             />
@@ -1167,7 +1172,7 @@ ListEmptyComponent = {
             <TextInput
               style={styles.modalInput}
               placeholder="Escanee con el lector..."
-              placeholderTextColor={colors.dark.textMuted}
+              placeholderTextColor={theme.textMuted}
               value={formBarcode}
               onChangeText={setFormBarcode}
             />
@@ -1237,7 +1242,7 @@ ListEmptyComponent = {
             <TextInput
               style={[styles.modalInput, { flex: 1 }]}
               placeholder="O escriba una nueva categoría (ej. Lácteos, Charcutería)..."
-              placeholderTextColor={colors.dark.textMuted}
+              placeholderTextColor={theme.textMuted}
               value={newModalCategoryName}
               onChangeText={setNewModalCategoryName}
             />
@@ -1294,7 +1299,7 @@ ListEmptyComponent = {
               style={[styles.modalInput, typography.tabularNumeric]}
               placeholder="0.0000"
               keyboardType="decimal-pad"
-              placeholderTextColor={colors.dark.textMuted}
+              placeholderTextColor={theme.textMuted}
               value={formPriceUsd}
               onChangeText={setFormPriceUsd}
             />
@@ -1306,7 +1311,7 @@ ListEmptyComponent = {
               style={[styles.modalInput, typography.tabularNumeric]}
               placeholder="0.0000"
               keyboardType="decimal-pad"
-              placeholderTextColor={colors.dark.textMuted}
+              placeholderTextColor={theme.textMuted}
               value={formCostUsd}
               onChangeText={setFormCostUsd}
             />
@@ -1318,7 +1323,7 @@ ListEmptyComponent = {
               style={[styles.modalInput, typography.tabularNumeric]}
               placeholder="5"
               keyboardType="decimal-pad"
-              placeholderTextColor={colors.dark.textMuted}
+              placeholderTextColor={theme.textMuted}
               value={formMinStock}
               onChangeText={setFormMinStock}
             />
@@ -1331,7 +1336,7 @@ ListEmptyComponent = {
                 style={[styles.modalInput, typography.tabularNumeric]}
                 placeholder="0"
                 keyboardType="decimal-pad"
-                placeholderTextColor={colors.dark.textMuted}
+                placeholderTextColor={theme.textMuted}
                 value={formInitialStock}
                 onChangeText={setFormInitialStock}
               />
@@ -1426,7 +1431,7 @@ ListEmptyComponent = {
       {kardexProduct && (
         <Text style={styles.modalSubtitle}>
           {kardexProduct.name} (SKU: {kardexProduct.sku}) — Stock actual:{" "}
-          <Text style={{ color: colors.dark.hero, fontWeight: "bold" }}>
+          <Text style={{ color: theme.heroText, fontWeight: "bold" }}>
             {formatQuantity(kardexProduct.currentStock, kardexProduct.unit)}
           </Text>
         </Text>
@@ -1470,7 +1475,7 @@ ListEmptyComponent = {
             style={[styles.modalInput, typography.tabularNumeric]}
             placeholder="0"
             keyboardType="decimal-pad"
-            placeholderTextColor={colors.dark.textMuted}
+            placeholderTextColor={theme.textMuted}
             value={kardexDelta}
             onChangeText={setKardexDelta}
           />
@@ -1481,7 +1486,7 @@ ListEmptyComponent = {
           <TextInput
             style={styles.modalInput}
             placeholder="Ej. Factura proveedor #1234"
-            placeholderTextColor={colors.dark.textMuted}
+            placeholderTextColor={theme.textMuted}
             value={kardexReason}
             onChangeText={setKardexReason}
           />
@@ -1650,7 +1655,7 @@ ListEmptyComponent = {
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>
           Para prevenir errores accidentales, escriba exactamente{" "}
-          <Text style={{ color: colors.dark.error }}>BORRAR</Text> en el campo:
+          <Text style={{ color: theme.error }}>BORRAR</Text> en el campo:
         </Text>
         <TextInput
           style={[
@@ -1659,7 +1664,7 @@ ListEmptyComponent = {
             styles.deleteInputConfirmed,
           ]}
           placeholder='Escriba "BORRAR" aquí...'
-          placeholderTextColor={colors.dark.textMuted}
+          placeholderTextColor={theme.textMuted}
           autoCapitalize="characters"
           value={deleteConfirmInput}
           onChangeText={setDeleteConfirmInput}
@@ -1698,14 +1703,25 @@ ListEmptyComponent = {
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.dark.surfaceBase,
+    backgroundColor: c.surfaceBase,
     padding: spacing.lg,
+  },
+  containerMobile: {
+    padding: spacing.md,
+  },
+  fullWidth: {
+    flexBasis: "100%",
+    maxWidth: undefined,
+    flexGrow: 0,
+    flexShrink: 0,
   },
   topBar: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: spacing.md,
@@ -1717,27 +1733,27 @@ const styles = StyleSheet.create({
   title: {
     fontSize: typography.sizes.titleLg,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   subtitle: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginTop: 2,
   },
   searchInput: {
     flex: 2,
     maxWidth: 400,
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     paddingHorizontal: spacing.md,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   newProductBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.primary, // #1D61E0
+    backgroundColor: c.primary, // #1D61E0
     borderRadius: spacing.radiusMd,
     paddingHorizontal: spacing.lg,
     justifyContent: "center",
@@ -1746,15 +1762,15 @@ const styles = StyleSheet.create({
   newProductBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
   },
   organizationPanel: {
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusLg,
     padding: spacing.md,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     gap: spacing.sm,
   },
   categoryBarRow: {
@@ -1774,18 +1790,18 @@ const styles = StyleSheet.create({
   },
   deleteCategoryFixedBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    backgroundColor: c.errorSoft,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusFull,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.error,
+    borderColor: c.error,
   },
   deleteCategoryFixedBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
   },
   categoryScrollContent: {
     flexDirection: "row",
@@ -1795,41 +1811,41 @@ const styles = StyleSheet.create({
   },
   categoryChip: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusFull,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   categoryChipActive: {
-    backgroundColor: colors.dark.primary,
-    borderColor: colors.dark.primaryGlow,
+    backgroundColor: c.primary,
+    borderColor: c.primaryGlow,
   },
   categoryChipText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   categoryChipTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
     fontWeight: typography.weights.bold,
   },
   addCategoryChip: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusFull,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.primaryGlow,
+    borderColor: c.primaryGlow,
   },
   addCategoryChipText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   inlineCategoryBox: {
     flexDirection: "row",
@@ -1839,16 +1855,16 @@ const styles = StyleSheet.create({
   inlineCategoryInput: {
     height: spacing.touchTargetMin,
     minWidth: 160,
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     paddingHorizontal: spacing.md,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     borderWidth: 1,
-    borderColor: colors.dark.primaryGlow,
+    borderColor: c.primaryGlow,
   },
   inlineCategoryConfirmBtn: {
     height: spacing.touchTargetMin,
-    backgroundColor: colors.dark.hero,
+    backgroundColor: c.hero,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
@@ -1857,22 +1873,22 @@ const styles = StyleSheet.create({
   inlineCategoryConfirmText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onHero,
   },
   inlineCategoryCancelBtn: {
     height: spacing.touchTargetMin,
     width: spacing.touchTargetMin,
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   inlineCategoryCancelText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   controlsAndKpiRow: {
     flexDirection: "row",
@@ -1881,7 +1897,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.dark.border,
+    borderTopColor: c.border,
     paddingTop: spacing.sm,
   },
   filterGroup: {
@@ -1889,84 +1905,86 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     alignItems: "center",
     gap: spacing.xs,
+    maxWidth: "100%",
+    flexShrink: 1,
   },
   controlGroupLabel: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     marginRight: 4,
   },
   filterPill: {
     minHeight: 40,
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   filterPillActive: {
-    backgroundColor: colors.dark.surfaceContainerHighest,
-    borderColor: colors.dark.primaryGlow,
+    backgroundColor: c.surfaceContainerHighest,
+    borderColor: c.primaryGlow,
   },
   filterPillWarningActive: {
-    backgroundColor: "rgba(245, 158, 11, 0.2)",
-    borderColor: colors.dark.warning,
+    backgroundColor: c.warningSoft,
+    borderColor: c.warning,
   },
   filterPillErrorActive: {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
-    borderColor: colors.dark.error,
+    backgroundColor: c.errorSoft,
+    borderColor: c.error,
   },
   filterPillText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   filterPillTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     fontWeight: typography.weights.bold,
   },
   filterPillWarningTextActive: {
-    color: colors.dark.warning,
+    color: c.warningText,
     fontWeight: typography.weights.bold,
   },
   filterPillErrorTextActive: {
-    color: colors.dark.error,
+    color: c.errorText,
     fontWeight: typography.weights.bold,
   },
   sortPill: {
     minHeight: 40,
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     paddingHorizontal: spacing.sm,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   sortPillActive: {
-    backgroundColor: colors.dark.primary,
-    borderColor: colors.dark.primaryGlow,
+    backgroundColor: c.primary,
+    borderColor: c.primaryGlow,
   },
   sortPillText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   sortPillTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
     fontWeight: typography.weights.bold,
   },
   kpiStrip: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: spacing.radiusMd,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     gap: spacing.md,
   },
   kpiItem: {
@@ -1975,22 +1993,22 @@ const styles = StyleSheet.create({
   kpiLabel: {
     fontSize: 10,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
   },
   kpiValue: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   kpiValueHero: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   kpiDivider: {
     width: 1,
     height: 24,
-    backgroundColor: colors.dark.border,
+    backgroundColor: c.border,
   },
   productHeaderRow: {
     flexDirection: "row",
@@ -1999,7 +2017,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   rowCategoryTag: {
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    backgroundColor: c.surfaceContainerHighest,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: spacing.radiusFull,
@@ -2007,23 +2025,23 @@ const styles = StyleSheet.create({
   rowCategoryTagText: {
     fontSize: 11,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   resetFiltersBtn: {
     marginTop: spacing.md,
     height: spacing.touchTargetMin,
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     paddingHorizontal: spacing.lg,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.primaryGlow,
+    borderColor: c.primaryGlow,
   },
   resetFiltersBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   modalCategoryRow: {
     flexDirection: "row",
@@ -2033,25 +2051,25 @@ const styles = StyleSheet.create({
   },
   modalCategoryOption: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusFull,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   modalCategoryOptionActive: {
-    backgroundColor: colors.dark.primary,
-    borderColor: colors.dark.primaryGlow,
+    backgroundColor: c.primary,
+    borderColor: c.primaryGlow,
   },
   modalCategoryOptionText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   modalCategoryOptionTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
     fontWeight: typography.weights.bold,
   },
   modalNewCategoryRow: {
@@ -2062,7 +2080,7 @@ const styles = StyleSheet.create({
   },
   modalCreateCatBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.primary,
+    backgroundColor: c.primary,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
@@ -2071,25 +2089,47 @@ const styles = StyleSheet.create({
   modalCreateCatBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusLg,
     padding: spacing.md,
     marginBottom: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     gap: spacing.md,
+  },
+  rowMobile: {
+    flexWrap: "wrap",
+  },
+  colInfoMobile: {
+    flex: 1,
+    minWidth: 0,
+  },
+  colPriceMobile: {
+    flex: 0,
+    flexBasis: "auto",
+    alignItems: "flex-start",
+  },
+  colStockMobile: {
+    flex: 0,
+    flexBasis: "auto",
+  },
+  colActionsMobile: {
+    flexBasis: "100%",
+  },
+  actionBtnMobile: {
+    flex: 1,
   },
   imageCol: {
     width: 56,
     height: 56,
     borderRadius: spacing.radiusMd,
     overflow: "hidden",
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
   },
   thumbnail: {
     width: "100%",
@@ -2110,15 +2150,15 @@ const styles = StyleSheet.create({
   productName: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   metaText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginTop: 2,
   },
   metaHighlight: {
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
     fontWeight: typography.weights.bold,
   },
   colPrice: {
@@ -2128,16 +2168,16 @@ const styles = StyleSheet.create({
   priceText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   priceVesText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
     fontWeight: typography.weights.semibold,
   },
   costText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     marginTop: 2,
   },
   colStock: {
@@ -2150,24 +2190,24 @@ const styles = StyleSheet.create({
     borderRadius: spacing.radiusFull,
   },
   normalStockBadge: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
   },
   lowStockBadge: {
-    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    backgroundColor: c.warningSoft,
   },
   stockText: {
     fontSize: typography.sizes.subText,
     fontWeight: typography.weights.bold,
   },
   normalStockText: {
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   lowStockText: {
-    color: colors.dark.warning,
+    color: c.warningText,
   },
   alertText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.warning,
+    color: c.warningText,
     marginTop: 2,
   },
   colActions: {
@@ -2176,33 +2216,33 @@ const styles = StyleSheet.create({
   },
   kardexBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   kardexBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   editBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   editBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   emptyContainer: {
     paddingVertical: 80,
@@ -2211,17 +2251,17 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: typography.sizes.titleMd,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     fontWeight: typography.weights.semibold,
   },
   emptySubText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     marginTop: spacing.xs,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: colors.dark.surfaceDim,
+    backgroundColor: c.overlay,
     justifyContent: "center",
     alignItems: "center",
     padding: spacing.xl,
@@ -2229,20 +2269,20 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 620,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusXl,
     padding: spacing.xl,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   modalTitle: {
     fontSize: typography.sizes.titleLg,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   modalSubtitle: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: spacing.md,
     marginTop: 2,
   },
@@ -2259,17 +2299,17 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: 4,
   },
   modalInput: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     paddingHorizontal: spacing.md,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   imageSelectorRow: {
     flexDirection: "row",
@@ -2281,26 +2321,26 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: spacing.radiusMd,
     overflow: "hidden",
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     alignItems: "center",
     justifyContent: "center",
   },
   pickImageBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     paddingHorizontal: spacing.lg,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.primaryGlow,
+    borderColor: c.primaryGlow,
   },
   pickImageBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   removeImageBtn: {
     height: spacing.touchTargetMin, // 48px
@@ -2309,12 +2349,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.error,
+    borderColor: c.error,
   },
   removeImageBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
   },
   movementTypeRow: {
     flexDirection: "row",
@@ -2323,28 +2363,28 @@ const styles = StyleSheet.create({
   typeBtn: {
     flex: 1,
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   typeBtnActive: {
-    backgroundColor: colors.dark.primary,
-    borderColor: colors.dark.primaryGlow,
+    backgroundColor: c.primary,
+    borderColor: c.primaryGlow,
   },
   typeBtnText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     fontWeight: typography.weights.medium,
   },
   typeBtnTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
     fontWeight: typography.weights.bold,
   },
   historyBox: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -2353,7 +2393,7 @@ const styles = StyleSheet.create({
   historyTitle: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: 4,
   },
   historyRow: {
@@ -2362,21 +2402,21 @@ const styles = StyleSheet.create({
   },
   historyType: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   historyDelta: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
   },
   historyPositive: {
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   historyNegative: {
-    color: colors.dark.error,
+    color: c.errorText,
   },
   errorText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.error,
+    color: c.errorText,
     fontWeight: typography.weights.bold,
     marginBottom: spacing.sm,
   },
@@ -2393,15 +2433,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   cancelBtnText: {
     fontSize: typography.sizes.body,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   saveBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.hero, // #00B074
+    backgroundColor: c.hero, // #00B074
     paddingHorizontal: spacing.xl,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
@@ -2410,7 +2450,7 @@ const styles = StyleSheet.create({
   saveBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onHero,
   },
   categoryChipWrapper: {
     flexDirection: "row",
@@ -2419,97 +2459,97 @@ const styles = StyleSheet.create({
   },
   deleteCategoryChipBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    backgroundColor: c.errorSoft,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusFull,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.error,
+    borderColor: c.error,
   },
   deleteCategoryChipBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
   },
   deleteRowBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    backgroundColor: c.errorSoft,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.error,
+    borderColor: c.error,
   },
   deleteRowBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
   },
   modalDeleteProductBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    backgroundColor: c.errorSoft,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.error,
+    borderColor: c.error,
     marginRight: "auto",
   },
   modalDeleteProductBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
   },
   dangerModalCard: {
-    borderColor: colors.dark.error,
+    borderColor: c.error,
     borderWidth: 1.5,
   },
   dangerModalTitle: {
     fontSize: typography.sizes.titleLg,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
     marginBottom: spacing.sm,
   },
   deleteSummaryBox: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     gap: 6,
   },
   deleteEntityName: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   deleteEntitySub: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   deleteNoticeText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginTop: 2,
   },
   stockWarningBox: {
     marginTop: spacing.sm,
     padding: spacing.sm,
-    backgroundColor: "rgba(245, 158, 11, 0.12)",
+    backgroundColor: c.warningSoft,
     borderRadius: spacing.radiusMd,
     borderWidth: 1,
-    borderColor: colors.dark.warning,
+    borderColor: c.warning,
     gap: spacing.xs,
   },
   stockWarningTitle: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.warning,
+    color: c.warningText,
   },
   checkboxRow: {
     flexDirection: "row",
@@ -2523,37 +2563,37 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: spacing.radiusSm,
     borderWidth: 1.5,
-    borderColor: colors.dark.textSecondary,
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    borderColor: c.textSecondary,
+    backgroundColor: c.surfaceContainerHigh,
     alignItems: "center",
     justifyContent: "center",
   },
   checkboxSquareActive: {
-    backgroundColor: colors.dark.primary,
-    borderColor: colors.dark.primaryGlow,
+    backgroundColor: c.primary,
+    borderColor: c.primaryGlow,
   },
   checkboxSquareDangerActive: {
-    backgroundColor: colors.dark.error,
-    borderColor: colors.dark.error,
+    backgroundColor: c.error,
+    borderColor: c.error,
   },
   checkboxMark: {
     fontSize: 14,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   checkboxLabel: {
     flex: 1,
     fontSize: typography.sizes.caption,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     fontWeight: typography.weights.medium,
   },
   deleteInputConfirmed: {
-    borderColor: colors.dark.error,
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderColor: c.error,
+    backgroundColor: c.errorSoft,
   },
   confirmDeleteBtn: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.error,
+    backgroundColor: c.error,
     paddingHorizontal: spacing.xl,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
@@ -2565,6 +2605,6 @@ const styles = StyleSheet.create({
   confirmDeleteBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
   },
 });

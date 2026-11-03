@@ -3,8 +3,10 @@ export const spacing = {
   touchTargetMin: 48, // Mínimo para controles secundarios, steppers y filtros
   touchTargetHero: 64, // Mínimo para botón de cobro maestro, cierre Z y teclas numpad
 
-  // Dimensiones fijas de layout Landscape (1280x800)
+  // Dimensiones fijas de layout Landscape (1280x800) y responsive
   sidebarWidth: 240,
+  sidebarRailWidth: 88,
+  bottomNavHeight: 64,
   topHeaderHeight: 64,
   bottomBarHeight: 80,
 

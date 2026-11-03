@@ -6,9 +6,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import type { Palette } from "../theme/tokens";
 import { formatVes } from "../utils/decimal";
 import type { ExchangeRateHistoryItem } from "../database/repositories/exchange.repository";
 
@@ -32,6 +33,8 @@ export const ExchangeRateLineChart: React.FC<ExchangeRateLineChartProps> = ({
   height = 280,
   onSelectRate,
 }) => {
+  const { colors: theme } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const [containerWidth, setContainerWidth] = useState<number>(700);
 
   // Ordenar cronológicamente (antiguo -> reciente, izquierda -> derecha)
@@ -319,19 +322,20 @@ export const ExchangeRateLineChart: React.FC<ExchangeRateLineChartProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   wrapper: {
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusLg,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     padding: spacing.lg,
     marginBottom: spacing.lg,
   },
   inspectCard: {
-    backgroundColor: "rgba(29, 97, 224, 0.08)",
+    backgroundColor: c.primarySoft,
     borderWidth: 1,
-    borderColor: "rgba(29, 97, 224, 0.3)",
+    borderColor: c.primary,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -343,13 +347,13 @@ const styles = StyleSheet.create({
   },
   inspectDateLabel: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: 2,
   },
   inspectDate: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   inspectRateBlock: {
     alignItems: "center",
@@ -357,7 +361,7 @@ const styles = StyleSheet.create({
   inspectRate: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: "#60A5FA",
+    color: c.primaryGlow,
   },
   inspectDelta: {
     fontSize: typography.sizes.caption,
@@ -366,14 +370,14 @@ const styles = StyleSheet.create({
   },
   inspectDeltaBase: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     marginTop: 2,
   },
   deltaWarn: {
-    color: "#F59E0B",
+    color: c.warningText,
   },
   deltaGood: {
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   sourceTag: {
     paddingHorizontal: spacing.sm,
@@ -381,28 +385,28 @@ const styles = StyleSheet.create({
     borderRadius: spacing.radiusSm,
   },
   sourceTagBcv: {
-    backgroundColor: "rgba(0, 176, 116, 0.15)",
+    backgroundColor: c.heroSoft,
     borderWidth: 1,
-    borderColor: "rgba(0, 176, 116, 0.4)",
+    borderColor: c.hero,
   },
   sourceTagManual: {
-    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    backgroundColor: c.warningSoft,
     borderWidth: 1,
-    borderColor: "rgba(245, 158, 11, 0.4)",
+    borderColor: c.warning,
   },
   sourceTagText: {
     fontSize: 11,
     fontWeight: typography.weights.bold,
   },
   sourceTextBcv: {
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   sourceTextManual: {
-    color: "#F59E0B",
+    color: c.warningText,
   },
   inspectNotes: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginTop: spacing.xs,
     fontStyle: "italic",
   },
@@ -421,25 +425,25 @@ const styles = StyleSheet.create({
   axisLabel: {
     width: 82,
     fontSize: 10,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     textAlign: "right",
     paddingRight: 8,
   },
   gridLine: {
     flex: 1,
     height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    backgroundColor: c.border,
   },
   activeGuideLine: {
     position: "absolute",
     width: 1,
-    backgroundColor: "rgba(96, 165, 250, 0.5)",
+    backgroundColor: c.primarySoft,
     borderStyle: "dashed",
   },
   lineSegment: {
     position: "absolute",
     height: 3,
-    backgroundColor: "#3B82F6",
+    backgroundColor: c.primary,
     borderRadius: 1.5,
   },
   touchTarget: {
@@ -455,27 +459,27 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     borderWidth: 2,
-    borderColor: colors.dark.surfaceBase,
+    borderColor: c.surfaceBase,
   },
   dotBcv: {
-    backgroundColor: colors.dark.hero, // #00B074
+    backgroundColor: c.hero, // #00B074
   },
   dotManual: {
-    backgroundColor: "#F59E0B",
+    backgroundColor: c.warning,
   },
   dotSelected: {
     width: 14,
     height: 14,
     borderRadius: 7,
     borderWidth: 2.5,
-    borderColor: "#FFFFFF",
+    borderColor: c.surfaceContainerLow,
   },
   dotGlowRing: {
     position: "absolute",
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: "rgba(59, 130, 246, 0.35)",
+    backgroundColor: c.primarySoft,
   },
   xAxisLabelBox: {
     position: "absolute",
@@ -484,10 +488,10 @@ const styles = StyleSheet.create({
   },
   xAxisLabel: {
     fontSize: 10,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
   },
   xAxisLabelActive: {
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     fontWeight: typography.weights.bold,
   },
   legendRow: {
@@ -498,7 +502,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     paddingTop: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: colors.dark.border,
+    borderTopColor: c.border,
     flexWrap: "wrap",
   },
   legendItem: {
@@ -514,25 +518,25 @@ const styles = StyleSheet.create({
   legendLine: {
     width: 16,
     height: 3,
-    backgroundColor: "#3B82F6",
+    backgroundColor: c.primary,
     borderRadius: 1.5,
   },
   legendText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   emptyContainer: {
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusLg,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     justifyContent: "center",
     alignItems: "center",
     padding: spacing.xl,
     marginBottom: spacing.lg,
   },
   emptyText: {
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     fontSize: typography.sizes.body,
   },
 });

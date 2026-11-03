@@ -8,9 +8,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import type { Palette } from "../theme/tokens";
 import { formatUsd, formatVes, toDecimal, formatFixed4 } from "../utils/decimal";
 import type { SqlDriver } from "../database/connection";
 import {
@@ -45,6 +46,8 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   defaultExchangeRate = "36.5000",
   onShiftChanged,
 }) => {
+  const { colors: theme } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const [activeShift, setActiveShift] = useState<ShiftEntity | null>(null);
 
   // Apertura de turno
@@ -407,7 +410,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                                 <TextInput
                                   style={[styles.input, typography.tabularNumeric]}
                                   placeholder="0.0000"
-                                  placeholderTextColor={colors.dark.textMuted}
+                                  placeholderTextColor={theme.textMuted}
                                   keyboardType="decimal-pad"
                                   value={declaredUsd}
                                   onChangeText={setDeclaredUsd}
@@ -419,7 +422,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                                 <TextInput
                                   style={[styles.input, typography.tabularNumeric]}
                                   placeholder="0.0000"
-                                  placeholderTextColor={colors.dark.textMuted}
+                                  placeholderTextColor={theme.textMuted}
                                   keyboardType="decimal-pad"
                                   value={declaredVes}
                                   onChangeText={setDeclaredVes}
@@ -728,7 +731,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                 onPress={() => setMovementType("INFLOW")}
                 style={[styles.toggleBtn, movementType === "INFLOW" && styles.toggleBtnInflowActive]}
               >
-                <Text style={[styles.toggleBtnText, movementType === "INFLOW" && styles.toggleBtnTextActive]}>
+                <Text style={[styles.toggleBtnText, movementType === "INFLOW" && styles.toggleBtnTextOnHero]}>
                   🟢 Entrada de Efectivo
                 </Text>
               </TouchableOpacity>
@@ -763,7 +766,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
               <TextInput
                 style={[styles.input, typography.tabularNumeric]}
                 placeholder="0.0000"
-                placeholderTextColor={colors.dark.textMuted}
+                placeholderTextColor={theme.textMuted}
                 keyboardType="decimal-pad"
                 value={movementAmount}
                 onChangeText={setMovementAmount}
@@ -776,7 +779,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
               <TextInput
                 style={styles.input}
                 placeholder="Ej. Retiro de seguridad a sobre / Pago menor / Cambio"
-                placeholderTextColor={colors.dark.textMuted}
+                placeholderTextColor={theme.textMuted}
                 value={movementReason}
                 onChangeText={setMovementReason}
               />
@@ -838,7 +841,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                           keyboardType="numeric"
                           value={count > 0 ? String(count) : ""}
                           placeholder="0"
-                          placeholderTextColor={colors.dark.textMuted}
+                          placeholderTextColor={theme.textMuted}
                           onChangeText={(v) => {
                             const val = parseInt(v, 10);
                             setUsdDenomCounts((prev) => ({
@@ -892,7 +895,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                           keyboardType="numeric"
                           value={count > 0 ? String(count) : ""}
                           placeholder="0"
-                          placeholderTextColor={colors.dark.textMuted}
+                          placeholderTextColor={theme.textMuted}
                           onChangeText={(v) => {
                             const val = parseInt(v, 10);
                             setVesDenomCounts((prev) => ({
@@ -962,10 +965,11 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   );
 };
 
-                            const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
                               container: {
                               flex: 1,
-                            backgroundColor: colors.dark.surfaceBase,
+                            backgroundColor: c.surfaceBase,
   },
                             content: {
                               padding: spacing.xl,
@@ -974,13 +978,15 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                             card: {
                               width: "100%",
                             maxWidth: 760,
-                            backgroundColor: colors.dark.surfaceContainerLow,
+                            backgroundColor: c.surfaceContainerLow,
                             borderRadius: spacing.radiusXl,
                             padding: spacing.xl,
                             borderWidth: 1,
-                            borderColor: colors.dark.border,
+                            borderColor: c.border,
   },
                             header: {
+                              flexWrap: "wrap",
+                              gap: spacing.sm,
                               flexDirection: "row",
                             justifyContent: "space-between",
                             alignItems: "center",
@@ -989,7 +995,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                             title: {
                               fontSize: typography.sizes.titleLg,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.textPrimary,
+                            color: c.textPrimary,
   },
                             statusBadge: {
                               paddingHorizontal: spacing.md,
@@ -997,15 +1003,15 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                             borderRadius: spacing.radiusFull,
   },
                             openBadge: {
-                              backgroundColor: "rgba(0, 176, 116, 0.2)",
+                              backgroundColor: c.heroSoft,
   },
                             closedBadge: {
-                              backgroundColor: "rgba(239, 68, 68, 0.2)",
+                              backgroundColor: c.errorSoft,
   },
                             statusText: {
                               fontSize: typography.sizes.caption,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.hero,
+                            color: c.heroText,
   },
                             infoRow: {
                               flexDirection: "row",
@@ -1014,19 +1020,21 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   },
                             infoLabel: {
                               fontSize: typography.sizes.body,
-                            color: colors.dark.textSecondary,
+                            color: c.textSecondary,
   },
                             infoValue: {
                               fontSize: typography.sizes.body,
                             fontWeight: typography.weights.semibold,
-                            color: colors.dark.textPrimary,
+                            color: c.textPrimary,
   },
                             divider: {
                               height: 1,
-                            backgroundColor: colors.dark.border,
+                            backgroundColor: c.border,
                             marginVertical: spacing.lg,
   },
                             subHeaderRow: {
+                              flexWrap: "wrap",
+                              gap: spacing.sm,
                               flexDirection: "row",
                             justifyContent: "space-between",
                             alignItems: "center",
@@ -1035,56 +1043,58 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                             subTitle: {
                               fontSize: typography.sizes.body,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.textPrimary,
+                            color: c.textPrimary,
   },
                             xButton: {
                               height: spacing.touchTargetMin, // 48px
-                            backgroundColor: colors.dark.surfaceContainerHigh,
+                            backgroundColor: c.surfaceContainerHigh,
                             paddingHorizontal: spacing.md,
                             borderRadius: spacing.radiusMd,
                             justifyContent: "center",
                             alignItems: "center",
                             borderWidth: 1,
-                            borderColor: colors.dark.primaryGlow,
+                            borderColor: c.primaryGlow,
   },
                             xButtonText: {
                               fontSize: typography.sizes.caption,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.primaryGlow,
+                            color: c.primaryGlow,
                             letterSpacing: 0.5,
   },
                             grid2: {
+                              flexWrap: "wrap",
                               flexDirection: "row",
                             gap: spacing.md,
                             marginTop: spacing.xs,
   },
                             gridItem: {
+                              minWidth: 140,
                               flex: 1,
-                            backgroundColor: colors.dark.surfaceContainer,
+                            backgroundColor: c.surfaceContainer,
                             padding: spacing.md,
                             borderRadius: spacing.radiusMd,
   },
                             gridLabel: {
                               fontSize: typography.sizes.caption,
-                            color: colors.dark.textSecondary,
+                            color: c.textSecondary,
                             marginBottom: spacing.xs,
   },
                             gridValue: {
                               fontSize: typography.sizes.titleMd,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.textPrimary,
+                            color: c.textPrimary,
   },
                             closeSection: {
                             marginTop: spacing.xs,
   },
                             blindNotice: {
                               fontSize: typography.sizes.caption,
-                            color: colors.dark.textSecondary,
+                            color: c.textSecondary,
                             marginVertical: spacing.sm,
   },
                             errorText: {
                               fontSize: typography.sizes.caption,
-                            color: colors.dark.error,
+                            color: c.errorText,
                             fontWeight: typography.weights.bold,
                             marginBottom: spacing.sm,
   },
@@ -1098,22 +1108,22 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   },
                             inputLabel: {
                               fontSize: typography.sizes.caption,
-                            color: colors.dark.textSecondary,
+                            color: c.textSecondary,
                             marginBottom: spacing.xs,
   },
                             input: {
                               height: spacing.touchTargetMin,
-                            backgroundColor: colors.dark.surfaceContainerHigh,
+                            backgroundColor: c.surfaceContainerHigh,
                             borderRadius: spacing.radiusMd,
                             paddingHorizontal: spacing.md,
-                            color: colors.dark.textPrimary,
+                            color: c.textPrimary,
                             fontSize: typography.sizes.body,
                             borderWidth: 1,
-                            borderColor: colors.dark.border,
+                            borderColor: c.border,
   },
                             zButton: {
                             height: spacing.touchTargetHero, // 64px para Cierre Z (AGENTS.md)
-                            backgroundColor: colors.dark.error,
+                            backgroundColor: c.error,
                             borderRadius: spacing.radiusLg,
                             justifyContent: "center",
                             alignItems: "center",
@@ -1122,7 +1132,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                             zButtonText: {
                               fontSize: typography.sizes.body,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.textPrimary,
+                            color: c.onPrimary,
                             letterSpacing: 1,
   },
                             reportSection: {
@@ -1136,15 +1146,15 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                             alignItems: "center",
   },
                             squareSuccess: {
-                              backgroundColor: "rgba(0, 176, 116, 0.2)",
+                              backgroundColor: c.heroSoft,
   },
                             squareWarning: {
-                              backgroundColor: "rgba(245, 158, 11, 0.2)",
+                              backgroundColor: c.warningSoft,
   },
                             squareText: {
                               fontSize: typography.sizes.subText,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.textPrimary,
+                            color: c.textPrimary,
   },
                             reportGrid: {
                               flexDirection: "row",
@@ -1152,7 +1162,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   },
                             reportItem: {
                               flex: 1,
-                            backgroundColor: colors.dark.surfaceContainer,
+                            backgroundColor: c.surfaceContainer,
                             padding: spacing.md,
                             borderRadius: spacing.radiusMd,
   },
@@ -1162,21 +1172,21 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   },
                             reportSub: {
                               fontSize: typography.sizes.caption,
-                            color: colors.dark.textSecondary,
+                            color: c.textSecondary,
                             marginTop: 4,
   },
                             positiveDiff: {
-                              color: colors.dark.hero,
+                              color: c.heroText,
   },
                             negativeDiff: {
-                              color: colors.dark.error,
+                              color: c.errorText,
   },
                             openSection: {
                               marginTop: spacing.sm,
   },
                             openButton: {
                               height: spacing.touchTargetHero, // 64px
-                            backgroundColor: colors.dark.primary,
+                            backgroundColor: c.primary,
                             borderRadius: spacing.radiusLg,
                             justifyContent: "center",
                             alignItems: "center",
@@ -1185,12 +1195,12 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                             openButtonText: {
                               fontSize: typography.sizes.body,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.textPrimary,
+                            color: c.onPrimary,
                             letterSpacing: 1,
   },
                             modalOverlay: {
                               flex: 1,
-                            backgroundColor: colors.dark.surfaceDim,
+                            backgroundColor: c.overlay,
                             justifyContent: "center",
                             alignItems: "center",
                             padding: spacing.xl,
@@ -1198,25 +1208,25 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                             modalCard: {
                               width: "100%",
                             maxWidth: 540,
-                            backgroundColor: colors.dark.surfaceContainerLow,
+                            backgroundColor: c.surfaceContainerLow,
                             borderRadius: spacing.radiusXl,
                             padding: spacing.xl,
                             borderWidth: 1,
-                            borderColor: colors.dark.border,
+                            borderColor: c.border,
   },
                             modalTitle: {
                               fontSize: typography.sizes.titleLg,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.textPrimary,
+                            color: c.textPrimary,
                             marginBottom: spacing.xs,
   },
                             modalNotice: {
                               fontSize: typography.sizes.caption,
-                            color: colors.dark.textSecondary,
+                            color: c.textSecondary,
                             marginBottom: spacing.md,
   },
                             auditContainer: {
-                              backgroundColor: colors.dark.surfaceContainer,
+                              backgroundColor: c.surfaceContainer,
                             borderRadius: spacing.radiusMd,
                             padding: spacing.md,
                             gap: spacing.xs,
@@ -1228,22 +1238,22 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   },
                             auditLabel: {
                               fontSize: typography.sizes.subText,
-                            color: colors.dark.textSecondary,
+                            color: c.textSecondary,
   },
                             auditValue: {
                               fontSize: typography.sizes.subText,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.textPrimary,
+                            color: c.textPrimary,
   },
                             breakdownTitle: {
                               fontSize: typography.sizes.caption,
                             fontWeight: typography.weights.bold,
-                            color: colors.dark.textSecondary,
+                            color: c.textSecondary,
                             marginBottom: 4,
   },
                             modalCloseBtn: {
                               height: spacing.touchTargetMin,
-                            backgroundColor: colors.dark.surfaceContainerHighest,
+                            backgroundColor: c.surfaceContainerHighest,
                             borderRadius: spacing.radiusMd,
                             justifyContent: "center",
                             alignItems: "center",
@@ -1252,7 +1262,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                             modalCloseBtnText: {
                               fontSize: typography.sizes.body,
                             fontWeight: typography.weights.semibold,
-                            color: colors.dark.textPrimary,
+                            color: c.textPrimary,
   },
   headerBtnGroup: {
     flexDirection: "row",
@@ -1261,22 +1271,22 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   },
   movementButton: {
     height: spacing.touchTargetMin,
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.warning,
+    borderColor: c.warning,
   },
   movementButtonText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.warning,
+    color: c.warningText,
     letterSpacing: 0.5,
   },
   movementsSection: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     marginTop: spacing.sm,
@@ -1285,7 +1295,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   movementsSectionTitle: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: spacing.xs,
   },
   movementItemRow: {
@@ -1294,7 +1304,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
     alignItems: "center",
     paddingVertical: 4,
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.surfaceContainerHighest,
+    borderBottomColor: c.surfaceContainerHighest,
   },
   movementBadgeContainer: {
     flexDirection: "row",
@@ -1308,19 +1318,19 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
     borderRadius: spacing.radiusSm,
   },
   badgeDrop: {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    backgroundColor: c.errorSoft,
   },
   badgeInflow: {
-    backgroundColor: "rgba(0, 176, 116, 0.2)",
+    backgroundColor: c.heroSoft,
   },
   movementBadgeText: {
     fontSize: 10,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   movementReasonText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     flex: 1,
   },
   movementAmountText: {
@@ -1328,10 +1338,10 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
     fontWeight: typography.weights.bold,
   },
   dropAmount: {
-    color: colors.dark.error,
+    color: c.errorText,
   },
   inflowAmount: {
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   blindHeaderRow: {
     flexDirection: "row",
@@ -1340,18 +1350,18 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   },
   denomAssistantBtn: {
     height: 38,
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.primary,
+    borderColor: c.primary,
   },
   denomAssistantBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   toggleRow: {
     flexDirection: "row",
@@ -1361,32 +1371,36 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   toggleBtn: {
     flex: 1,
     height: spacing.touchTargetMin,
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   toggleBtnActive: {
-    backgroundColor: colors.dark.primary,
-    borderColor: colors.dark.primary,
+    backgroundColor: c.primary,
+    borderColor: c.primary,
   },
   toggleBtnDropActive: {
-    backgroundColor: colors.dark.error,
-    borderColor: colors.dark.error,
+    backgroundColor: c.error,
+    borderColor: c.error,
   },
   toggleBtnInflowActive: {
-    backgroundColor: colors.dark.hero,
-    borderColor: colors.dark.hero,
+    backgroundColor: c.hero,
+    borderColor: c.hero,
   },
   toggleBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   toggleBtnTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
+    fontWeight: typography.weights.bold,
+  },
+  toggleBtnTextOnHero: {
+    color: c.onHero,
     fontWeight: typography.weights.bold,
   },
   modalActionsRow: {
@@ -1397,7 +1411,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   modalCancelBtn: {
     flex: 1,
     height: spacing.touchTargetMin,
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    backgroundColor: c.surfaceContainerHighest,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
@@ -1405,12 +1419,12 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   modalCancelBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   modalConfirmBtn: {
     flex: 2,
     height: spacing.touchTargetMin,
-    backgroundColor: colors.dark.hero,
+    backgroundColor: c.hero,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
@@ -1418,7 +1432,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   modalConfirmBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onHero,
   },
   modalCardLarge: {
     maxWidth: 720,
@@ -1431,7 +1445,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   },
   denomCol: {
     flex: 1,
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     gap: spacing.xs,
@@ -1439,7 +1453,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   denomColTitle: {
     fontSize: typography.sizes.subText,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     marginBottom: spacing.xs,
     textAlign: "center",
   },
@@ -1452,7 +1466,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   denomLabel: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     minWidth: 60,
   },
   denomStepper: {
@@ -1463,7 +1477,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   stepperBtn: {
     width: 32,
     height: 32,
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusSm,
     justifyContent: "center",
     alignItems: "center",
@@ -1471,59 +1485,59 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   stepperBtnText: {
     fontSize: 16,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   stepperInput: {
     width: 44,
     height: 32,
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    backgroundColor: c.surfaceContainerHighest,
     borderRadius: spacing.radiusSm,
     textAlign: "center",
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     fontSize: typography.sizes.body,
   },
   denomSubtotal: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     minWidth: 64,
     textAlign: "right",
   },
   denomSummaryBox: {
     flexDirection: "row",
     justifyContent: "space-around",
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     marginTop: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   denomSummaryItem: {
     alignItems: "center",
   },
   denomSummaryLabel: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   denomSummaryVal: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   historyCard: {
     width: "100%",
     maxWidth: 760,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusXl,
     padding: spacing.xl,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     marginTop: spacing.xl,
   },
   historyTitle: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     marginBottom: spacing.md,
   },
   historyList: {
@@ -1533,11 +1547,11 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     padding: spacing.md,
     borderRadius: spacing.radiusMd,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   historyMeta: {
     flex: 2,
@@ -1545,11 +1559,11 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   historyCashier: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   historyDate: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginTop: 2,
   },
   historyAmounts: {
@@ -1559,7 +1573,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   },
   historyAmountText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   historyBadge: {
     paddingHorizontal: spacing.sm,
@@ -1567,14 +1581,14 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
     borderRadius: spacing.radiusSm,
   },
   badgeSquare: {
-    backgroundColor: "rgba(0, 176, 116, 0.2)",
+    backgroundColor: c.heroSoft,
   },
   badgeDiff: {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    backgroundColor: c.errorSoft,
   },
   historyBadgeText: {
     fontSize: 10,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
 });

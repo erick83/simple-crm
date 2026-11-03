@@ -1,6 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { colors } from "../theme/colors";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import type { Palette } from "../theme/tokens";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 
@@ -11,6 +12,8 @@ export interface SyncBadgeProps {
   pendingCount?: number;
   /** Timestamp real de la última réplica exitosa; null/undefined si nunca hubo una. */
   lastSyncAt?: number | null;
+  /** Etiqueta corta para cabeceras de móvil. */
+  compact?: boolean;
 }
 
 export function formatSyncAge(lastSyncAt: number, now: number = Date.now()): string {
@@ -38,24 +41,27 @@ export const SyncBadge: React.FC<SyncBadgeProps> = ({
   state,
   pendingCount = 0,
   lastSyncAt = null,
+  compact = false,
 }) => {
+  const { colors: theme } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const getBadgeConfig = () => {
     switch (state) {
       case "online":
         return {
-          color: colors.dark.hero,
+          color: theme.heroText,
           dot: "●",
           text: `En línea | ${lastSyncAt ? formatSyncAge(lastSyncAt) : "sin sincronizar"} (${plural(pendingCount, "pendiente", "pendientes")})`,
         };
       case "syncing":
         return {
-          color: colors.dark.primaryGlow,
+          color: theme.primaryGlow,
           dot: "↻",
           text: `Sincronizando ${plural(pendingCount, "operación", "operaciones")}...`,
         };
       case "offline":
         return {
-          color: colors.dark.warning,
+          color: theme.warningText,
           dot: "⚡",
           text: lastSyncAt
             ? `Trabajando offline | ${pendingCount} en cola local | Última sinc: ${formatSyncAge(lastSyncAt)}`
@@ -63,7 +69,7 @@ export const SyncBadge: React.FC<SyncBadgeProps> = ({
         };
       case "error":
         return {
-          color: colors.dark.error,
+          color: theme.errorText,
           dot: "⚠",
           text: `Error de sincronización | ${pendingCount} en cola local`,
         };
@@ -71,20 +77,36 @@ export const SyncBadge: React.FC<SyncBadgeProps> = ({
   };
 
   const config = getBadgeConfig();
+  const compactText =
+    state === "online"
+      ? "En línea"
+      : state === "syncing"
+        ? "Sincronizando"
+        : state === "error"
+          ? "Error"
+          : "Offline";
 
   return (
-    <View style={[styles.badge, { borderColor: config.color }]}>
+    <View
+      style={[styles.badge, { borderColor: config.color }]}
+      accessibilityLabel={config.text}
+    >
       <Text style={[styles.dot, { color: config.color }]}>{config.dot}</Text>
-      <Text style={styles.text}>{config.text}</Text>
+      <Text style={styles.text} numberOfLines={1}>
+        {compact
+          ? `${compactText}${pendingCount > 0 ? ` · ${pendingCount}` : ""}`
+          : config.text}
+      </Text>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   badge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: spacing.radiusFull,
@@ -97,7 +119,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     fontWeight: typography.weights.semibold,
   },
 });

@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { colors } from "./theme/colors";
+import { ThemeProvider, useTheme, useThemedStyles } from "./theme/ThemeContext";
+import type { Palette } from "./theme/tokens";
 import { spacing } from "./theme/spacing";
 import { typography } from "./theme/typography";
+import { useBreakpoint } from "./theme/responsive";
 import { SyncBadge, deriveSyncState } from "./components/SyncBadge";
 import type { SyncState } from "./components/SyncBadge";
+import { ThemeToggle } from "./components/ThemeToggle";
+import { BrandLogo } from "./components/BrandLogo";
+import { NavIcon } from "./components/NavIcon";
+import type { NavIconName } from "./components/NavIcon";
 import { PosScreen } from "./screens/PosScreen";
 import { ShiftsScreen } from "./screens/ShiftsScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
@@ -19,6 +25,16 @@ import type { ShiftEntity } from "./database/repositories/shift.repository";
 
 type NavTab = "pos" | "inventory" | "shifts" | "balance";
 
+/** Fila completa (escritorio), riel vertical (tablet) o barra inferior (móvil). */
+type NavVariant = "row" | "rail" | "bottom";
+
+const NAV_ITEMS: ReadonlyArray<{ tab: NavTab; label: string; icon: NavIconName }> = [
+  { tab: "pos", label: "Caja", icon: "pos" },
+  { tab: "inventory", label: "Inventario", icon: "inventory" },
+  { tab: "shifts", label: "Turnos", icon: "shifts" },
+  { tab: "balance", label: "Balance", icon: "balance" },
+];
+
 export interface AppProps {
   initialDb?: SqlDriver;
   tenantId?: string;
@@ -28,13 +44,22 @@ export interface AppProps {
   [key: string]: unknown;
 }
 
-export const App: React.FC<AppProps> = ({
+export const App: React.FC<AppProps> = (props) => (
+  <ThemeProvider>
+    <AppShell {...props} />
+  </ThemeProvider>
+);
+
+const AppShell: React.FC<AppProps> = ({
   initialDb,
   tenantId = "TENANT-001",
   terminalId = "TERM-01",
   branchName,
   fileStore: customFileStore,
 }) => {
+  const { colors: theme, mode } = useTheme();
+  const styles = useThemedStyles(makeStyles);
+  const { isMobile, isTablet } = useBreakpoint();
   const [currentTab, setCurrentTab] = useState<NavTab>("pos");
   const db = initialDb ?? getOrCreateDefaultSqlDriver({ tenantId, terminalId });
   const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
@@ -121,83 +146,110 @@ export const App: React.FC<AppProps> = ({
   // aunque exista una réplica previa (evita el chip "En línea | 5 pendientes").
   const syncState: SyncState = deriveSyncState(lastSyncAt, pendingCount);
 
-  const navItem = (tab: NavTab, label: string, icon: string) => {
+  const shiftLabel = activeShift
+    ? `Turno Activo #${activeShift.id.slice(-4).toUpperCase()}`
+    : "Sin Turno Abierto";
+
+  const navItem = (tab: NavTab, label: string, icon: NavIconName, variant: NavVariant) => {
     const isActive = currentTab === tab;
+    const stacked = variant !== "row";
     return (
       <TouchableOpacity
         key={tab}
         activeOpacity={0.8}
         onPress={() => setCurrentTab(tab)}
-        style={[styles.navItem, isActive && styles.navItemActive]}
-        accessibilityRole="button"
+        style={[
+          variant === "row" && styles.navItem,
+          variant === "rail" && styles.navItemRail,
+          variant === "bottom" && styles.navItemBottom,
+          isActive && styles.navItemActive,
+        ]}
+        accessibilityRole="tab"
         accessibilityState={{ selected: isActive }}
         accessibilityLabel={`${label}${isActive ? ", sección activa" : ""}`}
       >
-        <Text style={styles.navIcon} accessibilityElementsHidden importantForAccessibility="no">
-          {icon}
+        <NavIcon
+          name={icon}
+          size={stacked ? 20 : 22}
+          color={isActive ? theme.primaryGlow : theme.textSecondary}
+        />
+        <Text
+          style={[
+            stacked ? styles.navLabelStacked : styles.navLabel,
+            isActive && styles.navLabelActive,
+          ]}
+          numberOfLines={1}
+        >
+          {label}
         </Text>
-        <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{label}</Text>
       </TouchableOpacity>
     );
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.dark.surfaceBase} />
-      <View style={styles.shell}>
-        {/* Barra Lateral Izquierda (Persistent Sidebar) */}
-        <View style={styles.sidebar}>
-          <View style={styles.brandContainer}>
-            <Text style={styles.brandTitle}>BISYNC</Text>
-            <Text style={styles.brandSubtitle}>POS P2P Local-First</Text>
-          </View>
-
-          <View style={styles.navGroup}>
-            {navItem("pos", "Caja (POS)", "🛒")}
-            {navItem("inventory", "Inventario", "📦")}
-            {navItem("shifts", "Turnos", "⏱")}
-            {navItem("balance", "Balance", "📊")}
-          </View>
-
-          {/* Indicador de Turno Activo */}
-          <TouchableOpacity
-            style={styles.shiftFooter}
-            activeOpacity={0.8}
-            onPress={() => setCurrentTab("shifts")}
-            accessibilityRole="button"
-            accessibilityLabel="Gestionar Turno"
-          >
-            <View
-              style={[
-                styles.shiftDot,
-                !activeShift && styles.shiftDotInactive,
-              ]}
-            />
-            <View>
-              <Text style={styles.shiftCashier}>
-                {activeShift ? activeShift.cashierName : `Terminal: ${terminalId}`}
-              </Text>
-              <Text style={styles.shiftNumber}>
-                {activeShift
-                  ? `Turno Activo #${activeShift.id.slice(-4).toUpperCase()}`
-                  : "Sin Turno Abierto"}
-              </Text>
+      <StatusBar
+        barStyle={mode === "dark" ? "light-content" : "dark-content"}
+        backgroundColor={theme.surfaceContainerLow}
+      />
+      <View style={[styles.shell, isMobile && styles.shellMobile]}>
+        {/* Navegación lateral (PC) o riel compacto (tablet) */}
+        {isMobile ? null : (
+          <View style={[styles.sidebar, isTablet && styles.sidebarRail]}>
+            <View style={[styles.brandContainer, isTablet && styles.brandContainerRail]}>
+              <BrandLogo variant={isTablet ? "mark" : "lockup"} width={isTablet ? 38 : 156} />
+              {isTablet ? null : (
+                <Text style={styles.brandCaption}>POS · P2P Local-First</Text>
+              )}
             </View>
-          </TouchableOpacity>
-        </View>
+
+            <View style={styles.navGroup} accessibilityRole="tablist">
+              {NAV_ITEMS.map((item) =>
+                navItem(item.tab, item.label, item.icon, isTablet ? "rail" : "row"),
+              )}
+            </View>
+
+            <View style={styles.sidebarFooter}>
+              <ThemeToggle compact={isTablet} />
+              <TouchableOpacity
+                style={[styles.shiftFooter, isTablet && styles.shiftFooterRail]}
+                activeOpacity={0.8}
+                onPress={() => setCurrentTab("shifts")}
+                accessibilityRole="button"
+                accessibilityLabel={`Gestionar turno, ${shiftLabel}`}
+              >
+                <View
+                  style={[styles.shiftDot, !activeShift && styles.shiftDotInactive]}
+                />
+                {isTablet ? null : (
+                  <View style={styles.shiftTexts}>
+                    <Text style={styles.shiftCashier} numberOfLines={1}>
+                      {activeShift ? activeShift.cashierName : `Terminal: ${terminalId}`}
+                    </Text>
+                    <Text style={styles.shiftNumber} numberOfLines={1}>
+                      {shiftLabel}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Contenido Principal y Header */}
         <View style={styles.mainArea}>
-          {/* Top Header */}
-          <View style={styles.topHeader}>
+          <View style={[styles.topHeader, isMobile && styles.topHeaderMobile]}>
             <View style={styles.headerLeft}>
-              <Text style={styles.locationText}>📍 {branchName ?? `Terminal ${terminalId}`}</Text>
+              <Text style={styles.locationText} numberOfLines={1}>
+                📍 {branchName ?? `Terminal ${terminalId}`}
+              </Text>
             </View>
             <View style={styles.headerRight}>
               <SyncBadge
                 state={syncState}
                 pendingCount={pendingCount}
                 lastSyncAt={lastSyncAt}
+                compact={isMobile}
               />
             </View>
           </View>
@@ -205,45 +257,61 @@ export const App: React.FC<AppProps> = ({
           {/* Vista Activa */}
           <View style={styles.screenContainer}>{renderScreen()}</View>
         </View>
+
+        {/* Navegación inferior (móvil): pulgar primero, targets de 64 px */}
+        {isMobile ? (
+          <View style={styles.bottomNav}>
+            {NAV_ITEMS.map((item) => navItem(item.tab, item.label, item.icon, "bottom"))}
+            <ThemeToggle compact />
+          </View>
+        ) : null}
       </View>
     </SafeAreaView>
   );
-}
+};
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.dark.surfaceBase,
+    backgroundColor: c.surfaceBase,
   },
   shell: {
     flex: 1,
     flexDirection: "row",
-    backgroundColor: colors.dark.surfaceBase,
+    backgroundColor: c.surfaceBase,
+  },
+  shellMobile: {
+    flexDirection: "column",
   },
   sidebar: {
     width: spacing.sidebarWidth, // 240px
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRightWidth: 1,
-    borderRightColor: colors.dark.border,
+    borderRightColor: c.border,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
     justifyContent: "space-between",
+  },
+  sidebarRail: {
+    width: spacing.sidebarRailWidth, // 88px en tablet
+    paddingHorizontal: spacing.xs,
   },
   brandContainer: {
     paddingHorizontal: spacing.sm,
     marginBottom: spacing.xl,
   },
-  brandTitle: {
-    fontSize: typography.sizes.titleLg,
-    fontWeight: typography.weights.extraBold,
-    color: colors.dark.textPrimary,
-    letterSpacing: 2,
+  brandContainerRail: {
+    alignItems: "center",
+    paddingHorizontal: 0,
   },
-  brandSubtitle: {
+  brandCaption: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.primaryGlow,
     fontWeight: typography.weights.bold,
-    marginTop: 2,
+    color: c.textMuted,
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    marginTop: spacing.sm,
   },
   navGroup: {
     flex: 1,
@@ -257,46 +325,86 @@ const styles = StyleSheet.create({
     borderRadius: spacing.radiusLg,
     gap: spacing.md,
   },
-  navItemActive: {
-    backgroundColor: colors.dark.primary, // Cobalt Blue #1D61E0
+  navItemRail: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    minHeight: 56,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.xs,
+    borderRadius: spacing.radiusMd,
   },
-  navIcon: {
-    fontSize: 20,
+  navItemBottom: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    minHeight: spacing.touchTargetMin,
+    paddingVertical: 2,
+    paddingHorizontal: spacing.xs,
+    borderRadius: spacing.radiusMd,
+  },
+  navItemActive: {
+    backgroundColor: c.primarySoft,
   },
   navLabel: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.medium,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
+  },
+  navLabelStacked: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.medium,
+    color: c.textSecondary,
   },
   navLabelActive: {
-    color: colors.dark.textPrimary,
+    color: c.primaryGlow,
     fontWeight: typography.weights.bold,
+  },
+  sidebarFooter: {
+    gap: spacing.sm,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: c.border,
   },
   shiftFooter: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     padding: spacing.md,
     borderRadius: spacing.radiusMd,
     gap: spacing.sm,
+    minHeight: spacing.touchTargetMin,
+  },
+  shiftFooterRail: {
+    width: spacing.touchTargetMin,
+    height: spacing.touchTargetMin,
+    alignSelf: "center",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 0,
+    borderRadius: spacing.radiusFull,
   },
   shiftDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: colors.dark.hero,
+    backgroundColor: c.hero,
   },
   shiftDotInactive: {
-    backgroundColor: colors.dark.warning,
+    backgroundColor: c.warning,
+  },
+  shiftTexts: {
+    flex: 1,
   },
   shiftCashier: {
     fontSize: typography.sizes.subText,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   shiftNumber: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   mainArea: {
     flex: 1,
@@ -305,22 +413,28 @@ const styles = StyleSheet.create({
   },
   topHeader: {
     height: spacing.topHeaderHeight, // 64px
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
+    borderBottomColor: c.border,
     paddingHorizontal: spacing.lg,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  topHeaderMobile: {
+    height: 56,
+    paddingHorizontal: spacing.md,
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
+    flexShrink: 1,
   },
   locationText: {
     fontSize: typography.sizes.subText,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   headerRight: {
     flexDirection: "row",
@@ -329,7 +443,17 @@ const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
   },
+  bottomNav: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    height: spacing.bottomNavHeight, // 64px
+    backgroundColor: c.surfaceContainerLow,
+    borderTopWidth: 1,
+    borderTopColor: c.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    gap: 2,
+  },
 });
 
 export default App;
-

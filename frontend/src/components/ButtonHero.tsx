@@ -1,6 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { colors } from "../theme/colors";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import type { Palette } from "../theme/tokens";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 
@@ -19,6 +20,8 @@ export const ButtonHero: React.FC<ButtonHeroProps> = ({
   disabled = false,
   onPress,
 }) => {
+  const { colors: theme } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   return (
     <TouchableOpacity
       activeOpacity={0.8}
@@ -30,11 +33,18 @@ export const ButtonHero: React.FC<ButtonHeroProps> = ({
       accessibilityLabel={`${label}, ${totalFormatted}${secondaryFormatted ? `, ${secondaryFormatted}` : ""}`}
     >
       <View style={styles.content}>
-        <Text style={styles.label}>{label}</Text>
+        <Text style={[styles.label, disabled && styles.textDisabled]} numberOfLines={1}>
+          {label}
+        </Text>
         <View style={styles.amounts}>
-          <Text style={[styles.total, typography.tabularNumeric]}>{totalFormatted}</Text>
+          <Text
+            style={[styles.total, typography.tabularNumeric, disabled && styles.textDisabled]}
+            numberOfLines={1}
+          >
+            {totalFormatted}
+          </Text>
           {secondaryFormatted ? (
-            <Text style={[styles.secondary, typography.tabularNumeric]}>
+            <Text style={[styles.secondary, typography.tabularNumeric, disabled && styles.textDisabled]}>
               {secondaryFormatted}
             </Text>
           ) : null}
@@ -44,21 +54,22 @@ export const ButtonHero: React.FC<ButtonHeroProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     height: spacing.touchTargetHero, // 64px exactos
-    backgroundColor: colors.dark.hero,
+    backgroundColor: c.hero,
     borderRadius: spacing.radiusLg,
     paddingHorizontal: spacing.xl,
     justifyContent: "center",
-    shadowColor: colors.dark.hero,
+    shadowColor: c.hero,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
   },
   disabled: {
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     shadowOpacity: 0,
     elevation: 0,
   },
@@ -70,7 +81,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.extraBold,
-    color: colors.dark.textPrimary,
+    color: c.onHero,
     letterSpacing: 1.5,
   },
   amounts: {
@@ -79,11 +90,16 @@ const styles = StyleSheet.create({
   total: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onHero,
   },
   secondary: {
     fontSize: typography.sizes.caption,
-    color: "rgba(255, 255, 255, 0.8)",
+    color: c.onHero,
+    opacity: 0.8,
+  },
+  textDisabled: {
+    color: c.textMuted,
+    opacity: 1,
   },
 });
 

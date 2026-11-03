@@ -55,7 +55,7 @@ Este documento define las reglas estrictas, la arquitectura y las directrices t�
 Todo componente visual debe cumplir estrictamente con:
 * `docs/skills/bisync-pos-design-guide.md`
 * Orientación preferente horizontal (**Landscape**, estándar 1280×800 px para tablets).
-* Tema por defecto: Dark Mode (`#061426` base, `#0E1C2F` contenedores, `#1D61E0` acento primario, `#00B074` botón maestro de cobro).
+* Tema por defecto: el del sistema operativo, con conmutador claro/oscuro (Dark: base `#0A0D12`, contenedores `#10141A`, acento primario `#1D61E0`, cobro `#00B074`; Light: base `#F4F6F8`, contenedores `#FFFFFF`, acento `#1550BC`, cobro `#047857`). Superficies neutras: el cobalto no tiñe la interfaz entera.
 * **Touch Targets mínimos de 48×48 px** (64 px para cobro, cierre Z y teclado numérico). Cero dependencias de eventos `hover`.
 * Formateo numérico tabular con 4 decimales exactos (`tabular-nums`, Plus Jakarta Sans): `$ X,XXX.0000` y `Bs. X,XXX.0000`.
 

@@ -24,46 +24,51 @@ Esta especificación detalla las directrices estéticas, paletas cromáticas (Da
 ## 2. Paletas Cromáticas Detalladas
 
 ### A. Dark Mode (Tema Nativo Principal de Caja)
-Optimizado para reducir fatiga visual en turnos prolongados y destacar estados críticos mediante contrastes luminosos de alta fidelidad.
+Superficies neutras (grafito) para reducir fatiga visual en turnos prolongados; el cobalto se reserva a la acción primaria y a la selección activa.
 
 | Rol del Token | Código Hexadecimal | Uso y Aplicación |
 |---|---|---|
-| **Primary Brand (Cobalt Blue)** | `#1D61E0` | Acciones principales, botones primarios, enlaces activos y acentos del sistema. |
-| **Primary Light / Glow** | `#3B82F6` | Estados de foco, bordes activos de campos y chips seleccionados. |
-| **Secondary (Emerald Green / Success)** | `#00B074` / `#10B981` | Botón maestro de cobro, arqueo cuadrado, estado en línea sincronizado y badges de stock alto. |
-| **Accent Gradient** | `linear-gradient(135deg, #1D61E0 0%, #00B074 100%)` | Botones de inicio de sesión, cabeceras maestras de llamada a la acción y banners destacados. |
-| **Surface Dark Base** | `#061426` | Fondo principal de la aplicación (`body` / contenedor global). |
-| **Surface Dim / Lowest** | `#020E21` | Zonas traseras, backdrop de modales y áreas periféricas. |
-| **Surface Container Low** | `#0E1C2F` | Paneles laterales fijos, barra superior de navegación y tarjetas base. |
-| **Surface Container** | `#14243B` | Tarjetas interactivas de productos, tarjetas de denominación de billetes y filas de tabla. |
-| **Surface Container High** | `#1E314B` | Teclas del teclado numérico (`numpad`), contenedores flotantes e inputs activos. |
-| **Surface Container Highest** | `#283F5E` | Bordes divisorios sutiles, estados activos de selección y hover accesible. |
-| **Border / Outline** | `rgba(255, 255, 255, 0.08)` a `#1E293B` | Separadores de rejilla y marcos de tarjeta. |
-| **Text Primary (High Contrast)** | `#FFFFFF` o `#F8FAFC` | Rótulos principales, montos totales y títulos. |
-| **Text Secondary (Medium Contrast)** | `#94A3B8` | SKUs, metadatos, descripciones secundarias y marcas de tiempo. |
-| **Text Muted** | `#64748B` | Etiquetas secundarias de pie de página y texto inactivo. |
-| **Warning / Offline (Ámbar)** | `#F59E0B` / `#D97706` | Modo offline activo, operaciones en cola pendientes y banners de contingencia. |
-| **Error / Dead-Letter (Rojo Carmesí)** | `#EF4444` / `#DC2626` | Conflictos de sincronización, descuadre de caja y descarte de tickets. |
+| **Primary Brand (Cobalt Blue)** | `#1D61E0` | Relleno de acciones principales y selección activa. |
+| **Primary Glow (acento de texto)** | `#6EA8FF` | Texto de enlaces, bordes de foco y chips seleccionados. |
+| **Primary Soft** | `rgba(29, 97, 224, 0.18)` | Fondo del ítem de navegación activo y píldoras seleccionadas. |
+| **Secondary (Emerald Green / Success)** | `#00B074` / `#10B981` | Botón maestro de cobro, arqueo cuadrado y badges de stock alto. |
+| **Hero Text** | `#34D8A4` | Importes y estados positivos sobre superficie. |
+| **On Hero / On Primary** | `#04170F` / `#FFFFFF` | Texto sobre relleno esmeralda / cobalto. |
+| **Surface Base** | `#0A0D12` | Fondo principal de la aplicación. |
+| **Surface Dim / Lowest** | `#05070A` | Zonas traseras y áreas periféricas. |
+| **Surface Container Low** | `#10141A` | Paneles laterales, barra superior y modales. |
+| **Surface Container** | `#161B23` | Tarjetas de producto y filas de ticket. |
+| **Surface Container High** | `#1E242D` | Teclas del numpad, inputs y contenedores flotantes. |
+| **Surface Container Highest** | `#2B3340` | Estados activos de selección y rieles de control. |
+| **Border / Outline** | `rgba(255, 255, 255, 0.08)` / `#232A34` | Separadores de rejilla y marcos de tarjeta. |
+| **Text Primary (High Contrast)** | `#F3F6F9` | Rótulos principales, montos totales y títulos. |
+| **Text Secondary (Medium Contrast)** | `#A3ADBA` | SKUs, metadatos, descripciones y marcas de tiempo. |
+| **Text Muted** | `#7E8A99` | Etiquetas secundarias y texto inactivo. |
+| **Warning / Offline (Ámbar)** | `#F5A524` (texto `#F7B955`) | Modo offline, cola pendiente y banners de contingencia. |
+| **Error / Dead-Letter (Rojo)** | `#DC2626` (texto `#FF7A7A`) | Conflictos de sincronización, descuadre de caja y descarte de tickets. |
 
 ---
 
 ### B. Light Mode (Modo Claro de Alto Contraste para Exterior / Diurno)
-Diseñado para quioscos o locales comerciales con alta luz solar directa, manteniendo la solidez del azul marino y verde esmeralda.
+Diseñado para quioscos o locales comerciales con alta luz solar directa, sobre porcelana neutra.
 
 | Rol del Token | Código Hexadecimal | Uso y Aplicación |
 |---|---|---|
-| **Primary Brand (Cobalt Blue)** | `#1550BC` | Botones primarios, enlaces y acentos en superficies claras. |
-| **Secondary (Emerald Green)** | `#059669` | Botones de cobro, montos a favor y estados confirmados. |
-| **Surface Base** | `#F8FAFC` | Fondo principal del viewport y lienzo. |
+| **Primary Brand (Cobalt Blue)** | `#1550BC` | Relleno de botones primarios y selección activa. |
+| **Primary Glow (acento de texto)** | `#1A56C4` | Enlaces, bordes de foco y acentos sobre superficies claras. |
+| **Secondary (Emerald Green)** | `#047857` (texto `#046C4E`) | Botones de cobro, montos a favor y estados confirmados. |
+| **Surface Base** | `#F4F6F8` | Fondo principal del viewport y lienzo. |
 | **Surface Container Low** | `#FFFFFF` | Tarjetas de producto, contenedores de tickets y modales. |
-| **Surface Container** | `#F1F5F9` | Barra lateral de navegación y cabecera superior. |
-| **Surface Container High** | `#E2E8F0` | Botones numéricos de teclado en pantalla, inputs y barras de herramientas. |
-| **Border / Outline** | `#CBD5E1` | Bordes estructurados de tarjetas, tablas y separadores. |
-| **Text Primary** | `#0F172A` | Títulos, importes monetarios y etiquetas principales. |
-| **Text Secondary** | `#475569` | SKUs, subtítulos y datos contextuales. |
-| **Text Muted** | `#64748B` / `#94A3B8` | Placeholders y marcas de tiempo. |
-| **Warning (Ámbar)** | `#D97706` (Fondo: `#FEF3C7`) | Alertas de operaciones offline. |
-| **Error (Rojo)** | `#DC2626` (Fondo: `#FEE2E2`) | Descuadres y transacciones fallidas. |
+| **Surface Container** | `#EFF2F5` | Barra lateral de navegación y cabecera superior. |
+| **Surface Container High** | `#E3E7EC` | Botones numéricos de teclado en pantalla, inputs y barras de herramientas. |
+| **Border / Outline** | `#DFE4EA` / `#CBD2DB` | Bordes estructurados de tarjetas, tablas y separadores. |
+| **Text Primary** | `#0C1116` | Títulos, importes monetarios y etiquetas principales. |
+| **Text Secondary** | `#46505D` | SKUs, subtítulos y datos contextuales. |
+| **Text Muted** | `#6A7583` | Placeholders y marcas de tiempo. |
+| **Warning (Ámbar)** | `#B45309` (Fondo: `#FEF3C7`) | Alertas de operaciones offline. |
+| **Error (Rojo)** | `#DC2626` (texto `#B91C1C`) | Descuadres y transacciones fallidas. |
+
+Los tokens viven en `frontend/src/theme/tokens.ts`; `useTheme()` expone la paleta activa y `useThemedStyles()` reconstruye los `StyleSheet` al cambiar de tema. El contraste mínimo AA está cubierto por `frontend/tests/react-native-shell.test.ts`.
 
 ---
 
@@ -127,8 +132,8 @@ Diseñado para quioscos o locales comerciales con alta luz solar directa, manten
 ## 6. Instrucciones para Agentes / Modelos al Generar Nuevas Pantallas
 
 1. **Nunca omitir los 4 decimales**: Siempre formatear importes como `$ X,XXX.0000`.
-2. **Priorizar modo oscuro por defecto**: A menos que el usuario especifique modo claro, mantener la coherencia con `#061426` y `#0E1C2F`.
-3. **Respetar la proporción 1280×800**: Mantener diseños limpios con densidad adecuada, sin scrollbars innecesarias en el contenedor principal.
+2. **Tema oscuro por defecto, ambos temas soportados**: La app arranca en el tema del sistema y ofrece un conmutador claro/oscuro. Nunca codificar colores literales: usar los tokens de `frontend/src/theme/tokens.ts` vía `useThemedStyles`.
+3. **Responsive en tres anchos**: móvil (`< 720 px`, una columna + navegación inferior de 64 px), tablet (`720–1023 px`, riel lateral de iconos de 88 px) y escritorio (`≥ 1024 px`, barra lateral de 240 px). Conservar 1280×800 como lienzo de referencia para tablet horizontal, sin scrollbars innecesarias en el contenedor principal.
 4. **Usar los identificadores de imagen oficiales**:
    * Logo completo horizontal: `{{DATA:IMAGE:IMAGE_14}}`
    * Monograma / Isotipo: `{{DATA:IMAGE:IMAGE_13}}`

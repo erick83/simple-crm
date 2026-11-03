@@ -8,12 +8,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from "react-native";
-import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import { useBreakpoint } from "../theme/responsive";
+import type { Palette } from "../theme/tokens";
 import { ButtonHero } from "../components/ButtonHero";
 import { TouchStepper } from "../components/TouchStepper";
 import { Numpad } from "../components/Numpad";
@@ -119,6 +120,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   onNavigateToShifts,
   onNavigateToInventory,
 }) => {
+  const { colors: theme } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const [exchangeRate, setExchangeRate] = useState<string>(initialExchangeRate);
   const [catalog, setCatalog] = useState<PosProductItem[]>(initialProducts ?? DEFAULT_PRODUCTS);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -269,6 +272,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         },
       ];
     });
+    setMobilePane("ticket");
   }, [showNotice]);
 
   // Escaneo reactivo mediante lector HID de código de barras
@@ -355,8 +359,14 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   // Estado del modal de cobro (Checkout)
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   // Tablet landscape (1280×800) usa dos columnas; pantallas angostas apilan el cobro
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, isMobile } = useBreakpoint();
   const isWideCheckout = windowWidth >= 900;
+  // Móvil: un solo panel visible a la vez (catálogo / ticket / ventas)
+  const [mobilePane, setMobilePane] = useState<"catalog" | "ticket" | "history">("catalog");
+  // Columnas según el ancho real del panel de catálogo (no el de la ventana):
+  // el ticket ocupa la mitad derecha en tablet y escritorio.
+  const [catalogWidth, setCatalogWidth] = useState(0);
+  const catalogColumns = Math.max(2, Math.min(4, Math.floor((catalogWidth - 8) / 190)));
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("CASH_USD");
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [lastInvoiceSuccess, setLastInvoiceSuccess] = useState<string | null>(null);
@@ -860,9 +870,79 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         </View>
       ) : null}
 
-      <View style={styles.columnsRow}>
+      <View style={[styles.columnsRow, isMobile && styles.columnsRowMobile]}>
+        {/* Móvil: conmutador entre catálogo y ticket */}
+        {isMobile ? (
+          <View style={styles.mobilePanes}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setMobilePane("catalog")}
+              style={[styles.mobilePaneBtn, mobilePane === "catalog" && styles.mobilePaneBtnActive]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: mobilePane === "catalog" }}
+              accessibilityLabel={`Catálogo, ${filteredCatalog.length} productos`}
+            >
+              <Text
+                style={[
+                  styles.mobilePaneText,
+                  mobilePane === "catalog" && styles.mobilePaneTextActive,
+                ]}
+              >
+                Catálogo ({filteredCatalog.length})
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                setRightPanelTab("ticket");
+                setMobilePane("ticket");
+              }}
+              style={[styles.mobilePaneBtn, mobilePane === "ticket" && styles.mobilePaneBtnActive]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: mobilePane === "ticket" }}
+              accessibilityLabel={`Ticket, ${ticketItems.length} ítems`}
+            >
+              <Text
+                style={[
+                  styles.mobilePaneText,
+                  mobilePane === "ticket" && styles.mobilePaneTextActive,
+                ]}
+              >
+                Ticket ({ticketItems.length})
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                setRightPanelTab("history");
+                refreshShiftInvoices();
+                setMobilePane("history");
+              }}
+              style={[styles.mobilePaneBtn, mobilePane === "history" && styles.mobilePaneBtnActive]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: mobilePane === "history" }}
+              accessibilityLabel={`Ventas del turno, ${shiftInvoices.length} facturas`}
+            >
+              <Text
+                style={[
+                  styles.mobilePaneText,
+                  mobilePane === "history" && styles.mobilePaneTextActive,
+                ]}
+              >
+                Ventas ({shiftInvoices.length})
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {/* Columna Izquierda: Catálogo de Productos */}
-        <View style={styles.catalogColumn}>
+        <View
+          style={[
+            styles.catalogColumn,
+            isMobile && mobilePane !== "catalog" && styles.paneHidden,
+          ]}
+          onLayout={(event) => setCatalogWidth(event.nativeEvent.layout.width)}
+        >
         <View style={styles.catalogHeader}>
           <View>
             <Text style={styles.sectionTitle}>Catálogo de Productos</Text>
@@ -905,7 +985,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           <TextInput
             style={styles.searchInput}
             placeholder="Buscar por nombre, SKU o código de barras..."
-            placeholderTextColor={colors.dark.textMuted}
+            placeholderTextColor={theme.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoCapitalize="none"
@@ -985,7 +1065,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         <FlatList
           data={filteredCatalog}
           keyExtractor={(item) => item.id}
-          numColumns={2}
+          key={`catalog-${catalogColumns}`}
+          numColumns={catalogColumns}
           contentContainerStyle={styles.catalogGrid}
           renderItem={({ item }) => {
             const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
@@ -1018,23 +1099,27 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
                   <View style={styles.cardHeaderMeta}>
                     <View style={styles.badge}>
-                      <Text style={styles.badgeText}>{item.sku}</Text>
+                      <Text style={styles.badgeText} numberOfLines={1}>
+                        {item.sku}
+                      </Text>
                     </View>
 
                     {/* Badge de Stock */}
                     {isOutOfStock ? (
                       <View style={[styles.stockBadge, styles.stockBadgeOut]}>
-                        <Text style={styles.stockBadgeTextOut}>● Agotado (0)</Text>
+                        <Text style={styles.stockBadgeTextOut} numberOfLines={1}>
+                          ● Agotado (0)
+                        </Text>
                       </View>
                     ) : isLowStock ? (
                       <View style={[styles.stockBadge, styles.stockBadgeLow]}>
-                        <Text style={styles.stockBadgeTextLow}>
+                        <Text style={styles.stockBadgeTextLow} numberOfLines={1}>
                           ⚠ Bajo: {formatFixed4(item.currentStock ?? "0")} {item.unit ?? "und"}
                         </Text>
                       </View>
                     ) : (
                       <View style={[styles.stockBadge, styles.stockBadgeOk]}>
-                        <Text style={styles.stockBadgeTextOk}>
+                        <Text style={styles.stockBadgeTextOk} numberOfLines={1}>
                           ● {formatFixed4(item.currentStock ?? "0")} {item.unit ?? "und"}
                         </Text>
                       </View>
@@ -1112,9 +1197,14 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       </View>
 
       {/* Columna Derecha: Ticket Activo o Ventas del Turno */}
-      <View style={styles.ticketColumn}>
-        {/* Selector de Pestaña: Ticket vs Ventas del Turno */}
-        <View style={styles.rightTabRow}>
+      <View
+        style={[
+          styles.ticketColumn,
+          isMobile && mobilePane !== "ticket" && styles.paneHidden,
+        ]}
+      >
+        {/* Selector de Pestaña: Ticket vs Ventas del Turno (oculto en móvil, usa el conmutador superior) */}
+        <View style={[styles.rightTabRow, isMobile && styles.paneHidden]}>
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => setRightPanelTab("ticket")}
@@ -1274,7 +1364,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           ) : null}
 
           <ButtonHero
-            label="COBRAR TICKET"
+            label={windowWidth < 1100 ? "COBRAR" : "COBRAR TICKET"}
             totalFormatted={formatUsd(totalUsd)}
             secondaryFormatted={`≈ ${formatVes(totalVes)}`}
             disabled={ticketItems.length === 0}
@@ -1666,7 +1756,12 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                         : "Confirmar cobro"
                 }
               >
-                <Text style={styles.confirmCheckoutBtnText}>
+                <Text
+                  style={[
+                    styles.confirmCheckoutBtnText,
+                    (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnTextDisabled,
+                  ]}
+                >
                   {lastInvoiceSuccess
                     ? "COBRO EXITOSO"
                     : isSubmitting
@@ -1699,7 +1794,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 style={[styles.modalInput, typography.tabularNumeric]}
                 keyboardType="decimal-pad"
                 placeholder="0.0000"
-                placeholderTextColor={colors.dark.textMuted}
+                placeholderTextColor={theme.textMuted}
                 value={newRateInput}
                 onChangeText={setNewRateInput}
                 accessibilityLabel="Nueva tasa de cambio a bolívares"
@@ -1711,7 +1806,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               <TextInput
                 style={styles.modalInput}
                 placeholder="Ej. Actualización vespertina oficial BCV"
-                placeholderTextColor={colors.dark.textMuted}
+                placeholderTextColor={theme.textMuted}
                 value={rateReasonInput}
                 onChangeText={setRateReasonInput}
                 accessibilityLabel="Motivo del cambio de tasa"
@@ -1997,7 +2092,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               <TextInput
                 style={styles.modalInput}
                 placeholder="Ej. Devolución de cliente / Error en método de pago"
-                placeholderTextColor={colors.dark.textMuted}
+                placeholderTextColor={theme.textMuted}
                 value={voidReasonInput}
                 onChangeText={setVoidReasonInput}
                 accessibilityLabel="Motivo de anulación de la venta"
@@ -2032,23 +2127,61 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
     flexDirection: "column",
-    backgroundColor: colors.dark.surfaceBase,
+    backgroundColor: c.surfaceBase,
   },
   columnsRow: {
     flex: 1,
     flexDirection: "row",
   },
+  columnsRowMobile: {
+    flexDirection: "column",
+  },
+  paneHidden: {
+    display: "none",
+  },
+  mobilePanes: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    backgroundColor: c.surfaceContainerLow,
+  },
+  mobilePaneBtn: {
+    flex: 1,
+    minHeight: spacing.touchTargetMin,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: spacing.radiusMd,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  mobilePaneBtnActive: {
+    backgroundColor: c.primarySoft,
+    borderColor: c.primary,
+  },
+  mobilePaneText: {
+    fontSize: typography.sizes.subText,
+    fontWeight: typography.weights.semibold,
+    color: c.textSecondary,
+  },
+  mobilePaneTextActive: {
+    color: c.textPrimary,
+    fontWeight: typography.weights.bold,
+  },
   noShiftBanner: {
+    flexWrap: "wrap",
+    gap: spacing.sm,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#2E1A08",
+    backgroundColor: c.warningSurface,
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.warning,
+    borderBottomColor: c.warning,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
     zIndex: 10,
@@ -2066,16 +2199,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   noShiftBannerTitle: {
-    color: colors.dark.warning,
+    color: c.warningText,
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
   },
   noShiftBannerSubtitle: {
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     fontSize: typography.sizes.caption,
   },
   noShiftBannerButton: {
-    backgroundColor: colors.dark.warning,
+    backgroundColor: c.warning,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: spacing.radiusMd,
@@ -2084,7 +2217,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   noShiftBannerButtonText: {
-    color: "#061426",
+    color: c.onWarning,
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
   },
@@ -2092,28 +2225,30 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: spacing.md,
     borderRightWidth: 1,
-    borderRightColor: colors.dark.border,
+    borderRightColor: c.border,
   },
   catalogHeader: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: spacing.sm,
     marginBottom: spacing.md,
   },
   sectionTitle: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   catalogCountSub: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginTop: 2,
   },
   stockNoticeBox: {
-    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    backgroundColor: c.warningSoft,
     borderWidth: 1,
-    borderColor: colors.dark.warning,
+    borderColor: c.warning,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: spacing.radiusMd,
@@ -2122,15 +2257,15 @@ const styles = StyleSheet.create({
   stockNoticeText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.warning,
+    color: c.warningText,
   },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusMd,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
     height: spacing.touchTargetMin,
@@ -2142,7 +2277,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     height: "100%",
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     fontSize: typography.sizes.body,
   },
   searchClearBtn: {
@@ -2152,7 +2287,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   searchClearText: {
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     fontSize: 14,
     fontWeight: typography.weights.bold,
   },
@@ -2166,50 +2301,50 @@ const styles = StyleSheet.create({
   categoryChip: {
     minHeight: spacing.touchTargetMin,
     paddingHorizontal: spacing.md,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusFull,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     justifyContent: "center",
     alignItems: "center",
   },
   categoryChipActive: {
-    backgroundColor: colors.dark.primary,
-    borderColor: colors.dark.primaryGlow,
+    backgroundColor: c.primary,
+    borderColor: c.primaryGlow,
   },
   categoryChipText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.medium,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   categoryChipTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
     fontWeight: typography.weights.bold,
   },
   ratePill: {
     flexDirection: "row",
     alignItems: "center",
     height: spacing.touchTargetMin, // 48px mínimo táctil
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusFull,
     borderWidth: 1,
-    borderColor: colors.dark.primaryGlow,
+    borderColor: c.primaryGlow,
     gap: spacing.xs,
   },
   ratePillLabel: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     fontWeight: typography.weights.medium,
   },
   ratePillValue: {
     fontSize: typography.sizes.subText,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   ratePillEdit: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
     marginLeft: 4,
   },
   catalogGrid: {
@@ -2219,17 +2354,17 @@ const styles = StyleSheet.create({
     flex: 1,
     margin: spacing.xs,
     minHeight: 140,
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusLg,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     justifyContent: "space-between",
   },
   productCardOutStock: {
     opacity: 0.75,
     borderStyle: "dashed",
-    borderColor: "rgba(239, 68, 68, 0.4)",
+    borderColor: c.error,
   },
   cardTopRow: {
     flexDirection: "row",
@@ -2241,13 +2376,13 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: spacing.radiusMd,
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
   },
   productThumbPlaceholder: {
     width: 44,
     height: 44,
     borderRadius: spacing.radiusMd,
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -2256,54 +2391,57 @@ const styles = StyleSheet.create({
   },
   cardHeaderMeta: {
     flex: 1,
+    minWidth: 0,
     gap: 4,
   },
   badge: {
     alignSelf: "flex-start",
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    maxWidth: "100%",
+    backgroundColor: c.surfaceContainerHighest,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: spacing.radiusSm,
   },
   badgeText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
     fontWeight: typography.weights.bold,
   },
   stockBadge: {
     alignSelf: "flex-start",
+    maxWidth: "100%",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: spacing.radiusSm,
   },
   stockBadgeOk: {
-    backgroundColor: "rgba(0, 176, 116, 0.15)",
+    backgroundColor: c.heroSoft,
   },
   stockBadgeTextOk: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: typography.weights.bold,
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   stockBadgeLow: {
-    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    backgroundColor: c.warningSoft,
   },
   stockBadgeTextLow: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: typography.weights.bold,
-    color: colors.dark.warning,
+    color: c.warningText,
   },
   stockBadgeOut: {
-    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    backgroundColor: c.errorSoft,
   },
   stockBadgeTextOut: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
   },
   productName: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     marginVertical: spacing.xs,
   },
   priceRow: {
@@ -2317,7 +2455,7 @@ const styles = StyleSheet.create({
   },
   unitTag: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     fontWeight: typography.weights.medium,
     marginLeft: spacing.xs,
   },
@@ -2330,11 +2468,11 @@ const styles = StyleSheet.create({
   emptyCatalogText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   emptyCatalogSub: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     marginTop: 4,
   },
   emptyCatalogAction: {
@@ -2344,40 +2482,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: colors.dark.primary,
+    backgroundColor: c.primary,
     borderRadius: spacing.radiusMd,
   },
   emptyCatalogActionText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
   },
   priceUsd: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   priceVes: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   ticketColumn: {
     flex: 1,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     display: "flex",
     flexDirection: "column",
   },
   ticketHeader: {
     padding: spacing.lg,
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
+    borderBottomColor: c.border,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
   itemCountText: {
     fontSize: typography.sizes.subText,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     fontWeight: typography.weights.medium,
   },
   ticketList: {
@@ -2389,7 +2527,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
+    borderBottomColor: c.border,
     gap: spacing.sm,
   },
   ticketLineInfo: {
@@ -2398,11 +2536,11 @@ const styles = StyleSheet.create({
   ticketLineName: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   ticketLineUnit: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   ticketLineTotalContainer: {
     minWidth: 80,
@@ -2411,11 +2549,11 @@ const styles = StyleSheet.create({
   ticketLineTotal: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   ticketLineTotalVes: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   emptyContainer: {
     flex: 1,
@@ -2425,23 +2563,23 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: typography.sizes.titleMd,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     fontWeight: typography.weights.medium,
   },
   emptySubText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     marginTop: spacing.xs,
   },
   checkoutFooter: {
     padding: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: colors.dark.border,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    borderTopColor: c.border,
+    backgroundColor: c.surfaceContainerLow,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: colors.dark.surfaceDim,
+    backgroundColor: c.overlay,
     justifyContent: "center",
     alignItems: "center",
     padding: spacing.xl,
@@ -2449,31 +2587,31 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 560,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusXl,
     padding: spacing.xl,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   modalTitle: {
     fontSize: typography.sizes.titleLg,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     marginBottom: spacing.xs,
   },
   modalNotice: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: spacing.md,
   },
   errorText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.error,
+    color: c.errorText,
     fontWeight: typography.weights.bold,
     marginBottom: spacing.sm,
   },
   successBox: {
-    backgroundColor: "rgba(0, 176, 116, 0.2)",
+    backgroundColor: c.heroSoft,
     padding: spacing.sm,
     borderRadius: spacing.radiusMd,
     marginBottom: spacing.sm,
@@ -2483,13 +2621,13 @@ const styles = StyleSheet.create({
   successText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.hero,
+    color: c.heroText,
     textAlign: "center",
   },
   successAmount: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   successLinkBtn: {
     minHeight: spacing.touchTargetMin,
@@ -2498,15 +2636,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: spacing.radiusMd,
     borderWidth: 1,
-    borderColor: colors.dark.hero,
+    borderColor: c.hero,
   },
   successLinkText: {
     fontSize: typography.sizes.subText,
     fontWeight: typography.weights.bold,
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   checkoutSummaryCard: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     padding: spacing.md,
     borderRadius: spacing.radiusLg,
     gap: spacing.xs,
@@ -2518,17 +2656,17 @@ const styles = StyleSheet.create({
   },
   summaryLabel: {
     fontSize: typography.sizes.body,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   summaryTotalUsd: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   summaryTotalVes: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   summaryRowSmall: {
     flexDirection: "row",
@@ -2536,22 +2674,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 4,
     borderTopWidth: 1,
-    borderTopColor: colors.dark.border,
+    borderTopColor: c.border,
     paddingTop: 4,
   },
   summaryLabelSmall: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
   },
   summaryValueSmall: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     fontWeight: typography.weights.semibold,
   },
   paymentMethodTitle: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: spacing.xs,
   },
   paymentMethodsGrid: {
@@ -2563,24 +2701,24 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: "45%",
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   paymentMethodBtnActive: {
-    backgroundColor: colors.dark.primary,
-    borderColor: colors.dark.primaryGlow,
+    backgroundColor: c.primary,
+    borderColor: c.primaryGlow,
   },
   paymentMethodText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.medium,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   paymentMethodTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     fontWeight: typography.weights.bold,
   },
   modalInputGroup: {
@@ -2588,18 +2726,18 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: spacing.xs,
   },
   modalInput: {
     height: spacing.touchTargetMin, // 48px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     paddingHorizontal: spacing.md,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     fontSize: typography.sizes.body,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   modalActions: {
     flexDirection: "row",
@@ -2616,11 +2754,11 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: {
     fontSize: typography.sizes.body,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   applyBtn: {
     height: spacing.touchTargetMin,
-    backgroundColor: colors.dark.primary,
+    backgroundColor: c.primary,
     paddingHorizontal: spacing.xl,
     justifyContent: "center",
     alignItems: "center",
@@ -2629,22 +2767,22 @@ const styles = StyleSheet.create({
   applyBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
   },
   clearTicketBtn: {
     minHeight: spacing.touchTargetMin,
     justifyContent: "center",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    backgroundColor: c.errorSoft,
     borderRadius: spacing.radiusMd,
     borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.3)",
+    borderColor: c.error,
   },
   clearTicketText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
   },
   ticketLineMeta: {
     flexDirection: "row",
@@ -2653,7 +2791,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   taxBadge: {
-    backgroundColor: "rgba(29, 97, 224, 0.15)",
+    backgroundColor: c.primarySoft,
     paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: spacing.radiusSm,
@@ -2661,15 +2799,15 @@ const styles = StyleSheet.create({
   taxBadgeText: {
     fontSize: 12,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   taxBadgeExempt: {
-    backgroundColor: "rgba(148, 163, 184, 0.15)",
+    backgroundColor: c.neutralSoft,
   },
   taxBadgeTextExempt: {
     fontSize: 12,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
   },
   stepperAndNumpadRow: {
     flexDirection: "row",
@@ -2679,12 +2817,12 @@ const styles = StyleSheet.create({
   numpadTriggerBtn: {
     width: spacing.touchTargetMin,
     height: spacing.touchTargetMin,
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    backgroundColor: c.surfaceContainerHighest,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   numpadTriggerText: {
     fontSize: 16,
@@ -2698,17 +2836,17 @@ const styles = StyleSheet.create({
     width: spacing.touchTargetMin,
     height: spacing.touchTargetMin,
     borderRadius: spacing.radiusFull,
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    backgroundColor: c.errorSoft,
     justifyContent: "center",
     alignItems: "center",
   },
   deleteLineText: {
     fontSize: 12,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
   },
   financialSummaryCard: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     padding: spacing.sm,
     marginBottom: spacing.sm,
@@ -2721,46 +2859,46 @@ const styles = StyleSheet.create({
   },
   finLabel: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   finValue: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   finSub: {
     fontSize: 12,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     fontWeight: typography.weights.regular,
   },
   summarySubtotalUsd: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   summaryTaxUsd: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   summaryDivider: {
     height: 1,
-    backgroundColor: colors.dark.border,
+    backgroundColor: c.border,
     marginVertical: 4,
   },
   summaryTotalHeroLabel: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   numpadModalCard: {
     width: "100%",
     maxWidth: 420,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusXl,
     padding: spacing.xl,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   numpadHeader: {
     flexDirection: "row",
@@ -2771,12 +2909,12 @@ const styles = StyleSheet.create({
   numpadProductName: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     marginTop: 2,
   },
   numpadProductSub: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginTop: 2,
   },
   numpadCloseBtn: {
@@ -2787,45 +2925,45 @@ const styles = StyleSheet.create({
   },
   numpadCloseText: {
     fontSize: 18,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     fontWeight: typography.weights.bold,
   },
   numpadDisplay: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     alignItems: "center",
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.dark.primaryGlow,
+    borderColor: c.primaryGlow,
   },
   numpadDisplayLabel: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: 4,
   },
   numpadDisplayValue: {
     fontSize: 32,
     fontWeight: typography.weights.extraBold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   numpadDisplaySub: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.hero,
+    color: c.heroText,
     marginTop: 4,
   },
   confirmModalCard: {
     width: "100%",
     maxWidth: 460,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusXl,
     padding: spacing.xl,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   deleteConfirmBtn: {
     height: spacing.touchTargetHero,
-    backgroundColor: colors.dark.error,
+    backgroundColor: c.error,
     paddingHorizontal: spacing.xl,
     justifyContent: "center",
     alignItems: "center",
@@ -2834,22 +2972,22 @@ const styles = StyleSheet.create({
   deleteConfirmBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.onPrimary,
     letterSpacing: 1,
   },
   confirmCheckoutBtnDisabled: {
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     opacity: 0.6,
   },
   tenderSection: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusLg,
     padding: spacing.md,
   },
   tenderSectionTitle: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: spacing.sm,
   },
   tenderInputsGrid: {
@@ -2862,33 +3000,33 @@ const styles = StyleSheet.create({
     minWidth: "45%",
     minHeight: spacing.touchTargetMin,
     justifyContent: "center",
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     padding: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   tenderFieldBoxActive: {
-    borderColor: colors.dark.primaryGlow,
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    borderColor: c.primaryGlow,
+    backgroundColor: c.surfaceContainerHighest,
   },
   tenderFieldLabel: {
     fontSize: 12,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     fontWeight: typography.weights.semibold,
   },
   tenderFieldValue: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     marginTop: 2,
   },
   exactRemainingBtn: {
     minHeight: spacing.touchTargetMin,
     justifyContent: "center",
-    backgroundColor: "rgba(29, 97, 224, 0.2)",
+    backgroundColor: c.primarySoft,
     borderWidth: 1,
-    borderColor: colors.dark.primaryGlow,
+    borderColor: c.primaryGlow,
     paddingVertical: 6,
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
@@ -2897,17 +3035,17 @@ const styles = StyleSheet.create({
   exactRemainingBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   paymentNumpadContainer: {
     alignItems: "center",
   },
   balanceSummaryBox: {
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   balanceRow: {
     flexDirection: "row",
@@ -2917,7 +3055,7 @@ const styles = StyleSheet.create({
   balanceWarnLabel: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.warning,
+    color: c.warningText,
     flex: 1,
   },
   balanceAmountsCol: {
@@ -2926,34 +3064,34 @@ const styles = StyleSheet.create({
   balanceWarnUsd: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.warning,
+    color: c.warningText,
   },
   balanceWarnVes: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.warning,
+    color: c.warningText,
   },
   balanceSuccessLabel: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.hero,
+    color: c.heroText,
     flex: 1,
   },
   changeLabel: {
     fontSize: 12,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   changeUsd: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   changeVes: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   confirmCheckoutBtn: {
     height: spacing.touchTargetHero, // 64px hero height para cobro (AGENTS.md)
-    backgroundColor: colors.dark.hero, // Verde maestro #00B074
+    backgroundColor: c.hero, // Verde maestro #00B074
     paddingHorizontal: spacing.xl,
     justifyContent: "center",
     alignItems: "center",
@@ -2962,14 +3100,17 @@ const styles = StyleSheet.create({
   confirmCheckoutBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.extraBold,
-    color: colors.dark.textPrimary,
+    color: c.onHero,
     letterSpacing: 1,
+  },
+  confirmCheckoutBtnTextDisabled: {
+    color: c.textMuted,
   },
   rightTabRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
-    backgroundColor: colors.dark.surfaceContainer,
+    borderBottomColor: c.border,
+    backgroundColor: c.surfaceContainer,
   },
   rightTabBtn: {
     flex: 1,
@@ -2980,37 +3121,37 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   rightTabBtnActive: {
-    borderBottomColor: colors.dark.primary,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    borderBottomColor: c.primary,
+    backgroundColor: c.surfaceContainerLow,
   },
   rightTabText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   rightTabTextActive: {
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     fontWeight: typography.weights.bold,
   },
   historyTabContainer: {
     flex: 1,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
   },
   shiftInvoicesList: {
     padding: spacing.md,
   },
   invoiceCard: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     marginBottom: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   invoiceCardVoid: {
     opacity: 0.65,
-    borderColor: "rgba(239, 68, 68, 0.4)",
-    backgroundColor: "rgba(239, 68, 68, 0.05)",
+    borderColor: c.error,
+    backgroundColor: c.errorSoft,
   },
   invoiceCardHeader: {
     flexDirection: "row",
@@ -3026,11 +3167,11 @@ const styles = StyleSheet.create({
   invoiceNumberText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   invoiceTimeText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   invoiceStatusBadge: {
     paddingHorizontal: spacing.xs,
@@ -3038,15 +3179,15 @@ const styles = StyleSheet.create({
     borderRadius: spacing.radiusSm,
   },
   badgeVoid: {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    backgroundColor: c.errorSoft,
   },
   badgeCompleted: {
-    backgroundColor: "rgba(0, 176, 116, 0.2)",
+    backgroundColor: c.heroSoft,
   },
   invoiceStatusBadgeText: {
     fontSize: 12,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   invoiceCardMeta: {
     flexDirection: "row",
@@ -3055,7 +3196,7 @@ const styles = StyleSheet.create({
   },
   invoiceMethodText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   invoiceAmounts: {
     alignItems: "flex-end",
@@ -3063,15 +3204,15 @@ const styles = StyleSheet.create({
   invoiceTotalUsd: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   invoiceTotalVes: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   textLineThrough: {
     textDecorationLine: "line-through",
-    color: colors.dark.textMuted,
+    color: c.textMuted,
   },
   emptyHistoryBox: {
     paddingVertical: 60,
@@ -3081,11 +3222,11 @@ const styles = StyleSheet.create({
   emptyHistoryText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   emptyHistorySub: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
     marginTop: 4,
     textAlign: "center",
     paddingHorizontal: spacing.lg,
@@ -3094,7 +3235,7 @@ const styles = StyleSheet.create({
     maxWidth: 580,
     maxHeight: "92%",
     padding: 0,
-    backgroundColor: colors.dark.surfaceContainerLow,
+    backgroundColor: c.surfaceContainerLow,
     overflow: "hidden",
   },
   checkoutCard: {
@@ -3143,27 +3284,27 @@ const styles = StyleSheet.create({
   receiptBrand: {
     fontSize: typography.sizes.titleLg,
     fontWeight: typography.weights.extraBold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
     letterSpacing: 2,
   },
   receiptSubBrand: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     marginBottom: 4,
   },
   receiptTerminal: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
   },
   receiptInvoiceNum: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
     marginTop: 4,
   },
   receiptDate: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   receiptStatusBadge: {
     padding: spacing.xs,
@@ -3172,24 +3313,24 @@ const styles = StyleSheet.create({
     marginVertical: spacing.xs,
   },
   receiptBadgeOk: {
-    backgroundColor: "rgba(0, 176, 116, 0.15)",
+    backgroundColor: c.heroSoft,
   },
   receiptBadgeVoid: {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    backgroundColor: c.errorSoft,
   },
   receiptStatusText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   receiptVoidReason: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.error,
+    color: c.errorText,
     marginTop: 2,
   },
   receiptDivider: {
     height: 1,
-    backgroundColor: colors.dark.border,
+    backgroundColor: c.border,
     marginVertical: spacing.md,
   },
   receiptItemsTable: {
@@ -3198,13 +3339,13 @@ const styles = StyleSheet.create({
   receiptTableHeader: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: colors.dark.border,
+    borderBottomColor: c.border,
     paddingBottom: 4,
   },
   receiptTh: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   receiptItemRow: {
     flexDirection: "row",
@@ -3212,23 +3353,23 @@ const styles = StyleSheet.create({
   },
   receiptItemName: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   receiptItemQty: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   receiptItemPrice: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   receiptItemTotal: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   receiptTotalsBox: {
-    backgroundColor: colors.dark.surfaceContainer,
+    backgroundColor: c.surfaceContainer,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
     gap: 4,
@@ -3240,23 +3381,23 @@ const styles = StyleSheet.create({
   },
   receiptTotalRowMain: {
     borderTopWidth: 1,
-    borderTopColor: colors.dark.border,
+    borderTopColor: c.border,
     paddingTop: 6,
     marginTop: 4,
   },
   receiptTotalLabel: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   receiptTotalVal: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   receiptGrandTotalLabel: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.extraBold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   receiptGrandTotalValues: {
     alignItems: "flex-end",
@@ -3264,21 +3405,21 @@ const styles = StyleSheet.create({
   receiptGrandTotalUsd: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.extraBold,
-    color: colors.dark.hero,
+    color: c.heroText,
   },
   receiptGrandTotalVes: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
   },
   receiptRateNotice: {
     marginTop: spacing.xs,
     paddingTop: 4,
     borderTopWidth: 1,
-    borderTopColor: colors.dark.border,
+    borderTopColor: c.border,
   },
   receiptRateNoticeText: {
     fontSize: typography.sizes.caption,
-    color: colors.dark.textMuted,
+    color: c.textMuted,
   },
   receiptActions: {
     marginTop: spacing.lg,
@@ -3286,9 +3427,9 @@ const styles = StyleSheet.create({
   },
   receiptVoidBtn: {
     height: spacing.touchTargetMin,
-    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    backgroundColor: c.errorSoft,
     borderWidth: 1,
-    borderColor: colors.dark.error,
+    borderColor: c.error,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
@@ -3296,11 +3437,11 @@ const styles = StyleSheet.create({
   receiptVoidBtnText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.error,
+    color: c.errorText,
   },
   receiptCloseBtn: {
     height: spacing.touchTargetMin,
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    backgroundColor: c.surfaceContainerHighest,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
@@ -3308,6 +3449,6 @@ const styles = StyleSheet.create({
   receiptCloseBtnText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.semibold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
 });

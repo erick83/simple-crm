@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import React from "react";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
+import { brandMark, brandWordmark } from "../src/components/brand-logo.paths";
 import { formatUsd, formatVes, toDecimal, convertUsdToVes } from "../src/utils/decimal";
 import { deriveSyncState, formatSyncAge } from "../src/components/SyncBadge";
 import { createTestDb } from "./helpers";
@@ -16,16 +17,55 @@ import { MonthlyBalanceScreen, ReportsScreen } from "../src/screens/MonthlyBalan
 import { ExchangeRateLineChart } from "../src/components/ExchangeRateLineChart";
 
 describe("Design Tokens y Reglas de la Constitución", () => {
-  it("cumple los colores de tema oscuro obligatorios", () => {
-    expect(colors.dark.surfaceBase).toBe("#061426");
-    expect(colors.dark.surfaceContainerLow).toBe("#0E1C2F");
+  it("cumple los colores de marca obligatorios en ambos temas", () => {
+    expect(colors.dark.surfaceBase).toBe("#0A0D12");
+    expect(colors.dark.surfaceContainerLow).toBe("#10141A");
     expect(colors.dark.primary).toBe("#1D61E0");
     expect(colors.dark.hero).toBe("#00B074");
+    expect(colors.light.surfaceBase).toBe("#F4F6F8");
+    expect(colors.light.surfaceContainerLow).toBe("#FFFFFF");
+    expect(colors.light.primary).toBe("#1550BC");
+    expect(colors.light.hero).toBe("#047857");
+  });
+
+  it("mantiene contraste AA en textos y botones de ambos temas", () => {
+    const channel = (value: number) =>
+      value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    const luminance = (hex: string) => {
+      const channelAt = (index: number) =>
+        channel(parseInt(hex.slice(index, index + 2), 16) / 255);
+      return 0.2126 * channelAt(1) + 0.7152 * channelAt(3) + 0.0722 * channelAt(5);
+    };
+    const contrast = (a: string, b: string) => {
+      const light = Math.max(luminance(a), luminance(b));
+      const dark = Math.min(luminance(a), luminance(b));
+      return (light + 0.05) / (dark + 0.05);
+    };
+
+    for (const theme of [colors.dark, colors.light]) {
+      expect(contrast(theme.textPrimary, theme.surfaceBase)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.textSecondary, theme.surfaceContainer)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.textMuted, theme.surfaceContainerLow)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.onPrimary, theme.primary)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.onHero, theme.hero)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.heroText, theme.surfaceContainer)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.errorText, theme.surfaceContainer)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.warningText, theme.surfaceContainer)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.primaryGlow, theme.surfaceContainer)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it("cumple los touch targets mínimos de 48px y 64px", () => {
     expect(spacing.touchTargetMin).toBe(48);
     expect(spacing.touchTargetHero).toBe(64);
+  });
+
+  it("resuelve los colores del logo con tokens de marca de cada tema", () => {
+    for (const theme of [colors.dark, colors.light]) {
+      for (const shape of brandMark) expect(theme[shape.fill]).toMatch(/^#[0-9A-F]{6}$/i);
+      expect(theme.brandInk).toMatch(/^#[0-9A-F]{6}$/i);
+    }
+    expect(brandWordmark.length).toBeGreaterThan(0);
   });
 
   it("formatea moneda a 4 decimales exactos", () => {

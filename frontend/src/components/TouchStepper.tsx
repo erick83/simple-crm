@@ -1,6 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { colors } from "../theme/colors";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import type { Palette } from "../theme/tokens";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 
@@ -17,6 +18,8 @@ export const TouchStepper: React.FC<TouchStepperProps> = ({
   onDecrement,
   min = 1,
 }) => {
+  const { colors: theme } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.container}>
       <TouchableOpacity
@@ -46,14 +49,15 @@ export const TouchStepper: React.FC<TouchStepperProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
     overflow: "hidden",
   },
   button: {
@@ -61,12 +65,12 @@ const styles = StyleSheet.create({
     height: spacing.touchTargetMin, // 48px
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    backgroundColor: c.surfaceContainerHighest,
   },
   buttonText: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   valueContainer: {
     minWidth: 56,
@@ -77,7 +81,7 @@ const styles = StyleSheet.create({
   valueText: {
     fontSize: typography.sizes.body,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
 });
 

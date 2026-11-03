@@ -1,6 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { colors } from "../theme/colors";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import type { Palette } from "../theme/tokens";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 
@@ -19,6 +20,8 @@ export const Numpad: React.FC<NumpadProps> = ({
   onDecimal,
   showDecimal = false,
 }) => {
+  const { colors: theme } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const renderKey = (key: string, onPress: () => void, isAction = false, label?: string) => (
     <TouchableOpacity
       key={key}
@@ -80,7 +83,8 @@ export const Numpad: React.FC<NumpadProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Palette) =>
+  StyleSheet.create({
   container: {
     gap: spacing.sm,
   },
@@ -92,39 +96,39 @@ const styles = StyleSheet.create({
   key: {
     width: spacing.touchTargetHero, // 64px
     height: spacing.touchTargetHero, // 64px
-    backgroundColor: colors.dark.surfaceContainerHigh,
+    backgroundColor: c.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   actionKey: {
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    backgroundColor: c.surfaceContainerHighest,
   },
   keyText: {
     fontSize: typography.sizes.numpadDigit,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textPrimary,
+    color: c.textPrimary,
   },
   actionKeyText: {
     fontSize: typography.sizes.titleMd,
-    color: colors.dark.primaryGlow,
+    color: c.primaryGlow,
   },
   clearWideKey: {
     flex: 1,
     height: 48,
-    backgroundColor: colors.dark.surfaceContainerHighest,
+    backgroundColor: c.surfaceContainerHighest,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.dark.border,
+    borderColor: c.border,
   },
   clearWideText: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
-    color: colors.dark.textSecondary,
+    color: c.textSecondary,
     letterSpacing: 0.5,
   },
 });
