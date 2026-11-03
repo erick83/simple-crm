@@ -8,6 +8,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { colors } from "../theme/colors";
@@ -169,26 +170,26 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   const refreshCatalog = useCallback(() => {
     if (db) {
       const result = getCatalogWithBimonetaryPrices(db, initialExchangeRate, { tenantId });
-      if (result.products.length > 0) {
-        setCatalog(
-          result.products.map((p) => ({
-            id: p.id,
-            sku: p.sku,
-            barcode: p.barcode,
-            name: p.name,
-            priceUsd: p.priceUsd,
-            category: p.categoryName ?? undefined,
-            categoryId: p.categoryId,
-            categoryName: p.categoryName,
-            currentStock: p.currentStock,
-            minStock: p.minStock,
-            isLowStock: p.isLowStock,
-            unit: p.unit,
-            imagePath: p.imagePath,
-            taxRate: p.taxRate,
-          })),
-        );
-      }
+      // DB conectada = catálogo real (aunque esté vacío): los DEFAULT_PRODUCTS son solo
+      // para la ruta dev/test sin db; mostrarlos aquí permitiría "vender" productos fantasma.
+      setCatalog(
+        result.products.map((p) => ({
+          id: p.id,
+          sku: p.sku,
+          barcode: p.barcode,
+          name: p.name,
+          priceUsd: p.priceUsd,
+          category: p.categoryName ?? undefined,
+          categoryId: p.categoryId,
+          categoryName: p.categoryName,
+          currentStock: p.currentStock,
+          minStock: p.minStock,
+          isLowStock: p.isLowStock,
+          unit: p.unit,
+          imagePath: p.imagePath,
+          taxRate: p.taxRate,
+        })),
+      );
       setExchangeRate(result.activeRate);
 
       try {
@@ -295,6 +296,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
   // Estado del modal de cobro (Checkout)
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  // Tablet landscape (1280×800) usa dos columnas; pantallas angostas apilan el cobro
+  const { width: windowWidth } = useWindowDimensions();
+  const isWideCheckout = windowWidth >= 900;
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("CASH_USD");
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [lastInvoiceSuccess, setLastInvoiceSuccess] = useState<string | null>(null);
@@ -402,13 +406,18 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       const parsed = toDecimal(newRateInput, "Tasa");
       if (parsed.lte(0)) throw new Error("La tasa debe ser mayor a cero");
       const formatted = parsed.toFixed(4);
+      const cleanReason = rateReasonInput.trim();
+      // AGENTS.md §3.2: captura manual de tasa es auditada — motivo obligatorio, jamás fabricado
+      if (db && !cleanReason) {
+        throw new Error("El motivo del ajuste de tasa es obligatorio para la auditoría.");
+      }
 
       if (db) {
         const todayIso = new Date().toISOString().split("T")[0]!;
         registerManualRate(db, {
           rateDate: todayIso,
           rate: formatted,
-          reason: rateReasonInput.trim() || "Ajuste operativo en pantalla de caja",
+          reason: cleanReason,
           allowUpdate: true,
         });
       }
@@ -781,7 +790,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             clearButtonMode="while-editing"
           />
           {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.searchClearBtn}>
+            <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.searchClearBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
               <Text style={styles.searchClearText}>✕</Text>
             </TouchableOpacity>
           ) : null}
@@ -879,7 +888,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     ) : isLowStock ? (
                       <View style={[styles.stockBadge, styles.stockBadgeLow]}>
                         <Text style={styles.stockBadgeTextLow}>
-                          ● {formatFixed4(item.currentStock ?? "0")} {item.unit ?? "und"}
+                          ⚠ Bajo: {formatFixed4(item.currentStock ?? "0")} {item.unit ?? "und"}
                         </Text>
                       </View>
                     ) : (
@@ -1037,6 +1046,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     activeOpacity={0.7}
                     onPress={() => removeTicketItem(item.productId)}
                     style={styles.deleteLineBtn}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
                     <Text style={styles.deleteLineText}>✕</Text>
                   </TouchableOpacity>
@@ -1143,237 +1153,257 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   </View>
 
       {/* Modal Táctil de Cobro / Emisión de Factura */}
-      <Modal visible={isCheckoutModalOpen} transparent animationType="fade">
+      <Modal
+        visible={isCheckoutModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsCheckoutModalOpen(false)}
+      >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Confirmar Cobro de Venta</Text>
-            <Text style={styles.modalNotice}>
-              Al confirmar, se congelarán de forma inmutable la tasa del segundo de cobro y los
-              totales legales en ambas monedas, descontando el inventario atómicamente.
-            </Text>
-
-            {checkoutError ? <Text style={styles.errorText}>{checkoutError}</Text> : null}
-            {lastInvoiceSuccess ? (
-              <View style={styles.successBox}>
-                <Text style={styles.successText}>{lastInvoiceSuccess}</Text>
-              </View>
-            ) : null}
-
-            {/* Resumen de Importes Bimoneda con desglose de IVA */}
-            <View style={styles.checkoutSummaryCard}>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Subtotal Base Imponible:</Text>
-                <Text style={[styles.summarySubtotalUsd, typography.tabularNumeric]}>
-                  {formatUsd(subtotalUsd)}
-                </Text>
-              </View>
-
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Impuesto IVA Calculado:</Text>
-                <Text style={[styles.summaryTaxUsd, typography.tabularNumeric]}>
-                  {formatUsd(taxUsd)}
-                </Text>
-              </View>
-
-              <View style={styles.summaryDivider} />
-
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryTotalHeroLabel}>Total Legal en Dólares (USD):</Text>
-                <Text style={[styles.summaryTotalUsd, typography.tabularNumeric]}>
-                  {formatUsd(totalUsd)}
-                </Text>
-              </View>
-
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Equivalente Legal en Bolívares (VES):</Text>
-                <Text style={[styles.summaryTotalVes, typography.tabularNumeric]}>
-                  {formatVes(totalVes)}
-                </Text>
-              </View>
-
-              <View style={styles.summaryRowSmall}>
-                <Text style={styles.summaryLabelSmall}>Tasa Oficial Congelada:</Text>
-                <Text style={[styles.summaryValueSmall, typography.tabularNumeric]}>
-                  {formatVes(exchangeRate)}
-                </Text>
-              </View>
-            </View>
-
-            {/* Selección de Método de Pago */}
-            <Text style={styles.paymentMethodTitle}>Seleccione Modalidad de Cobro:</Text>
-            <View style={styles.paymentMethodsGrid}>
-              {[
-                { id: "CASH_USD", label: "Efectivo USD ($)" },
-                { id: "CASH_VES", label: "Efectivo VES (Bs.)" },
-                { id: "PAGO_MOVIL", label: "Pago Móvil (Bs.)" },
-                { id: "CARD_VES", label: "Punto / Tarjeta (Bs.)" },
-                { id: "SPLIT", label: "Cobro Mixto (SPLIT)" },
-              ].map((m) => {
-                const isSelected = selectedPaymentMethod === m.id;
-                return (
-                  <TouchableOpacity
-                    key={m.id}
-                    activeOpacity={0.8}
-                    onPress={() => handleSelectPaymentMethod(m.id as PaymentMethod)}
-                    style={[styles.paymentMethodBtn, isSelected && styles.paymentMethodBtnActive]}
-                  >
-                    <Text
-                      style={[
-                        styles.paymentMethodText,
-                        isSelected && styles.paymentMethodTextActive,
-                      ]}
-                    >
-                      {m.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Panel de Desglose de Pago / Cobro Combinado (SPLIT) */}
-            <View style={styles.tenderSection}>
-              <Text style={styles.tenderSectionTitle}>
-                {selectedPaymentMethod === "SPLIT"
-                  ? "Desglose de Montos Entregados por el Cliente:"
-                  : `Monto Entregado (${selectedPaymentMethod === "CASH_USD" ? "USD" : "VES"}):`}
+          <View style={[styles.modalCard, styles.checkoutCard]}>
+            {/* 1280×800: dos columnas — importes/método a la izquierda, numpad/vuelto a la derecha */}
+            <View style={styles.checkoutHeader}>
+              <Text style={styles.modalTitle}>Confirmar Cobro de Venta</Text>
+              <Text style={styles.modalNotice}>
+                Al confirmar, se congelarán de forma inmutable la tasa del segundo de cobro y los
+                totales legales en ambas monedas, descontando el inventario atómicamente.
               </Text>
 
-              <View style={styles.tenderInputsGrid}>
-                {/* Input Efectivo USD */}
-                {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CASH_USD") && (
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setActivePaymentInput("CASH_USD")}
-                    style={[
-                      styles.tenderFieldBox,
-                      activePaymentInput === "CASH_USD" && styles.tenderFieldBoxActive,
-                    ]}
-                  >
-                    <Text style={styles.tenderFieldLabel}>💵 Efectivo USD ($)</Text>
-                    <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
-                      {tenderCashUsd || "$ 0.0000"}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* Input Efectivo VES */}
-                {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CASH_VES") && (
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setActivePaymentInput("CASH_VES")}
-                    style={[
-                      styles.tenderFieldBox,
-                      activePaymentInput === "CASH_VES" && styles.tenderFieldBoxActive,
-                    ]}
-                  >
-                    <Text style={styles.tenderFieldLabel}>🇻🇪 Efectivo VES (Bs.)</Text>
-                    <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
-                      {tenderCashVes || "Bs. 0.0000"}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* Input Pago Móvil */}
-                {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "PAGO_MOVIL") && (
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setActivePaymentInput("PAGO_MOVIL")}
-                    style={[
-                      styles.tenderFieldBox,
-                      activePaymentInput === "PAGO_MOVIL" && styles.tenderFieldBoxActive,
-                    ]}
-                  >
-                    <Text style={styles.tenderFieldLabel}>📱 Pago Móvil (Bs.)</Text>
-                    <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
-                      {tenderPagoMovilVes || "Bs. 0.0000"}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* Input Tarjeta / Punto */}
-                {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CARD_VES") && (
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setActivePaymentInput("CARD_VES")}
-                    style={[
-                      styles.tenderFieldBox,
-                      activePaymentInput === "CARD_VES" && styles.tenderFieldBoxActive,
-                    ]}
-                  >
-                    <Text style={styles.tenderFieldLabel}>💳 Tarjeta / Punto (Bs.)</Text>
-                    <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
-                      {tenderCardVes || "Bs. 0.0000"}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Botón rápido para asignar restante exacto al método activo */}
-              {selectedPaymentMethod === "SPLIT" && toDecimal(remainingUsd).gt(0) ? (
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={handleSetExactRemaining}
-                  style={styles.exactRemainingBtn}
-                >
-                  <Text style={styles.exactRemainingBtnText}>
-                    ⚡ Completar restante en {activePaymentInput === "CASH_USD" ? "USD" : "VES"}: {activePaymentInput === "CASH_USD" ? formatUsd(remainingUsd) : formatVes(remainingVes)}
-                  </Text>
-                </TouchableOpacity>
+              {checkoutError ? <Text style={styles.errorText}>{checkoutError}</Text> : null}
+              {lastInvoiceSuccess ? (
+                <View style={styles.successBox}>
+                  <Text style={styles.successText}>{lastInvoiceSuccess}</Text>
+                </View>
               ) : null}
-
-              {/* Teclado numérico táctil para ingresar el monto en pantalla */}
-              <View style={styles.paymentNumpadContainer}>
-                <Numpad
-                  onDigit={handlePaymentNumpadDigit}
-                  onClear={handlePaymentNumpadClear}
-                  onBackspace={handlePaymentNumpadBackspace}
-                  onDecimal={handlePaymentNumpadDecimal}
-                  showDecimal={true}
-                />
-              </View>
-
-              {/* Banner de Saldo Restante y Vuelto Calculado */}
-              <View style={styles.balanceSummaryBox}>
-                {toDecimal(remainingUsd).gt(0) ? (
-                  <View style={styles.balanceRow}>
-                    <Text style={styles.balanceWarnLabel}>⚠️ Saldo Restante por Pagar:</Text>
-                    <View style={styles.balanceAmountsCol}>
-                      <Text style={[styles.balanceWarnUsd, typography.tabularNumeric]}>
-                        {formatUsd(remainingUsd)}
-                      </Text>
-                      <Text style={[styles.balanceWarnVes, typography.tabularNumeric]}>
-                        ≈ {formatVes(remainingVes)}
-                      </Text>
-                    </View>
-                  </View>
-                ) : selectedPaymentMethod === "SPLIT" && toDecimal(changeUsd).gt(0) ? (
-                  <View style={styles.balanceRow}>
-                    <Text style={styles.balanceWarnLabel}>⚠️ Cobro mixto exige monto exacto — sobran:</Text>
-                    <View style={styles.balanceAmountsCol}>
-                      <Text style={[styles.balanceWarnUsd, typography.tabularNumeric]}>
-                        {formatUsd(changeUsd)}
-                      </Text>
-                      <Text style={[styles.balanceWarnVes, typography.tabularNumeric]}>
-                        ≈ {formatVes(changeVes)}
-                      </Text>
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.balanceRow}>
-                    <Text style={styles.balanceSuccessLabel}>✓ Monto Cubierto Totalmente</Text>
-                    <View style={styles.balanceAmountsCol}>
-                      <Text style={styles.changeLabel}>Vuelto a entregar:</Text>
-                      <Text style={[styles.changeUsd, typography.tabularNumeric]}>
-                        {formatUsd(changeUsd)}
-                      </Text>
-                      <Text style={[styles.changeVes, typography.tabularNumeric]}>
-                        ≈ {formatVes(changeVes)}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              </View>
             </View>
+
+            <ScrollView style={styles.checkoutBody} contentContainerStyle={styles.checkoutBodyContent}>
+              <View style={[styles.checkoutColumns, !isWideCheckout && styles.checkoutColumnsStacked]}>
+                {/* Columna izquierda: importes, modalidad de cobro y montos entregados */}
+                <View style={styles.checkoutLeft}>
+                  {/* Resumen de Importes Bimoneda con desglose de IVA */}
+                  <View style={styles.checkoutSummaryCard}>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Subtotal Base Imponible:</Text>
+                      <Text style={[styles.summarySubtotalUsd, typography.tabularNumeric]}>
+                        {formatUsd(subtotalUsd)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Impuesto IVA Calculado:</Text>
+                      <Text style={[styles.summaryTaxUsd, typography.tabularNumeric]}>
+                        {formatUsd(taxUsd)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.summaryDivider} />
+
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryTotalHeroLabel}>Total Legal en Dólares (USD):</Text>
+                      <Text style={[styles.summaryTotalUsd, typography.tabularNumeric]}>
+                        {formatUsd(totalUsd)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Equivalente Legal en Bolívares (VES):</Text>
+                      <Text style={[styles.summaryTotalVes, typography.tabularNumeric]}>
+                        {formatVes(totalVes)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.summaryRowSmall}>
+                      <Text style={styles.summaryLabelSmall}>Tasa Oficial Congelada:</Text>
+                      <Text style={[styles.summaryValueSmall, typography.tabularNumeric]}>
+                        {formatVes(exchangeRate)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Selección de Método de Pago */}
+                  <View>
+                    <Text style={styles.paymentMethodTitle}>Seleccione Modalidad de Cobro:</Text>
+                    <View style={styles.paymentMethodsGrid}>
+                      {[
+                        { id: "CASH_USD", label: "Efectivo USD ($)" },
+                        { id: "CASH_VES", label: "Efectivo VES (Bs.)" },
+                        { id: "PAGO_MOVIL", label: "Pago Móvil (Bs.)" },
+                        { id: "CARD_VES", label: "Punto / Tarjeta (Bs.)" },
+                        { id: "SPLIT", label: "Cobro Mixto (SPLIT)" },
+                      ].map((m) => {
+                        const isSelected = selectedPaymentMethod === m.id;
+                        return (
+                          <TouchableOpacity
+                            key={m.id}
+                            activeOpacity={0.8}
+                            onPress={() => handleSelectPaymentMethod(m.id as PaymentMethod)}
+                            style={[styles.paymentMethodBtn, isSelected && styles.paymentMethodBtnActive]}
+                          >
+                            <Text
+                              style={[
+                                styles.paymentMethodText,
+                                isSelected && styles.paymentMethodTextActive,
+                              ]}
+                            >
+                              {m.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {/* Panel de Desglose de Pago / Cobro Combinado (SPLIT) */}
+                  <View style={styles.tenderSection}>
+                    <Text style={styles.tenderSectionTitle}>
+                      {selectedPaymentMethod === "SPLIT"
+                        ? "Desglose de Montos Entregados por el Cliente:"
+                        : `Monto Entregado (${selectedPaymentMethod === "CASH_USD" ? "USD" : "VES"}):`}
+                    </Text>
+
+                    <View style={styles.tenderInputsGrid}>
+                      {/* Input Efectivo USD */}
+                      {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CASH_USD") && (
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => setActivePaymentInput("CASH_USD")}
+                          style={[
+                            styles.tenderFieldBox,
+                            activePaymentInput === "CASH_USD" && styles.tenderFieldBoxActive,
+                          ]}
+                        >
+                          <Text style={styles.tenderFieldLabel}>💵 Efectivo USD ($)</Text>
+                          <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
+                            {tenderCashUsd || "$ 0.0000"}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Input Efectivo VES */}
+                      {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CASH_VES") && (
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => setActivePaymentInput("CASH_VES")}
+                          style={[
+                            styles.tenderFieldBox,
+                            activePaymentInput === "CASH_VES" && styles.tenderFieldBoxActive,
+                          ]}
+                        >
+                          <Text style={styles.tenderFieldLabel}>🇻🇪 Efectivo VES (Bs.)</Text>
+                          <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
+                            {tenderCashVes || "Bs. 0.0000"}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Input Pago Móvil */}
+                      {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "PAGO_MOVIL") && (
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => setActivePaymentInput("PAGO_MOVIL")}
+                          style={[
+                            styles.tenderFieldBox,
+                            activePaymentInput === "PAGO_MOVIL" && styles.tenderFieldBoxActive,
+                          ]}
+                        >
+                          <Text style={styles.tenderFieldLabel}>📱 Pago Móvil (Bs.)</Text>
+                          <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
+                            {tenderPagoMovilVes || "Bs. 0.0000"}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Input Tarjeta / Punto */}
+                      {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CARD_VES") && (
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => setActivePaymentInput("CARD_VES")}
+                          style={[
+                            styles.tenderFieldBox,
+                            activePaymentInput === "CARD_VES" && styles.tenderFieldBoxActive,
+                          ]}
+                        >
+                          <Text style={styles.tenderFieldLabel}>💳 Tarjeta / Punto (Bs.)</Text>
+                          <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
+                            {tenderCardVes || "Bs. 0.0000"}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                </View>
+
+                {/* Columna derecha: numpad del monto activo y resultado (saldo/vuelto) */}
+                <View style={[styles.checkoutRight, !isWideCheckout && styles.checkoutRightStacked]}>
+                  {/* Teclado numérico táctil para ingresar el monto en pantalla */}
+                  <View style={styles.paymentNumpadContainer}>
+                    <Numpad
+                      onDigit={handlePaymentNumpadDigit}
+                      onClear={handlePaymentNumpadClear}
+                      onBackspace={handlePaymentNumpadBackspace}
+                      onDecimal={handlePaymentNumpadDecimal}
+                      showDecimal={true}
+                    />
+                  </View>
+
+                  {/* Botón rápido para asignar restante exacto al método activo */}
+                  {selectedPaymentMethod === "SPLIT" && toDecimal(remainingUsd).gt(0) ? (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={handleSetExactRemaining}
+                      style={styles.exactRemainingBtn}
+                    >
+                      <Text style={styles.exactRemainingBtnText}>
+                        ⚡ Completar restante en {activePaymentInput === "CASH_USD" ? "USD" : "VES"}: {activePaymentInput === "CASH_USD" ? formatUsd(remainingUsd) : formatVes(remainingVes)}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {/* Banner de Saldo Restante y Vuelto Calculado */}
+                  <View style={styles.balanceSummaryBox}>
+                    {toDecimal(remainingUsd).gt(0) ? (
+                      <View style={styles.balanceRow}>
+                        <Text style={styles.balanceWarnLabel}>⚠️ Saldo Restante por Pagar:</Text>
+                        <View style={styles.balanceAmountsCol}>
+                          <Text style={[styles.balanceWarnUsd, typography.tabularNumeric]}>
+                            {formatUsd(remainingUsd)}
+                          </Text>
+                          <Text style={[styles.balanceWarnVes, typography.tabularNumeric]}>
+                            ≈ {formatVes(remainingVes)}
+                          </Text>
+                        </View>
+                      </View>
+                    ) : selectedPaymentMethod === "SPLIT" && toDecimal(changeUsd).gt(0) ? (
+                      <View style={styles.balanceRow}>
+                        <Text style={styles.balanceWarnLabel}>⚠️ Cobro mixto exige monto exacto — sobran:</Text>
+                        <View style={styles.balanceAmountsCol}>
+                          <Text style={[styles.balanceWarnUsd, typography.tabularNumeric]}>
+                            {formatUsd(changeUsd)}
+                          </Text>
+                          <Text style={[styles.balanceWarnVes, typography.tabularNumeric]}>
+                            ≈ {formatVes(changeVes)}
+                          </Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.balanceRow}>
+                        <Text style={styles.balanceSuccessLabel}>✓ Monto Cubierto Totalmente</Text>
+                        <View style={styles.balanceAmountsCol}>
+                          <Text style={styles.changeLabel}>Vuelto a entregar:</Text>
+                          <Text style={[styles.changeUsd, typography.tabularNumeric]}>
+                            {formatUsd(changeUsd)}
+                          </Text>
+                          <Text style={[styles.changeVes, typography.tabularNumeric]}>
+                            ≈ {formatVes(changeVes)}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            </ScrollView>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -1403,7 +1433,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       </Modal>
 
       {/* Modal Táctil de Actualización de Tasa */}
-      <Modal visible={isRateModalOpen} transparent animationType="fade">
+      <Modal visible={isRateModalOpen} transparent animationType="fade" onRequestClose={() => setIsRateModalOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Actualizar Tasa BCV / Moneda</Text>
@@ -1459,7 +1489,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       </Modal>
 
       {/* Modal Táctil: Teclado Numérico para Cantidad (Pesables / Bultos) */}
-      <Modal visible={editingTicketItem !== null} transparent animationType="fade">
+      <Modal visible={editingTicketItem !== null} transparent animationType="fade" onRequestClose={() => setEditingTicketItem(null)}>
         <View style={styles.modalOverlay}>
           <View style={styles.numpadModalCard}>
             <View style={styles.numpadHeader}>
@@ -1475,6 +1505,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               <TouchableOpacity
                 onPress={() => setEditingTicketItem(null)}
                 style={styles.numpadCloseBtn}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Text style={styles.numpadCloseText}>✕</Text>
               </TouchableOpacity>
@@ -1526,7 +1557,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       </Modal>
 
       {/* Modal Táctil: Confirmar Vaciar Ticket Completo */}
-      <Modal visible={isClearTicketModalOpen} transparent animationType="fade">
+      <Modal visible={isClearTicketModalOpen} transparent animationType="fade" onRequestClose={() => setIsClearTicketModalOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModalCard}>
             <Text style={styles.modalTitle}>¿Vaciar Ticket de Venta?</Text>
@@ -1556,7 +1587,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       </Modal>
 
       {/* Modal Comprobante / Recibo Digital de Venta */}
-      <Modal visible={!!selectedReceipt} transparent animationType="fade">
+      <Modal visible={!!selectedReceipt} transparent animationType="fade" onRequestClose={() => setSelectedReceipt(null)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, styles.receiptCard]}>
             {selectedReceipt ? (
@@ -1681,7 +1712,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       </Modal>
 
       {/* Modal Confirmación de Anulación / Devolución */}
-      <Modal visible={isVoidConfirmOpen} transparent animationType="fade">
+      <Modal visible={isVoidConfirmOpen} transparent animationType="fade" onRequestClose={() => setIsVoidConfirmOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Confirmar Anulación de Venta</Text>
@@ -1972,7 +2003,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 176, 116, 0.15)",
   },
   stockBadgeTextOk: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: colors.dark.hero,
   },
@@ -1980,7 +2011,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(245, 158, 11, 0.15)",
   },
   stockBadgeTextLow: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: colors.dark.warning,
   },
@@ -1988,7 +2019,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(239, 68, 68, 0.15)",
   },
   stockBadgeTextOut: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: colors.dark.error,
   },
@@ -2165,7 +2196,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dark.surfaceContainer,
     padding: spacing.md,
     borderRadius: spacing.radiusLg,
-    marginBottom: spacing.md,
     gap: spacing.xs,
   },
   summaryRow: {
@@ -2215,7 +2245,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
-    marginBottom: spacing.md,
   },
   paymentMethodBtn: {
     flex: 1,
@@ -2315,7 +2344,7 @@ const styles = StyleSheet.create({
     borderRadius: spacing.radiusSm,
   },
   taxBadgeText: {
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: colors.dark.primaryGlow,
   },
@@ -2323,7 +2352,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(148, 163, 184, 0.15)",
   },
   taxBadgeTextExempt: {
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: colors.dark.textMuted,
   },
@@ -2385,7 +2414,7 @@ const styles = StyleSheet.create({
     color: colors.dark.textPrimary,
   },
   finSub: {
-    fontSize: 10,
+    fontSize: 12,
     color: colors.dark.textMuted,
     fontWeight: typography.weights.regular,
   },
@@ -2498,7 +2527,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dark.surfaceContainer,
     borderRadius: spacing.radiusLg,
     padding: spacing.md,
-    marginBottom: spacing.md,
   },
   tenderSectionTitle: {
     fontSize: typography.sizes.caption,
@@ -2510,7 +2538,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.xs,
-    marginBottom: spacing.sm,
   },
   tenderFieldBox: {
     flex: 1,
@@ -2526,7 +2553,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dark.surfaceContainerHighest,
   },
   tenderFieldLabel: {
-    fontSize: 11,
+    fontSize: 12,
     color: colors.dark.textSecondary,
     fontWeight: typography.weights.semibold,
   },
@@ -2544,7 +2571,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: spacing.radiusMd,
     alignItems: "center",
-    marginBottom: spacing.sm,
   },
   exactRemainingBtnText: {
     fontSize: typography.sizes.caption,
@@ -2553,13 +2579,11 @@ const styles = StyleSheet.create({
   },
   paymentNumpadContainer: {
     alignItems: "center",
-    marginVertical: spacing.xs,
   },
   balanceSummaryBox: {
     backgroundColor: colors.dark.surfaceContainerLow,
     borderRadius: spacing.radiusMd,
     padding: spacing.md,
-    marginTop: spacing.xs,
     borderWidth: 1,
     borderColor: colors.dark.border,
   },
@@ -2593,7 +2617,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   changeLabel: {
-    fontSize: 11,
+    fontSize: 12,
     color: colors.dark.textSecondary,
   },
   changeUsd: {
@@ -2698,7 +2722,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 176, 116, 0.2)",
   },
   invoiceStatusBadgeText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: colors.dark.textPrimary,
   },
@@ -2750,6 +2774,39 @@ const styles = StyleSheet.create({
     padding: 0,
     backgroundColor: colors.dark.surfaceContainerLow,
     overflow: "hidden",
+  },
+  checkoutCard: {
+    width: "100%",
+    maxWidth: 920,
+    maxHeight: "92%",
+    padding: spacing.lg,
+  },
+  checkoutHeader: {
+    marginBottom: spacing.md,
+  },
+  checkoutBody: {
+    flex: 1,
+  },
+  checkoutBodyContent: {
+    flexGrow: 1,
+  },
+  checkoutColumns: {
+    flexDirection: "row",
+    gap: spacing.lg,
+  },
+  checkoutColumnsStacked: {
+    flexDirection: "column",
+  },
+  checkoutLeft: {
+    flex: 1,
+    gap: spacing.md,
+  },
+  checkoutRight: {
+    width: 320,
+    gap: spacing.sm,
+  },
+  checkoutRightStacked: {
+    width: "100%",
   },
   receiptScroll: {
     flex: 1,
