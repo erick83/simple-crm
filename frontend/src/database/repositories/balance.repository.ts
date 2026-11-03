@@ -1,5 +1,6 @@
 import type { SqlDriver } from "../connection";
 import { Decimal, toDecimal, formatFixed4, formatUsd, formatVes } from "../../utils/decimal";
+import { parseSplitBreakdown } from "./invoice.repository";
 import type { PaymentMethod } from "./invoice.repository";
 
 export interface PaymentMethodBreakdown {
@@ -56,7 +57,8 @@ export function generatePeriodicBalance(
   db: SqlDriver,
   filter: BalanceFilter = {},
 ): PeriodicBalanceReport {
-  const conditions: string[] = [];
+  // Las facturas anuladas (VOID) nunca cuentan en el balance, igual que en el arqueo de caja
+  const conditions: string[] = ["(status IS NULL OR status != 'VOID')"];
   const params: (string | number)[] = [];
 
   if (filter.fromTimestamp !== undefined) {
@@ -120,41 +122,30 @@ export function generatePeriodicBalance(
     totalTaxVes = totalTaxVes.plus(tVes);
 
     const m = inv.payment_method;
-    if (m === "SPLIT" && inv.payment_breakdown) {
-      try {
-        const bd = JSON.parse(inv.payment_breakdown);
-        let handledAny = false;
-        if (bd.cash_usd && toDecimal(bd.cash_usd).gt(0)) {
-          methodAccumulator.CASH_USD.totalUsd = methodAccumulator.CASH_USD.totalUsd.plus(toDecimal(bd.cash_usd));
+    if (m === "SPLIT") {
+      const bd = parseSplitBreakdown(inv.payment_breakdown);
+      if (bd && (bd.cashUsd.gt(0) || bd.cashVes.gt(0) || bd.pagoMovilVes.gt(0) || bd.cardVes.gt(0))) {
+        if (bd.cashUsd.gt(0)) {
+          methodAccumulator.CASH_USD.totalUsd = methodAccumulator.CASH_USD.totalUsd.plus(bd.cashUsd);
           methodAccumulator.CASH_USD.count += 1;
-          handledAny = true;
         }
-        if (bd.cash_ves && toDecimal(bd.cash_ves).gt(0)) {
-          methodAccumulator.CASH_VES.totalVes = methodAccumulator.CASH_VES.totalVes.plus(toDecimal(bd.cash_ves));
+        if (bd.cashVes.gt(0)) {
+          methodAccumulator.CASH_VES.totalVes = methodAccumulator.CASH_VES.totalVes.plus(bd.cashVes);
           methodAccumulator.CASH_VES.count += 1;
-          handledAny = true;
         }
-        if (bd.pago_movil && toDecimal(bd.pago_movil).gt(0)) {
-          methodAccumulator.PAGO_MOVIL.totalVes = methodAccumulator.PAGO_MOVIL.totalVes.plus(toDecimal(bd.pago_movil));
+        if (bd.pagoMovilVes.gt(0)) {
+          methodAccumulator.PAGO_MOVIL.totalVes = methodAccumulator.PAGO_MOVIL.totalVes.plus(bd.pagoMovilVes);
           methodAccumulator.PAGO_MOVIL.count += 1;
-          handledAny = true;
         }
-        if (bd.card_ves && toDecimal(bd.card_ves).gt(0)) {
-          methodAccumulator.CARD_VES.totalVes = methodAccumulator.CARD_VES.totalVes.plus(toDecimal(bd.card_ves));
+        if (bd.cardVes.gt(0)) {
+          methodAccumulator.CARD_VES.totalVes = methodAccumulator.CARD_VES.totalVes.plus(bd.cardVes);
           methodAccumulator.CARD_VES.count += 1;
-          handledAny = true;
         }
-        if (!handledAny && methodAccumulator[m]) {
-          methodAccumulator[m].totalUsd = methodAccumulator[m].totalUsd.plus(usd);
-          methodAccumulator[m].totalVes = methodAccumulator[m].totalVes.plus(ves);
-          methodAccumulator[m].count += 1;
-        }
-      } catch {
-        if (methodAccumulator[m]) {
-          methodAccumulator[m].totalUsd = methodAccumulator[m].totalUsd.plus(usd);
-          methodAccumulator[m].totalVes = methodAccumulator[m].totalVes.plus(ves);
-          methodAccumulator[m].count += 1;
-        }
+      } else {
+        // Breakdown ausente, inválido o todo en cero: la venta completa se reporta como SPLIT
+        methodAccumulator.SPLIT.totalUsd = methodAccumulator.SPLIT.totalUsd.plus(usd);
+        methodAccumulator.SPLIT.totalVes = methodAccumulator.SPLIT.totalVes.plus(ves);
+        methodAccumulator.SPLIT.count += 1;
       }
     } else if (methodAccumulator[m]) {
       methodAccumulator[m].totalUsd = methodAccumulator[m].totalUsd.plus(usd);

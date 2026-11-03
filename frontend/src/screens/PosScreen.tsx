@@ -495,22 +495,11 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   }, [changeUsd, exchangeRate]);
 
   const isPaymentComplete = useMemo(() => {
-    if (selectedPaymentMethod !== "SPLIT") return true;
-    return toDecimal(remainingUsd).isZero();
-  }, [selectedPaymentMethod, remainingUsd]);
-
-  const handleOpenCheckout = () => {
-    if (ticketItems.length === 0) return;
-    setCheckoutError(null);
-    setLastInvoiceSuccess(null);
-    // Reiniciar valores de entrega rápida
-    setTenderCashUsd("");
-    setTenderCashVes("");
-    setTenderPagoMovilVes("");
-    setTenderCardVes("");
-    setActivePaymentInput("CASH_USD");
-    setIsCheckoutModalOpen(true);
-  };
+    if (!toDecimal(remainingUsd).isZero()) return false;
+    // SPLIT persiste el breakdown con los montos entregados: exigir monto exacto
+    // (sin vuelto) para que el arqueo de caja no descuadre con el vuelto físico.
+    return selectedPaymentMethod !== "SPLIT" || toDecimal(changeUsd).isZero();
+  }, [selectedPaymentMethod, remainingUsd, changeUsd]);
 
   const handleSelectPaymentMethod = (m: PaymentMethod) => {
     setSelectedPaymentMethod(m);
@@ -546,6 +535,15 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       setTenderCardVes("");
       setActivePaymentInput("CASH_USD");
     }
+  };
+
+  const handleOpenCheckout = () => {
+    if (ticketItems.length === 0) return;
+    setCheckoutError(null);
+    setLastInvoiceSuccess(null);
+    // Prefijar el monto entregado del método activo (SPLIT lo deja en cero)
+    handleSelectPaymentMethod(selectedPaymentMethod);
+    setIsCheckoutModalOpen(true);
   };
 
   const handlePaymentNumpadDigit = (digit: string) => {
@@ -617,8 +615,11 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     try {
       setCheckoutError(null);
 
-      if (selectedPaymentMethod === "SPLIT" && toDecimal(remainingUsd).gt(0)) {
+      if (toDecimal(remainingUsd).gt(0)) {
         throw new Error(`Faltan ${formatUsd(remainingUsd)} (≈ ${formatVes(remainingVes)}) para completar el cobro.`);
+      }
+      if (selectedPaymentMethod === "SPLIT" && toDecimal(changeUsd).gt(0)) {
+        throw new Error(`El cobro mixto (SPLIT) exige el monto exacto: sobran ${formatUsd(changeUsd)} (≈ ${formatVes(changeVes)}). Ajuste los montos entregados.`);
       }
 
       if (db) {
@@ -1342,6 +1343,18 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                       </Text>
                       <Text style={[styles.balanceWarnVes, typography.tabularNumeric]}>
                         ≈ {formatVes(remainingVes)}
+                      </Text>
+                    </View>
+                  </View>
+                ) : selectedPaymentMethod === "SPLIT" && toDecimal(changeUsd).gt(0) ? (
+                  <View style={styles.balanceRow}>
+                    <Text style={styles.balanceWarnLabel}>⚠️ Cobro mixto exige monto exacto — sobran:</Text>
+                    <View style={styles.balanceAmountsCol}>
+                      <Text style={[styles.balanceWarnUsd, typography.tabularNumeric]}>
+                        {formatUsd(changeUsd)}
+                      </Text>
+                      <Text style={[styles.balanceWarnVes, typography.tabularNumeric]}>
+                        ≈ {formatVes(changeVes)}
                       </Text>
                     </View>
                   </View>

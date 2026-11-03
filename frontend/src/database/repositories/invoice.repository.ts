@@ -24,6 +24,69 @@ export type PaymentMethod =
   | "CARD_VES"
   | "SPLIT";
 
+export interface SplitBreakdownAmounts {
+  cashUsd: Decimal;
+  cashVes: Decimal;
+  pagoMovilVes: Decimal;
+  cardVes: Decimal;
+}
+
+/**
+ * Única fuente de verdad para leer payment_breakdown de facturas SPLIT.
+ * Acepta ambas formas: la del POS ({cash_usd, cash_ves, pago_movil, card_ves})
+ * y la de createInvoice vía payments ([{method, amountUsd, amountVes, currency}]).
+ * Valores negativos o inválidos se fijan en cero; retorna null si el JSON no parsea.
+ */
+export function parseSplitBreakdown(json: string | null | undefined): SplitBreakdownAmounts | null {
+  if (!json) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+
+  const amt = (v: unknown): Decimal => {
+    if (typeof v !== "string" && typeof v !== "number") return new Decimal(0);
+    try {
+      const d = toDecimal(String(v));
+      return d.gt(0) ? d : new Decimal(0);
+    } catch {
+      return new Decimal(0);
+    }
+  };
+
+  const out: SplitBreakdownAmounts = {
+    cashUsd: new Decimal(0),
+    cashVes: new Decimal(0),
+    pagoMovilVes: new Decimal(0),
+    cardVes: new Decimal(0),
+  };
+
+  if (Array.isArray(parsed)) {
+    for (const p of parsed as Array<Record<string, unknown> | null>) {
+      if (!p || typeof p !== "object") continue;
+      const method = p.method;
+      if (method === "CASH_USD") out.cashUsd = out.cashUsd.plus(amt(p.amountUsd));
+      else if (method === "CASH_VES") out.cashVes = out.cashVes.plus(amt(p.amountVes));
+      else if (method === "PAGO_MOVIL") out.pagoMovilVes = out.pagoMovilVes.plus(amt(p.amountVes));
+      else if (method === "CARD_VES") out.cardVes = out.cardVes.plus(amt(p.amountVes));
+    }
+    return out;
+  }
+
+  if (parsed && typeof parsed === "object") {
+    const o = parsed as Record<string, unknown>;
+    out.cashUsd = amt(o.cash_usd);
+    out.cashVes = amt(o.cash_ves);
+    out.pagoMovilVes = amt(o.pago_movil);
+    out.cardVes = amt(o.card_ves);
+    return out;
+  }
+
+  return null;
+}
+
 export interface CreateInvoiceInput {
   shiftId: string;
   terminalId: string;

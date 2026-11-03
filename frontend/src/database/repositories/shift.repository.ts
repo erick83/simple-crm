@@ -1,6 +1,7 @@
 import type { SqlDriver } from "../connection";
 import { uuidv7 } from "../../utils/uuid7";
 import { toDecimal, formatFixed4, Decimal } from "../../utils/decimal";
+import { parseSplitBreakdown } from "./invoice.repository";
 
 export interface ShiftEntity {
   id: string;
@@ -215,15 +216,13 @@ export function calculateShiftAuditTotals(db: SqlDriver, shiftId: string): Shift
       salesPagoMovilVes = salesPagoMovilVes.plus(toDecimal(inv.total_ves));
     } else if (inv.payment_method === "CARD_VES") {
       salesCardVes = salesCardVes.plus(toDecimal(inv.total_ves));
-    } else if (inv.payment_method === "SPLIT" && inv.payment_breakdown) {
-      try {
-        const bd = JSON.parse(inv.payment_breakdown);
-        if (bd.cash_usd) salesCashUsd = salesCashUsd.plus(toDecimal(bd.cash_usd));
-        if (bd.cash_ves) salesCashVes = salesCashVes.plus(toDecimal(bd.cash_ves));
-        if (bd.pago_movil) salesPagoMovilVes = salesPagoMovilVes.plus(toDecimal(bd.pago_movil));
-        if (bd.card_ves) salesCardVes = salesCardVes.plus(toDecimal(bd.card_ves));
-      } catch {
-        // Ignorar breakdown inválido
+    } else if (inv.payment_method === "SPLIT") {
+      const bd = parseSplitBreakdown(inv.payment_breakdown);
+      if (bd) {
+        salesCashUsd = salesCashUsd.plus(bd.cashUsd);
+        salesCashVes = salesCashVes.plus(bd.cashVes);
+        salesPagoMovilVes = salesPagoMovilVes.plus(bd.pagoMovilVes);
+        salesCardVes = salesCardVes.plus(bd.cardVes);
       }
     }
   }
