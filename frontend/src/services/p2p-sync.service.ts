@@ -18,6 +18,8 @@ export interface OutboxItem {
 }
 
 export class P2pSyncService {
+  private static lastSyncAt: number | null = null;
+
   /**
    * Encola un evento en el outbox para replicación local
    */
@@ -47,6 +49,25 @@ export class P2pSyncService {
   static getPendingCount(db: SqlDriver): number {
     const [row] = db.all<{ count: number }>("SELECT COUNT(*) as count FROM peer_sync_outbox");
     return row?.count ?? 0;
+  }
+
+  /**
+   * Eventos que todavía no se replicaron a ninguna caja (el badge del shell no debe
+   * contar el historial completo del outbox como si estuviera pendiente).
+   */
+  static getUnreplicatedCount(db: SqlDriver): number {
+    const [row] = db.all<{ count: number }>(
+      "SELECT COUNT(*) as count FROM peer_sync_outbox WHERE replicated_peers = '[]'",
+    );
+    return row?.count ?? 0;
+  }
+
+  /**
+   * Última sincronización exitosa en esta sesión; null si nunca se replicó nada.
+   * shortcut: vive en memoria; persistir si el shell debe recordarla tras reiniciar.
+   */
+  static getLastSyncAt(): number | null {
+    return this.lastSyncAt;
   }
 
   /**
@@ -170,6 +191,9 @@ export class P2pSyncService {
     const res = await client.sendDeltas(peer, deltas);
     if (res.status === 200 && res.data?.ackIds) {
       this.markEventsReplicated(db, res.data.ackIds, peer.terminalId);
+      if (res.data.ackIds.length > 0) {
+        this.lastSyncAt = Date.now();
+      }
       return { sent: deltas.length, acked: res.data.ackIds.length };
     }
 

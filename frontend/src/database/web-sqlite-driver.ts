@@ -734,6 +734,12 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
       }
 
       // 9. Outbox P2P (peer_sync_outbox)
+      if (norm.includes("SELECT COUNT(*) as count FROM peer_sync_outbox WHERE replicated_peers = '[]'")) {
+        return [
+          { count: store.peer_sync_outbox.filter((o) => o.replicated_peers === "[]").length },
+        ] as unknown as T[];
+      }
+
       if (norm.includes("SELECT COUNT(*) as count FROM peer_sync_outbox")) {
         return [{ count: store.peer_sync_outbox.length }] as unknown as T[];
       }

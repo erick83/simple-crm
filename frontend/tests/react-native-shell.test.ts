@@ -3,6 +3,7 @@ import React from "react";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { formatUsd, formatVes, toDecimal, convertUsdToVes } from "../src/utils/decimal";
+import { formatSyncAge } from "../src/components/SyncBadge";
 import { createTestDb } from "./helpers";
 import { insertProduct } from "../src/database/repositories/product.repository";
 import { openShift, getOpenShift } from "../src/database/repositories/shift.repository";
@@ -31,6 +32,14 @@ describe("Design Tokens y Reglas de la Constitución", () => {
     expect(formatUsd("1250")).toBe("$ 1,250.0000");
     expect(formatVes("45625.5")).toBe("Bs. 45,625.5000");
     expect(convertUsdToVes("10.0000", "36.5000").toFixed(4)).toBe("365.0000");
+  });
+
+  it("describe la antigüedad real de la última sincronización", () => {
+    const now = 1_800_000_000_000;
+    expect(formatSyncAge(now - 30_000, now)).toBe("hace instantes");
+    expect(formatSyncAge(now - 5 * 60_000, now)).toBe("hace 5 min");
+    expect(formatSyncAge(now - 3 * 3_600_000, now)).toBe("hace 3 h");
+    expect(formatSyncAge(now - 2 * 86_400_000, now)).toBe("hace 2 d");
   });
 });
 

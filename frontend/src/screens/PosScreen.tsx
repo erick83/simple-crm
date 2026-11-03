@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   FlatList,
   Image,
@@ -92,6 +92,7 @@ export interface PosScreenProps {
   onRateChange?: (newRate: string) => void;
   onInvoiceCreated?: (invoiceId: string) => void;
   onNavigateToShifts?: () => void;
+  onNavigateToInventory?: () => void;
 }
 
 const DEFAULT_PRODUCTS: PosProductItem[] = [
@@ -114,15 +115,35 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   onRateChange,
   onInvoiceCreated,
   onNavigateToShifts,
+  onNavigateToInventory,
 }) => {
   const [exchangeRate, setExchangeRate] = useState<string>(initialExchangeRate);
   const [catalog, setCatalog] = useState<PosProductItem[]>(initialProducts ?? DEFAULT_PRODUCTS);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [categories, setCategories] = useState<CategoryEntity[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [ticketItems, setTicketItems] = useState<PosTicketItem[]>([]);
   const [stockNotice, setStockNotice] = useState<string | null>(null);
   const [activeShift, setActiveShift] = useState<ShiftEntity | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submittingRef = useRef(false);
+
+  // Aviso no bloqueante con un solo timer vivo: evita que un escaneo posterior
+  // herede el setTimeout del anterior y que el estado se actualice tras desmontar.
+  const showNotice = useCallback((message: string) => {
+    setStockNotice(message);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setStockNotice(null), 4000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, []);
 
   // Pestaña derecha (Ticket vs Ventas del Turno)
   const [rightPanelTab, setRightPanelTab] = useState<"ticket" | "history">("ticket");
@@ -169,34 +190,43 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   // Carga reactiva de catálogo, categorías y tasa desde SQLite si el driver está presente
   const refreshCatalog = useCallback(() => {
     if (db) {
-      const result = getCatalogWithBimonetaryPrices(db, initialExchangeRate, { tenantId });
-      // DB conectada = catálogo real (aunque esté vacío): los DEFAULT_PRODUCTS son solo
-      // para la ruta dev/test sin db; mostrarlos aquí permitiría "vender" productos fantasma.
-      setCatalog(
-        result.products.map((p) => ({
-          id: p.id,
-          sku: p.sku,
-          barcode: p.barcode,
-          name: p.name,
-          priceUsd: p.priceUsd,
-          category: p.categoryName ?? undefined,
-          categoryId: p.categoryId,
-          categoryName: p.categoryName,
-          currentStock: p.currentStock,
-          minStock: p.minStock,
-          isLowStock: p.isLowStock,
-          unit: p.unit,
-          imagePath: p.imagePath,
-          taxRate: p.taxRate,
-        })),
-      );
-      setExchangeRate(result.activeRate);
-
       try {
-        const cats = listCategories(db);
-        setCategories(cats);
-      } catch {
-        // Ignorar si la tabla no está lista
+        const result = getCatalogWithBimonetaryPrices(db, initialExchangeRate, { tenantId });
+        // DB conectada = catálogo real (aunque esté vacío): los DEFAULT_PRODUCTS son solo
+        // para la ruta dev/test sin db; mostrarlos aquí permitiría "vender" productos fantasma.
+        setCatalog(
+          result.products.map((p) => ({
+            id: p.id,
+            sku: p.sku,
+            barcode: p.barcode,
+            name: p.name,
+            priceUsd: p.priceUsd,
+            category: p.categoryName ?? undefined,
+            categoryId: p.categoryId,
+            categoryName: p.categoryName,
+            currentStock: p.currentStock,
+            minStock: p.minStock,
+            isLowStock: p.isLowStock,
+            unit: p.unit,
+            imagePath: p.imagePath,
+            taxRate: p.taxRate,
+          })),
+        );
+        setExchangeRate(result.activeRate);
+        setCatalogError(null);
+
+        try {
+          const cats = listCategories(db);
+          setCategories(cats);
+        } catch {
+          // Ignorar si la tabla no está lista
+        }
+      } catch (err) {
+        // Sin catálogo legible no se puede vender: mostrar el error y vaciar el grid
+        // antes que dejar a la caja operando con datos de ejemplo.
+        setCatalog([]);
+        setCategories([]);
+        setCatalogError((err as Error).message || "No se pudo leer el catálogo local.");
       }
     }
   }, [db, initialExchangeRate, tenantId]);
@@ -209,8 +239,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     // Verificar si el producto tiene stock <= 0 para advertir
     const stockVal = toDecimal(product.currentStock ?? "100.0000");
     if (stockVal.lte(0)) {
-      setStockNotice(`Aviso: "${product.name}" se encuentra sin stock (0.0000). Se añade al ticket en modo contingencia.`);
-      setTimeout(() => setStockNotice(null), 3000);
+      showNotice(`Aviso: "${product.name}" se encuentra sin stock (0.0000). Se añade al ticket en modo contingencia.`);
     }
 
     setTicketItems((prev) => {
@@ -238,33 +267,40 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         },
       ];
     });
-  }, []);
+  }, [showNotice]);
 
   // Escaneo reactivo mediante lector HID de código de barras
   useBarcodeScanner({
     target: keyEventTarget,
     onScan: (scannedBarcode) => {
       if (db) {
-        const found = findProductByBarcode(db, scannedBarcode);
-        if (found) {
-          // Buscar producto en catálogo en memoria para heredar currentStock y unit
-          const catItem = catalog.find((p) => p.id === found.productId);
-          addToCart({
-            id: found.productId,
-            sku: found.sku,
-            name: found.name,
-            priceUsd: found.priceUsd,
-            currentStock: catItem?.currentStock,
-            minStock: catItem?.minStock,
-            unit: catItem?.unit,
-            taxRate: catItem?.taxRate,
-          });
+        try {
+          const found = findProductByBarcode(db, scannedBarcode);
+          if (found) {
+            // Buscar producto en catálogo en memoria para heredar currentStock y unit
+            const catItem = catalog.find((p) => p.id === found.productId);
+            addToCart({
+              id: found.productId,
+              sku: found.sku,
+              name: found.name,
+              priceUsd: found.priceUsd,
+              currentStock: catItem?.currentStock,
+              minStock: catItem?.minStock,
+              unit: catItem?.unit,
+              taxRate: catItem?.taxRate,
+            });
+            return;
+          }
+        } catch {
+          showNotice("No se pudo consultar el catálogo local. Reintente el escaneo.");
           return;
         }
       }
       const match = catalog.find((p) => p.sku === scannedBarcode || p.barcode === scannedBarcode);
       if (match) {
         addToCart(match);
+      } else if (db) {
+        showNotice(`Código "${scannedBarcode}" no registrado en el catálogo.`);
       }
     },
   });
@@ -302,6 +338,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("CASH_USD");
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [lastInvoiceSuccess, setLastInvoiceSuccess] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Estados específicos para Cobro Combinado (SPLIT) y Pagos
   const [tenderCashUsd, setTenderCashUsd] = useState("");
@@ -550,6 +587,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     if (ticketItems.length === 0) return;
     setCheckoutError(null);
     setLastInvoiceSuccess(null);
+    setIsSubmitting(false);
+    submittingRef.current = false;
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
     // Prefijar el monto entregado del método activo (SPLIT lo deja en cero)
     handleSelectPaymentMethod(selectedPaymentMethod);
     setIsCheckoutModalOpen(true);
@@ -621,8 +661,13 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   };
 
   const handleConfirmCheckout = () => {
+    // Guardia síncrona contra el doble cobro: dos toques en el mismo tick no ven
+    // el estado de React actualizado, pero sí este ref.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     try {
       setCheckoutError(null);
+      setIsSubmitting(true);
 
       if (toDecimal(remainingUsd).gt(0)) {
         throw new Error(`Faltan ${formatUsd(remainingUsd)} (≈ ${formatVes(remainingVes)}) para completar el cobro.`);
@@ -683,12 +728,17 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
       setLastInvoiceSuccess(`¡Venta cobrada con éxito!`);
       setTicketItems([]);
-      setTimeout(() => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+      successTimerRef.current = setTimeout(() => {
         setIsCheckoutModalOpen(false);
         setLastInvoiceSuccess(null);
+        setIsSubmitting(false);
+        submittingRef.current = false;
       }, 1200);
     } catch (err) {
       setCheckoutError((err as Error).message);
+      setIsSubmitting(false);
+      submittingRef.current = false;
     }
   };
 
@@ -923,12 +973,48 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           }}
           ListEmptyComponent={
             <View style={styles.emptyCatalogContainer}>
-              <Text style={styles.emptyCatalogText}>No se encontraron productos</Text>
-              <Text style={styles.emptyCatalogSub}>
-                {searchQuery
-                  ? `Sin resultados para "${searchQuery}"`
-                  : "No hay productos en esta categoría"}
-              </Text>
+              {catalogError ? (
+                <>
+                  <Text style={styles.emptyCatalogText}>No se pudo cargar el catálogo local</Text>
+                  <Text style={styles.emptyCatalogSub}>{catalogError}</Text>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={refreshCatalog}
+                    style={styles.emptyCatalogAction}
+                    accessibilityRole="button"
+                    accessibilityLabel="Reintentar carga del catálogo"
+                  >
+                    <Text style={styles.emptyCatalogActionText}>Reintentar</Text>
+                  </TouchableOpacity>
+                </>
+              ) : catalog.length === 0 ? (
+                <>
+                  <Text style={styles.emptyCatalogText}>Aún no hay productos registrados</Text>
+                  <Text style={styles.emptyCatalogSub}>
+                    Registre productos y stock en Inventario para poder cobrar.
+                  </Text>
+                  {onNavigateToInventory ? (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={onNavigateToInventory}
+                      style={styles.emptyCatalogAction}
+                      accessibilityRole="button"
+                      accessibilityLabel="Ir a Inventario a registrar productos"
+                    >
+                      <Text style={styles.emptyCatalogActionText}>Ir a Inventario</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Text style={styles.emptyCatalogText}>No se encontraron productos</Text>
+                  <Text style={styles.emptyCatalogSub}>
+                    {searchQuery.trim()
+                      ? `Sin resultados para "${searchQuery.trim()}"`
+                      : "No hay productos en esta categoría"}
+                  </Text>
+                </>
+              )}
             </View>
           }
         />
@@ -1416,15 +1502,21 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
               <TouchableOpacity
                 activeOpacity={0.8}
-                disabled={!isPaymentComplete}
+                disabled={!isPaymentComplete || isSubmitting}
                 onPress={handleConfirmCheckout}
                 style={[
                   styles.confirmCheckoutBtn,
-                  !isPaymentComplete && styles.confirmCheckoutBtnDisabled,
+                  (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnDisabled,
                 ]}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !isPaymentComplete || isSubmitting }}
               >
                 <Text style={styles.confirmCheckoutBtnText}>
-                  {isPaymentComplete ? "CONFIRMAR COBRO" : "PAGO INCOMPLETO"}
+                  {isSubmitting
+                    ? "PROCESANDO COBRO..."
+                    : isPaymentComplete
+                      ? "CONFIRMAR COBRO"
+                      : "PAGO INCOMPLETO"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1445,7 +1537,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             {rateError ? <Text style={styles.errorText}>{rateError}</Text> : null}
 
             <View style={styles.modalInputGroup}>
-              <Text style={styles.inputLabel}>Nueva Tasa a VES (ej. 42.5000):</Text>
+              <Text style={styles.inputLabel}>
+                Nueva Tasa a VES (actual: {formatVes(exchangeRate)}):
+              </Text>
               <TextInput
                 style={[styles.modalInput, typography.tabularNumeric]}
                 keyboardType="decimal-pad"
@@ -2059,6 +2153,21 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.caption,
     color: colors.dark.textMuted,
     marginTop: 4,
+  },
+  emptyCatalogAction: {
+    minHeight: spacing.touchTargetMin,
+    minWidth: 160,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: colors.dark.primary,
+    borderRadius: spacing.radiusMd,
+  },
+  emptyCatalogActionText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.textPrimary,
   },
   priceUsd: {
     fontSize: typography.sizes.body,

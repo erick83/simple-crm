@@ -9,13 +9,23 @@ export type SyncState = "online" | "syncing" | "offline" | "error";
 export interface SyncBadgeProps {
   state: SyncState;
   pendingCount?: number;
-  lastSyncText?: string;
+  /** Timestamp real de la última réplica exitosa; null/undefined si nunca hubo una. */
+  lastSyncAt?: number | null;
+}
+
+export function formatSyncAge(lastSyncAt: number, now: number = Date.now()): string {
+  const minutes = Math.floor(Math.max(0, now - lastSyncAt) / 60000);
+  if (minutes < 1) return "hace instantes";
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  return `hace ${Math.floor(hours / 24)} d`;
 }
 
 export const SyncBadge: React.FC<SyncBadgeProps> = ({
   state,
   pendingCount = 0,
-  lastSyncText = "hace 1m",
+  lastSyncAt = null,
 }) => {
   const getBadgeConfig = () => {
     switch (state) {
@@ -23,7 +33,7 @@ export const SyncBadge: React.FC<SyncBadgeProps> = ({
         return {
           color: colors.dark.hero,
           dot: "●",
-          text: `En línea | ${lastSyncText} (${pendingCount} pendientes)`,
+          text: `En línea | ${lastSyncAt ? formatSyncAge(lastSyncAt) : "sin sincronizar"} (${pendingCount} pendientes)`,
         };
       case "syncing":
         return {
@@ -35,13 +45,15 @@ export const SyncBadge: React.FC<SyncBadgeProps> = ({
         return {
           color: colors.dark.warning,
           dot: "⚡",
-          text: `Offline (${pendingCount} en cola local)`,
+          text: lastSyncAt
+            ? `Trabajando offline | ${pendingCount} en cola local | Última sinc: ${formatSyncAge(lastSyncAt)}`
+            : `Trabajando offline | ${pendingCount} en cola local | Sin pares P2P`,
         };
       case "error":
         return {
           color: colors.dark.error,
           dot: "⚠",
-          text: `Error de sincronización`,
+          text: `Error de sincronización | ${pendingCount} en cola local`,
         };
     }
   };
@@ -77,4 +89,3 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.semibold,
   },
 });
-

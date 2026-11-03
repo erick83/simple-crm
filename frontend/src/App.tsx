@@ -23,6 +23,7 @@ export interface AppProps {
   initialDb?: SqlDriver;
   tenantId?: string;
   terminalId?: string;
+  branchName?: string;
   fileStore?: FileStore;
   [key: string]: unknown;
 }
@@ -31,21 +32,25 @@ export const App: React.FC<AppProps> = ({
   initialDb,
   tenantId = "TENANT-001",
   terminalId = "TERM-01",
+  branchName,
   fileStore: customFileStore,
 }) => {
   const [currentTab, setCurrentTab] = useState<NavTab>("pos");
   const db = initialDb ?? getOrCreateDefaultSqlDriver({ tenantId, terminalId });
   const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
   const [pendingCount, setPendingCount] = useState<number>(() =>
-    db ? P2pSyncService.getPendingCount(db) : 0,
+    db ? P2pSyncService.getUnreplicatedCount(db) : 0,
   );
-  const [syncState] = useState<SyncState>("online");
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(() =>
+    P2pSyncService.getLastSyncAt(),
+  );
   const [activeShift, setActiveShift] = useState<ShiftEntity | null>(null);
 
   const refreshPendingCount = useCallback(() => {
     if (!db) return;
     try {
-      setPendingCount(P2pSyncService.getPendingCount(db));
+      setPendingCount(P2pSyncService.getUnreplicatedCount(db));
+      setLastSyncAt(P2pSyncService.getLastSyncAt());
     } catch {
       // Ignorar si db aún no inicializada
     }
@@ -83,6 +88,7 @@ export const App: React.FC<AppProps> = ({
               refreshActiveShift();
             }}
             onNavigateToShifts={() => setCurrentTab("shifts")}
+            onNavigateToInventory={() => setCurrentTab("inventory")}
           />
         );
       case "inventory":
@@ -110,6 +116,10 @@ export const App: React.FC<AppProps> = ({
         return <MonthlyBalanceScreen db={db} />;
     }
   };
+
+  // Sin una réplica exitosa comprobable, el shell declara offline (local-first),
+  // no "en línea" con un timestamp inventado.
+  const syncState: SyncState = lastSyncAt ? "online" : "offline";
 
   const navItem = (tab: NavTab, label: string, icon: string) => {
     const isActive = currentTab === tab;
@@ -176,13 +186,13 @@ export const App: React.FC<AppProps> = ({
           {/* Top Header */}
           <View style={styles.topHeader}>
             <View style={styles.headerLeft}>
-              <Text style={styles.locationText}>📍 Sede Principal — Maracaibo</Text>
+              <Text style={styles.locationText}>📍 {branchName ?? `Terminal ${terminalId}`}</Text>
             </View>
             <View style={styles.headerRight}>
               <SyncBadge
                 state={syncState}
                 pendingCount={pendingCount}
-                lastSyncText="hace 1m"
+                lastSyncAt={lastSyncAt}
               />
             </View>
           </View>

@@ -114,6 +114,7 @@ describe("PR-12: Replicación Cruzada P2P de Catálogo, Deltas de Kardex e Imág
     });
 
     expect(P2pSyncService.getPendingCount(db1)).toBe(1);
+    expect(P2pSyncService.getUnreplicatedCount(db1)).toBe(1);
 
     // 2. Ejecutar replicación de Caja 1 hacia Caja 2
     const syncResult = await P2pSyncService.syncWithPeer({
@@ -149,6 +150,8 @@ describe("PR-12: Replicación Cruzada P2P de Catálogo, Deltas de Kardex e Imág
     // 5. Verificar que el outbox de Caja 1 ya no tiene eventos pendientes para Caja 2
     const pendingForCaja2 = P2pSyncService.getPendingEvents(db1, "CAJA-02");
     expect(pendingForCaja2).toHaveLength(0);
+    expect(P2pSyncService.getUnreplicatedCount(db1)).toBe(0);
+    expect(P2pSyncService.getLastSyncAt()).toBeTypeOf("number");
 
     // 6. Idempotencia: si se re-sincroniza el mismo delta, no falla ni corrompe nada
     const reSync = await P2pSyncService.syncWithPeer({
