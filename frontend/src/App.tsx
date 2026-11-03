@@ -197,7 +197,7 @@ const AppShell: React.FC<AppProps> = ({
         {isMobile ? null : (
           <View style={[styles.sidebar, isTablet && styles.sidebarRail]}>
             <View style={[styles.brandContainer, isTablet && styles.brandContainerRail]}>
-              <BrandLogo variant={isTablet ? "mark" : "lockup"} width={isTablet ? 38 : 156} />
+              <BrandLogo variant={isTablet ? "mark" : "lockup"} width={isTablet ? 38 : 120} />
               {isTablet ? null : (
                 <Text style={styles.brandCaption}>POS · P2P Local-First</Text>
               )}
