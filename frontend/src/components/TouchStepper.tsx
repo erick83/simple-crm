@@ -23,6 +23,8 @@ export const TouchStepper: React.FC<TouchStepperProps> = ({
         activeOpacity={0.7}
         onPress={onDecrement}
         style={styles.button}
+        accessibilityRole="button"
+        accessibilityLabel="Disminuir cantidad"
       >
         <Text style={styles.buttonText}>−</Text>
       </TouchableOpacity>
@@ -35,6 +37,8 @@ export const TouchStepper: React.FC<TouchStepperProps> = ({
         activeOpacity={0.7}
         onPress={onIncrement}
         style={styles.button}
+        accessibilityRole="button"
+        accessibilityLabel="Aumentar cantidad"
       >
         <Text style={styles.buttonText}>+</Text>
       </TouchableOpacity>

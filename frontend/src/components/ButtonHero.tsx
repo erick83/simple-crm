@@ -25,6 +25,9 @@ export const ButtonHero: React.FC<ButtonHeroProps> = ({
       disabled={disabled}
       onPress={onPress}
       style={[styles.container, disabled && styles.disabled]}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      accessibilityLabel={`${label}, ${totalFormatted}${secondaryFormatted ? `, ${secondaryFormatted}` : ""}`}
     >
       <View style={styles.content}>
         <Text style={styles.label}>{label}</Text>

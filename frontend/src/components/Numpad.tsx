@@ -19,12 +19,14 @@ export const Numpad: React.FC<NumpadProps> = ({
   onDecimal,
   showDecimal = false,
 }) => {
-  const renderKey = (key: string, onPress: () => void, isAction = false) => (
+  const renderKey = (key: string, onPress: () => void, isAction = false, label?: string) => (
     <TouchableOpacity
       key={key}
       activeOpacity={0.7}
       onPress={onPress}
       style={[styles.key, isAction && styles.actionKey]}
+      accessibilityRole="button"
+      accessibilityLabel={label ?? key}
     >
       <Text
         style={[
@@ -56,12 +58,10 @@ export const Numpad: React.FC<NumpadProps> = ({
       </View>
       <View style={styles.row}>
         {showDecimal && onDecimal
-          ? renderKey(".", onDecimal, true)
-          : renderKey("C", onClear, true)}
+          ? renderKey(".", onDecimal, true, "Punto decimal")
+          : renderKey("C", onClear, true, "Borrar todo")}
         {renderKey("0", () => onDigit("0"))}
-        {showDecimal && onDecimal
-          ? renderKey("⌫", onBackspace, true)
-          : renderKey("⌫", onBackspace, true)}
+        {renderKey("⌫", onBackspace, true, "Borrar último dígito")}
       </View>
       {showDecimal && onDecimal ? (
         <View style={styles.row}>
@@ -69,6 +69,8 @@ export const Numpad: React.FC<NumpadProps> = ({
             activeOpacity={0.7}
             onPress={onClear}
             style={[styles.clearWideKey]}
+            accessibilityRole="button"
+            accessibilityLabel="Borrar todo"
           >
             <Text style={styles.clearWideText}>BORRAR TODO (C)</Text>
           </TouchableOpacity>

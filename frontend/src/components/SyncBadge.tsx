@@ -22,6 +22,18 @@ export function formatSyncAge(lastSyncAt: number, now: number = Date.now()): str
   return `hace ${Math.floor(hours / 24)} d`;
 }
 
+function plural(count: number, singular: string, pluralForm: string): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+/**
+ * "En línea" exige una réplica previa y la cola vacía: con eventos sin replicar el
+ * shell declara offline aunque exista un último sync (evita "En línea | 5 pendientes").
+ */
+export function deriveSyncState(lastSyncAt: number | null, pendingCount: number): SyncState {
+  return lastSyncAt !== null && pendingCount === 0 ? "online" : "offline";
+}
+
 export const SyncBadge: React.FC<SyncBadgeProps> = ({
   state,
   pendingCount = 0,
@@ -33,13 +45,13 @@ export const SyncBadge: React.FC<SyncBadgeProps> = ({
         return {
           color: colors.dark.hero,
           dot: "●",
-          text: `En línea | ${lastSyncAt ? formatSyncAge(lastSyncAt) : "sin sincronizar"} (${pendingCount} pendientes)`,
+          text: `En línea | ${lastSyncAt ? formatSyncAge(lastSyncAt) : "sin sincronizar"} (${plural(pendingCount, "pendiente", "pendientes")})`,
         };
       case "syncing":
         return {
           color: colors.dark.primaryGlow,
           dot: "↻",
-          text: `Sincronizando ${pendingCount} operaciones...`,
+          text: `Sincronizando ${plural(pendingCount, "operación", "operaciones")}...`,
         };
       case "offline":
         return {

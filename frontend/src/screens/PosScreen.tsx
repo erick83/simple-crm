@@ -31,6 +31,7 @@ import type { BimonetaryProduct } from "../services/catalog.service";
 import { registerManualRate } from "../services/bcv-exchange.service";
 import {
   createInvoice,
+  getInvoiceById,
   listInvoicesByShift,
   voidInvoice,
 } from "../database/repositories/invoice.repository";
@@ -45,8 +46,9 @@ import {
   findProductByBarcode,
 } from "../services/barcode-scanner.service";
 import type { KeyEventTargetLike } from "../services/barcode-scanner.service";
-import { listCategories } from "../database/repositories/product.repository";
+import { listCategories, getProductById } from "../database/repositories/product.repository";
 import type { CategoryEntity } from "../database/repositories/product.repository";
+import { PAYMENT_METHOD_LABELS } from "../database/repositories/balance.repository";
 import {
   createDefaultFileStore,
   resolveProductImageUri,
@@ -324,6 +326,26 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     });
   }, [catalog, searchQuery, selectedCategory]);
 
+  // El detalle de factura guarda productId: el comprobante muestra el nombre actual del
+  // producto (ON DELETE RESTRICT impide borrar uno ya vendido) y nunca el UUID crudo.
+  // shortcut: un renombre cambia el nombre en recibos viejos; migrar invoice_items.product_name
+  // si el comprobante debe congelar el nombre del momento de la venta.
+  const receiptItemName = useCallback(
+    (productId: string): string => {
+      const current = catalog.find((p) => p.id === productId);
+      if (current) return current.name;
+      if (db) {
+        try {
+          return getProductById(db, productId)?.name ?? "Producto no disponible";
+        } catch {
+          // Sin lectura del catálogo, caer al texto genérico
+        }
+      }
+      return "Producto no disponible";
+    },
+    [catalog, db],
+  );
+
   // Estado del modal de actualización de tasa
   const [isRateModalOpen, setIsRateModalOpen] = useState(false);
   const [newRateInput, setNewRateInput] = useState("");
@@ -338,6 +360,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("CASH_USD");
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [lastInvoiceSuccess, setLastInvoiceSuccess] = useState<string | null>(null);
+  const [lastCreatedInvoice, setLastCreatedInvoice] = useState<InvoiceEntity | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Estados específicos para Cobro Combinado (SPLIT) y Pagos
@@ -587,6 +610,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     if (ticketItems.length === 0) return;
     setCheckoutError(null);
     setLastInvoiceSuccess(null);
+    setLastCreatedInvoice(null);
     setIsSubmitting(false);
     submittingRef.current = false;
     if (successTimerRef.current) clearTimeout(successTimerRef.current);
@@ -673,9 +697,10 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         throw new Error(`Faltan ${formatUsd(remainingUsd)} (≈ ${formatVes(remainingVes)}) para completar el cobro.`);
       }
       if (selectedPaymentMethod === "SPLIT" && toDecimal(changeUsd).gt(0)) {
-        throw new Error(`El cobro mixto (SPLIT) exige el monto exacto: sobran ${formatUsd(changeUsd)} (≈ ${formatVes(changeVes)}). Ajuste los montos entregados.`);
+        throw new Error(`El cobro mixto exige el monto exacto: sobran ${formatUsd(changeUsd)} (≈ ${formatVes(changeVes)}). Ajuste los montos entregados.`);
       }
 
+      let createdInvoice: InvoiceEntity | null = null;
       if (db) {
         const openShift = getOpenShift(db, terminalId);
         if (!openShift) {
@@ -721,25 +746,66 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           items: itemsInput,
         });
 
+        // La factura ya está persistida: si falla la relectura no debe convertirse en
+        // un error de cobro que invite a reintentar y duplicar la venta.
+        try {
+          createdInvoice = getInvoiceById(db, invoiceId) ?? null;
+        } catch {
+          createdInvoice = null;
+        }
         onInvoiceCreated?.(invoiceId);
         refreshShiftInvoices();
         refreshCatalog();
       }
 
-      setLastInvoiceSuccess(`¡Venta cobrada con éxito!`);
-      setTicketItems([]);
+      setLastCreatedInvoice(createdInvoice);
+      setLastInvoiceSuccess(
+        createdInvoice
+          ? `¡Venta ${createdInvoice.invoiceNumber} cobrada con éxito!`
+          : "¡Venta cobrada con éxito!",
+      );
       if (successTimerRef.current) clearTimeout(successTimerRef.current);
       successTimerRef.current = setTimeout(() => {
         setIsCheckoutModalOpen(false);
+        // Vaciar el ticket solo al cerrar: si se vacía antes, el resumen del modal
+        // muestra $0.0000 y un "vuelto" igual a lo entregado durante el éxito.
+        setTicketItems([]);
         setLastInvoiceSuccess(null);
+        setLastCreatedInvoice(null);
         setIsSubmitting(false);
         submittingRef.current = false;
-      }, 1200);
+      }, 2500);
     } catch (err) {
       setCheckoutError((err as Error).message);
       setIsSubmitting(false);
       submittingRef.current = false;
     }
+  };
+
+  // Cierra el cobro; si ya se cobró, descarta el ticket recién vendido sin dejarlo
+  // disponible para un segundo cobro.
+  const handleCloseCheckout = () => {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    setIsCheckoutModalOpen(false);
+    if (lastInvoiceSuccess) setTicketItems([]);
+    setLastInvoiceSuccess(null);
+    setLastCreatedInvoice(null);
+    setIsSubmitting(false);
+    submittingRef.current = false;
+  };
+
+  // Entrega el comprobante justo después del cobro: elimina la búsqueda manual del
+  // recibo en la pestaña Ventas mientras la venta aún está en pantalla.
+  const handleViewCreatedReceipt = () => {
+    if (!lastCreatedInvoice) return;
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    setSelectedReceipt(lastCreatedInvoice);
+    setTicketItems([]);
+    setLastInvoiceSuccess(null);
+    setLastCreatedInvoice(null);
+    setIsCheckoutModalOpen(false);
+    setIsSubmitting(false);
+    submittingRef.current = false;
   };
 
   const handleConfirmVoid = () => {
@@ -811,6 +877,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               setIsRateModalOpen(true);
             }}
             style={styles.ratePill}
+            accessibilityRole="button"
+            accessibilityLabel={`Tasa oficial ${formatVes(exchangeRate)}. Editar tasa`}
           >
             <Text style={styles.ratePillLabel}>Tasa Oficial:</Text>
             <Text style={[styles.ratePillValue, typography.tabularNumeric]}>
@@ -838,9 +906,16 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             onChangeText={setSearchQuery}
             autoCapitalize="none"
             clearButtonMode="while-editing"
+            accessibilityLabel="Buscar producto por nombre, SKU o código de barras"
           />
           {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.searchClearBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              style={styles.searchClearBtn}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Borrar búsqueda"
+            >
               <Text style={styles.searchClearText}>✕</Text>
             </TouchableOpacity>
           ) : null}
@@ -860,6 +935,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 styles.categoryChip,
                 selectedCategory === "ALL" && styles.categoryChipActive,
               ]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: selectedCategory === "ALL" }}
+              accessibilityLabel={`Todas las categorías, ${catalog.length} productos`}
             >
               <Text
                 style={[
@@ -882,6 +960,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                   activeOpacity={0.8}
                   onPress={() => setSelectedCategory(cat.id)}
                   style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={`${cat.name}, ${count} productos`}
                 >
                   <Text
                     style={[
@@ -914,6 +995,12 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 activeOpacity={0.7}
                 onPress={() => addToCart(item)}
                 style={[styles.productCard, isOutOfStock && styles.productCardOutStock]}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isOutOfStock
+                    ? `${item.name}, ${formatUsd(item.priceUsd)}, agotado. Agregar al ticket`
+                    : `${item.name}, ${formatUsd(item.priceUsd)}, stock ${formatFixed4(item.currentStock ?? "0")} ${item.unit ?? "und"}. Agregar al ticket`
+                }
               >
                 {/* Cabecera de la tarjeta: Imagen + SKU + Badge de Stock */}
                 <View style={styles.cardTopRow}>
@@ -1029,6 +1116,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             onPress={() => setRightPanelTab("ticket")}
             style={[styles.rightTabBtn, rightPanelTab === "ticket" && styles.rightTabBtnActive]}
             testID="tab-btn-ticket"
+            accessibilityRole="button"
+            accessibilityState={{ selected: rightPanelTab === "ticket" }}
+            accessibilityLabel={`Ticket actual, ${ticketItems.length} ítems`}
           >
             <Text style={[styles.rightTabText, rightPanelTab === "ticket" && styles.rightTabTextActive]}>
               🛒 Ticket ({ticketItems.length})
@@ -1042,6 +1132,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             }}
             style={[styles.rightTabBtn, rightPanelTab === "history" && styles.rightTabBtnActive]}
             testID="tab-btn-history"
+            accessibilityRole="button"
+            accessibilityState={{ selected: rightPanelTab === "history" }}
+            accessibilityLabel={`Ventas del turno, ${shiftInvoices.length} facturas`}
           >
             <Text style={[styles.rightTabText, rightPanelTab === "history" && styles.rightTabTextActive]}>
               📜 Ventas ({shiftInvoices.length})
@@ -1064,6 +1157,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               activeOpacity={0.7}
               onPress={() => setIsClearTicketModalOpen(true)}
               style={styles.clearTicketBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Vaciar ticket de venta"
             >
               <Text style={styles.clearTicketText}>🗑️ Vaciar</Text>
             </TouchableOpacity>
@@ -1112,6 +1207,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     activeOpacity={0.7}
                     onPress={() => openNumpadForLine(item)}
                     style={styles.numpadTriggerBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Editar cantidad de ${item.name} con teclado numérico`}
                   >
                     <Text style={styles.numpadTriggerText}>🔢</Text>
                   </TouchableOpacity>
@@ -1133,6 +1230,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     onPress={() => removeTicketItem(item.productId)}
                     style={styles.deleteLineBtn}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Quitar ${item.name} del ticket`}
                   >
                     <Text style={styles.deleteLineText}>✕</Text>
                   </TouchableOpacity>
@@ -1195,6 +1294,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 onPress={() => setSelectedReceipt(inv)}
                 style={[styles.invoiceCard, isVoid && styles.invoiceCardVoid]}
                 testID={`invoice-card-${inv.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`${inv.invoiceNumber}, ${isVoid ? "anulada" : "cobrada"}, ${formatUsd(inv.totalUsd)}. Ver comprobante`}
               >
                 <View style={styles.invoiceCardHeader}>
                   <View style={styles.invoiceNumberRow}>
@@ -1210,7 +1311,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
                 <View style={styles.invoiceCardMeta}>
                   <Text style={styles.invoiceMethodText}>
-                    {inv.paymentMethod} • {inv.items.length} {inv.items.length === 1 ? "ítem" : "ítems"}
+                    {PAYMENT_METHOD_LABELS[inv.paymentMethod] ?? inv.paymentMethod} • {inv.items.length}{" "}
+                    {inv.items.length === 1 ? "ítem" : "ítems"}
                   </Text>
                   <View style={styles.invoiceAmounts}>
                     <Text style={[styles.invoiceTotalUsd, isVoid && styles.textLineThrough, typography.tabularNumeric]}>
@@ -1243,7 +1345,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         visible={isCheckoutModalOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => setIsCheckoutModalOpen(false)}
+        onRequestClose={handleCloseCheckout}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, styles.checkoutCard]}>
@@ -1259,6 +1361,22 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               {lastInvoiceSuccess ? (
                 <View style={styles.successBox}>
                   <Text style={styles.successText}>{lastInvoiceSuccess}</Text>
+                  {lastCreatedInvoice ? (
+                    <Text style={[styles.successAmount, typography.tabularNumeric]}>
+                      {formatUsd(lastCreatedInvoice.totalUsd)} • {formatVes(lastCreatedInvoice.totalVes)}
+                    </Text>
+                  ) : null}
+                  {lastCreatedInvoice ? (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={handleViewCreatedReceipt}
+                      style={styles.successLinkBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Ver comprobante de la venta ${lastCreatedInvoice.invoiceNumber}`}
+                    >
+                      <Text style={styles.successLinkText}>Ver comprobante</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               ) : null}
             </View>
@@ -1316,7 +1434,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                         { id: "CASH_VES", label: "Efectivo VES (Bs.)" },
                         { id: "PAGO_MOVIL", label: "Pago Móvil (Bs.)" },
                         { id: "CARD_VES", label: "Punto / Tarjeta (Bs.)" },
-                        { id: "SPLIT", label: "Cobro Mixto (SPLIT)" },
+                        { id: "SPLIT", label: "Cobro Mixto" },
                       ].map((m) => {
                         const isSelected = selectedPaymentMethod === m.id;
                         return (
@@ -1325,6 +1443,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                             activeOpacity={0.8}
                             onPress={() => handleSelectPaymentMethod(m.id as PaymentMethod)}
                             style={[styles.paymentMethodBtn, isSelected && styles.paymentMethodBtnActive]}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: isSelected }}
+                            accessibilityLabel={m.label}
                           >
                             <Text
                               style={[
@@ -1345,7 +1466,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     <Text style={styles.tenderSectionTitle}>
                       {selectedPaymentMethod === "SPLIT"
                         ? "Desglose de Montos Entregados por el Cliente:"
-                        : `Monto Entregado (${selectedPaymentMethod === "CASH_USD" ? "USD" : "VES"}):`}
+                        : `Monto Entregado (${selectedPaymentMethod === "CASH_USD" ? "USD" : "VES"}). Edite el monto si recibe más:`}
                     </Text>
 
                     <View style={styles.tenderInputsGrid}>
@@ -1358,6 +1479,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                             styles.tenderFieldBox,
                             activePaymentInput === "CASH_USD" && styles.tenderFieldBoxActive,
                           ]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: activePaymentInput === "CASH_USD" }}
+                          accessibilityLabel={`Editar monto en efectivo USD, actual ${tenderCashUsd || "0.0000"}`}
                         >
                           <Text style={styles.tenderFieldLabel}>💵 Efectivo USD ($)</Text>
                           <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
@@ -1375,6 +1499,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                             styles.tenderFieldBox,
                             activePaymentInput === "CASH_VES" && styles.tenderFieldBoxActive,
                           ]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: activePaymentInput === "CASH_VES" }}
+                          accessibilityLabel={`Editar monto en efectivo VES, actual ${tenderCashVes || "0.0000"}`}
                         >
                           <Text style={styles.tenderFieldLabel}>🇻🇪 Efectivo VES (Bs.)</Text>
                           <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
@@ -1392,6 +1519,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                             styles.tenderFieldBox,
                             activePaymentInput === "PAGO_MOVIL" && styles.tenderFieldBoxActive,
                           ]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: activePaymentInput === "PAGO_MOVIL" }}
+                          accessibilityLabel={`Editar monto de Pago Móvil, actual ${tenderPagoMovilVes || "0.0000"}`}
                         >
                           <Text style={styles.tenderFieldLabel}>📱 Pago Móvil (Bs.)</Text>
                           <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
@@ -1409,6 +1539,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                             styles.tenderFieldBox,
                             activePaymentInput === "CARD_VES" && styles.tenderFieldBoxActive,
                           ]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: activePaymentInput === "CARD_VES" }}
+                          accessibilityLabel={`Editar monto de tarjeta, actual ${tenderCardVes || "0.0000"}`}
                         >
                           <Text style={styles.tenderFieldLabel}>💳 Tarjeta / Punto (Bs.)</Text>
                           <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
@@ -1439,6 +1572,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                       activeOpacity={0.8}
                       onPress={handleSetExactRemaining}
                       style={styles.exactRemainingBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Completar el restante en ${activePaymentInput === "CASH_USD" ? "dólares" : "bolívares"}`}
                     >
                       <Text style={styles.exactRemainingBtnText}>
                         ⚡ Completar restante en {activePaymentInput === "CASH_USD" ? "USD" : "VES"}: {activePaymentInput === "CASH_USD" ? formatUsd(remainingUsd) : formatVes(remainingVes)}
@@ -1494,10 +1629,14 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             <View style={styles.modalActions}>
               <TouchableOpacity
                 activeOpacity={0.7}
-                onPress={() => setIsCheckoutModalOpen(false)}
+                onPress={handleCloseCheckout}
                 style={styles.cancelBtn}
+                accessibilityRole="button"
+                accessibilityLabel={lastInvoiceSuccess ? "Cerrar aviso de venta cobrada" : "Volver al ticket sin cobrar"}
               >
-                <Text style={styles.cancelBtnText}>Volver al Ticket</Text>
+                <Text style={styles.cancelBtnText}>
+                  {lastInvoiceSuccess ? "Cerrar" : "Volver al Ticket"}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -1510,13 +1649,24 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 ]}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: !isPaymentComplete || isSubmitting }}
+                accessibilityLabel={
+                  lastInvoiceSuccess
+                    ? "Cobro exitoso"
+                    : isSubmitting
+                      ? "Procesando cobro"
+                      : isPaymentComplete
+                        ? "Confirmar cobro"
+                        : "Pago incompleto, no se puede confirmar"
+                }
               >
                 <Text style={styles.confirmCheckoutBtnText}>
-                  {isSubmitting
-                    ? "PROCESANDO COBRO..."
-                    : isPaymentComplete
-                      ? "CONFIRMAR COBRO"
-                      : "PAGO INCOMPLETO"}
+                  {lastInvoiceSuccess
+                    ? "COBRO EXITOSO"
+                    : isSubmitting
+                      ? "PROCESANDO COBRO..."
+                      : isPaymentComplete
+                        ? "CONFIRMAR COBRO"
+                        : "PAGO INCOMPLETO"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1547,6 +1697,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 placeholderTextColor={colors.dark.textMuted}
                 value={newRateInput}
                 onChangeText={setNewRateInput}
+                accessibilityLabel="Nueva tasa de cambio a bolívares"
               />
             </View>
 
@@ -1558,6 +1709,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 placeholderTextColor={colors.dark.textMuted}
                 value={rateReasonInput}
                 onChangeText={setRateReasonInput}
+                accessibilityLabel="Motivo del cambio de tasa"
               />
             </View>
 
@@ -1566,6 +1718,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 activeOpacity={0.7}
                 onPress={() => setIsRateModalOpen(false)}
                 style={styles.cancelBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Cancelar cambio de tasa"
               >
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
@@ -1574,6 +1728,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 activeOpacity={0.8}
                 onPress={handleApplyRate}
                 style={styles.applyBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Aplicar nueva tasa"
               >
                 <Text style={styles.applyBtnText}>APLICAR TASA</Text>
               </TouchableOpacity>
@@ -1600,6 +1756,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 onPress={() => setEditingTicketItem(null)}
                 style={styles.numpadCloseBtn}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar edición de cantidad"
               >
                 <Text style={styles.numpadCloseText}>✕</Text>
               </TouchableOpacity>
@@ -1634,6 +1792,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 activeOpacity={0.7}
                 onPress={() => setEditingTicketItem(null)}
                 style={styles.cancelBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Cancelar edición de cantidad"
               >
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
@@ -1642,6 +1802,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 activeOpacity={0.8}
                 onPress={handleConfirmNumpadQuantity}
                 style={styles.applyBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Aplicar cantidad"
               >
                 <Text style={styles.applyBtnText}>APLICAR CANTIDAD</Text>
               </TouchableOpacity>
@@ -1664,6 +1826,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 activeOpacity={0.7}
                 onPress={() => setIsClearTicketModalOpen(false)}
                 style={styles.cancelBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Volver al ticket sin vaciar"
               >
                 <Text style={styles.cancelBtnText}>Volver al Ticket</Text>
               </TouchableOpacity>
@@ -1672,6 +1836,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 activeOpacity={0.8}
                 onPress={handleClearAllTicket}
                 style={styles.deleteConfirmBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Confirmar vaciado del ticket"
               >
                 <Text style={styles.deleteConfirmBtnText}>SÍ, VACIAR TICKET</Text>
               </TouchableOpacity>
@@ -1714,7 +1880,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 {/* Detalle de Productos */}
                 <View style={styles.receiptItemsTable}>
                   <View style={styles.receiptTableHeader}>
-                    <Text style={[styles.receiptTh, { flex: 3 }]}>Producto (ID)</Text>
+                    <Text style={[styles.receiptTh, { flex: 3 }]}>Producto</Text>
                     <Text style={[styles.receiptTh, { flex: 1, textAlign: "center" }]}>Cant.</Text>
                     <Text style={[styles.receiptTh, { flex: 2, textAlign: "right" }]}>Precio</Text>
                     <Text style={[styles.receiptTh, { flex: 2, textAlign: "right" }]}>Total</Text>
@@ -1722,7 +1888,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                   {selectedReceipt.items.map((it) => (
                     <View key={it.id} style={styles.receiptItemRow}>
                       <Text style={[styles.receiptItemName, { flex: 3 }]} numberOfLines={1}>
-                        {it.productId}
+                        {receiptItemName(it.productId)}
                       </Text>
                       <Text style={[styles.receiptItemQty, { flex: 1, textAlign: "center" }, typography.tabularNumeric]}>
                         {formatFixed4(it.quantity)}
@@ -1769,7 +1935,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                       Tasa congelada: {formatVes(selectedReceipt.exchangeRate)} / USD
                     </Text>
                     <Text style={styles.receiptRateNoticeText}>
-                      Método de pago: {selectedReceipt.paymentMethod}
+                      Método de pago: {PAYMENT_METHOD_LABELS[selectedReceipt.paymentMethod] ?? selectedReceipt.paymentMethod}
                     </Text>
                   </View>
                 </View>
@@ -1786,6 +1952,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                       }}
                       style={styles.receiptVoidBtn}
                       testID="btn-open-void-modal"
+                      accessibilityRole="button"
+                      accessibilityLabel="Anular venta y restituir stock"
                     >
                       <Text style={styles.receiptVoidBtnText}>🔴 ANULAR VENTA (DEVOLUCIÓN)</Text>
                     </TouchableOpacity>
@@ -1795,6 +1963,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     activeOpacity={0.7}
                     onPress={() => setSelectedReceipt(null)}
                     style={styles.receiptCloseBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cerrar comprobante"
                   >
                     <Text style={styles.receiptCloseBtnText}>Cerrar Comprobante</Text>
                   </TouchableOpacity>
@@ -1825,6 +1995,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 placeholderTextColor={colors.dark.textMuted}
                 value={voidReasonInput}
                 onChangeText={setVoidReasonInput}
+                accessibilityLabel="Motivo de anulación de la venta"
               />
             </View>
 
@@ -1833,6 +2004,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 activeOpacity={0.7}
                 onPress={() => setIsVoidConfirmOpen(false)}
                 style={styles.cancelBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Cancelar anulación"
               >
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
@@ -1841,6 +2014,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 onPress={handleConfirmVoid}
                 style={styles.deleteConfirmBtn}
                 testID="btn-confirm-void"
+                accessibilityRole="button"
+                accessibilityLabel="Confirmar anulación y restituir stock"
               >
                 <Text style={styles.deleteConfirmBtnText}>SÍ, ANULAR Y RESTITUIR STOCK</Text>
               </TouchableOpacity>
@@ -1899,7 +2074,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: spacing.radiusMd,
-    minHeight: 38,
+    minHeight: spacing.touchTargetMin,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1909,7 +2084,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
   },
   catalogColumn: {
-    flex: 3,
+    flex: 1,
     padding: spacing.md,
     borderRightWidth: 1,
     borderRightColor: colors.dark.border,
@@ -1953,7 +2128,7 @@ const styles = StyleSheet.create({
     borderColor: colors.dark.border,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
-    height: 44,
+    height: spacing.touchTargetMin,
   },
   searchIcon: {
     fontSize: 16,
@@ -1966,7 +2141,10 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.body,
   },
   searchClearBtn: {
-    padding: spacing.xs,
+    minWidth: spacing.touchTargetMin,
+    minHeight: spacing.touchTargetMin,
+    justifyContent: "center",
+    alignItems: "center",
   },
   searchClearText: {
     color: colors.dark.textMuted,
@@ -1981,7 +2159,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   categoryChip: {
-    minHeight: 36,
+    minHeight: spacing.touchTargetMin,
     paddingHorizontal: spacing.md,
     backgroundColor: colors.dark.surfaceContainerLow,
     borderRadius: spacing.radiusFull,
@@ -2030,7 +2208,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   catalogGrid: {
-    gap: spacing.md,
+    paddingBottom: spacing.sm,
   },
   productCard: {
     flex: 1,
@@ -2179,7 +2357,7 @@ const styles = StyleSheet.create({
     color: colors.dark.textSecondary,
   },
   ticketColumn: {
-    flex: 2,
+    flex: 1,
     backgroundColor: colors.dark.surfaceContainerLow,
     display: "flex",
     flexDirection: "column",
@@ -2295,9 +2473,30 @@ const styles = StyleSheet.create({
     borderRadius: spacing.radiusMd,
     marginBottom: spacing.sm,
     alignItems: "center",
+    gap: spacing.xs,
   },
   successText: {
     fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    color: colors.dark.hero,
+    textAlign: "center",
+  },
+  successAmount: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: colors.dark.textPrimary,
+  },
+  successLinkBtn: {
+    minHeight: spacing.touchTargetMin,
+    paddingHorizontal: spacing.lg,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: spacing.radiusMd,
+    borderWidth: 1,
+    borderColor: colors.dark.hero,
+  },
+  successLinkText: {
+    fontSize: typography.sizes.subText,
     fontWeight: typography.weights.bold,
     color: colors.dark.hero,
   },
@@ -2428,6 +2627,8 @@ const styles = StyleSheet.create({
     color: colors.dark.textPrimary,
   },
   clearTicketBtn: {
+    minHeight: spacing.touchTargetMin,
+    justifyContent: "center",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     backgroundColor: "rgba(239, 68, 68, 0.15)",
@@ -2471,8 +2672,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   numpadTriggerBtn: {
-    width: 36,
-    height: 48,
+    width: spacing.touchTargetMin,
+    height: spacing.touchTargetMin,
     backgroundColor: colors.dark.surfaceContainerHighest,
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
@@ -2489,8 +2690,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   deleteLineBtn: {
-    width: 28,
-    height: 28,
+    width: spacing.touchTargetMin,
+    height: spacing.touchTargetMin,
     borderRadius: spacing.radiusFull,
     backgroundColor: "rgba(239, 68, 68, 0.1)",
     justifyContent: "center",
@@ -2574,7 +2775,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   numpadCloseBtn: {
-    padding: spacing.xs,
+    minWidth: spacing.touchTargetMin,
+    minHeight: spacing.touchTargetMin,
+    justifyContent: "center",
+    alignItems: "center",
   },
   numpadCloseText: {
     fontSize: 18,
@@ -2651,6 +2855,8 @@ const styles = StyleSheet.create({
   tenderFieldBox: {
     flex: 1,
     minWidth: "45%",
+    minHeight: spacing.touchTargetMin,
+    justifyContent: "center",
     backgroundColor: colors.dark.surfaceContainerHigh,
     borderRadius: spacing.radiusMd,
     padding: spacing.sm,
@@ -2673,6 +2879,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   exactRemainingBtn: {
+    minHeight: spacing.touchTargetMin,
+    justifyContent: "center",
     backgroundColor: "rgba(29, 97, 224, 0.2)",
     borderWidth: 1,
     borderColor: colors.dark.primaryGlow,
@@ -2760,7 +2968,7 @@ const styles = StyleSheet.create({
   },
   rightTabBtn: {
     flex: 1,
-    height: 44,
+    height: spacing.touchTargetMin,
     justifyContent: "center",
     alignItems: "center",
     borderBottomWidth: 2,
@@ -2945,7 +3153,7 @@ const styles = StyleSheet.create({
   receiptInvoiceNum: {
     fontSize: typography.sizes.titleMd,
     fontWeight: typography.weights.bold,
-    color: colors.dark.primary,
+    color: colors.dark.primaryGlow,
     marginTop: 4,
   },
   receiptDate: {

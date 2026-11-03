@@ -41,12 +41,12 @@ export interface BalanceFilter {
   terminalId?: string;
 }
 
-const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CASH_USD: "Efectivo USD ($)",
   CASH_VES: "Efectivo VES (Bs.)",
   PAGO_MOVIL: "Pago Móvil (Bs.)",
   CARD_VES: "Tarjeta de Débito (Punto Bs.)",
-  SPLIT: "Pago Dividido (Split)",
+  SPLIT: "Cobro Mixto",
 };
 
 /**

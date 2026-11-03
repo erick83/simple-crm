@@ -3,7 +3,7 @@ import React from "react";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { formatUsd, formatVes, toDecimal, convertUsdToVes } from "../src/utils/decimal";
-import { formatSyncAge } from "../src/components/SyncBadge";
+import { deriveSyncState, formatSyncAge } from "../src/components/SyncBadge";
 import { createTestDb } from "./helpers";
 import { insertProduct } from "../src/database/repositories/product.repository";
 import { openShift, getOpenShift } from "../src/database/repositories/shift.repository";
@@ -40,6 +40,13 @@ describe("Design Tokens y Reglas de la Constitución", () => {
     expect(formatSyncAge(now - 5 * 60_000, now)).toBe("hace 5 min");
     expect(formatSyncAge(now - 3 * 3_600_000, now)).toBe("hace 3 h");
     expect(formatSyncAge(now - 2 * 86_400_000, now)).toBe("hace 2 d");
+  });
+
+  it("solo declara en línea con réplica previa y cola de sincronización vacía", () => {
+    expect(deriveSyncState(1_800_000_000_000, 0)).toBe("online");
+    expect(deriveSyncState(1_800_000_000_000, 3)).toBe("offline");
+    expect(deriveSyncState(null, 0)).toBe("offline");
+    expect(deriveSyncState(null, 2)).toBe("offline");
   });
 });
 

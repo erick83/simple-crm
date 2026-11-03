@@ -3,7 +3,7 @@ import { SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } fro
 import { colors } from "./theme/colors";
 import { spacing } from "./theme/spacing";
 import { typography } from "./theme/typography";
-import { SyncBadge } from "./components/SyncBadge";
+import { SyncBadge, deriveSyncState } from "./components/SyncBadge";
 import type { SyncState } from "./components/SyncBadge";
 import { PosScreen } from "./screens/PosScreen";
 import { ShiftsScreen } from "./screens/ShiftsScreen";
@@ -117,9 +117,9 @@ export const App: React.FC<AppProps> = ({
     }
   };
 
-  // Sin una réplica exitosa comprobable, el shell declara offline (local-first),
-  // no "en línea" con un timestamp inventado.
-  const syncState: SyncState = lastSyncAt ? "online" : "offline";
+  // "En línea" exige cola vacía: con ventas sin replicar el shell declara offline
+  // aunque exista una réplica previa (evita el chip "En línea | 5 pendientes").
+  const syncState: SyncState = deriveSyncState(lastSyncAt, pendingCount);
 
   const navItem = (tab: NavTab, label: string, icon: string) => {
     const isActive = currentTab === tab;
@@ -129,8 +129,13 @@ export const App: React.FC<AppProps> = ({
         activeOpacity={0.8}
         onPress={() => setCurrentTab(tab)}
         style={[styles.navItem, isActive && styles.navItemActive]}
+        accessibilityRole="button"
+        accessibilityState={{ selected: isActive }}
+        accessibilityLabel={`${label}${isActive ? ", sección activa" : ""}`}
       >
-        <Text style={styles.navIcon}>{icon}</Text>
+        <Text style={styles.navIcon} accessibilityElementsHidden importantForAccessibility="no">
+          {icon}
+        </Text>
         <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{label}</Text>
       </TouchableOpacity>
     );
