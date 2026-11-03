@@ -500,6 +500,19 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         return;
       }
 
+      // 12. UPSERT app_metadata (Configuración)
+      if (/^INSERT INTO app_metadata/i.test(norm)) {
+        const [key, value, updated_at] = params;
+        const row = store.app_metadata.find((m) => m.key === key);
+        if (row) {
+          row.value = value ?? "";
+          row.updated_at = updated_at ?? Date.now();
+        } else {
+          store.app_metadata.push({ key: key ?? "", value: value ?? "", updated_at: updated_at ?? Date.now() });
+        }
+        return;
+      }
+
       // 11. UPDATE peer_sync_outbox
       if (/^UPDATE peer_sync_outbox SET replicated_peers/i.test(norm)) {
         const [replicated_peers, id] = params;
@@ -756,6 +769,11 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
       // 10. Licenciamiento (license_state)
       if (norm.includes("FROM license_state")) {
         return store.license_state.filter((l) => l.id === "current_license") as unknown as T[];
+      }
+
+      // 11. Configuración (app_metadata)
+      if (norm.includes("FROM app_metadata")) {
+        return store.app_metadata.filter((m) => m.key === params[0]) as unknown as T[];
       }
 
       return [];

@@ -5,11 +5,11 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 ---
 
 ## 1. Estado de la Última Sesión (Handoff)
-* **Fecha:** 2026-11-02
+* **Fecha:** 2026-11-03
 * **Arquitectura:** React Native (Expo SDK 52, Android / Web / Windows) + SQLite local (`op-sqlite`) + P2P LAN Wi-Fi (mDNS/HTTP) + Validador Offline Ed25519. $0 Cloud / Cero Servidores Backend.
 * **Look & Feel:** Dark Mode nativo (`#061426`), Touch Targets 48px/64px, Landscape 1280×800 px, aritmética decimal fija a 4 decimales (`tabular-nums`).
-* **Estado actual:** PR-22 completado (Fases 1 a 7 cerradas al 100%, 22 Micro-PRs ejecutados con éxito). El sistema POS P2P Local-First cuenta con: (1) Pestaña reactiva de historial de ventas del turno en `PosScreen.tsx` con listado de facturas, badges de estado y selector de comprobante; (2) Recibo digital térmico modal con formato bimoneda USD/VES, detalle de ítems, cálculo de IVA y desglose de formas de pago; (3) Proceso de anulación auditada con motivo obligatorio, actualización a estado `'VOID'`, restitución conmutativa del inventario mediante movimientos de Kardex tipo `'RETURN'` y exclusión estricta de facturas anuladas en el arqueo de caja y Cierre Z; (4) Encolado automático de facturas emitidas y anuladas en `peer_sync_outbox` para sincronización P2P en red local; (5) Suite completa con 129 tests pasando al 100% (23 archivos de test) y validación de tipos TypeScript sin errores (`tsc --noEmit`).
-* **Próxima tarea a ejecutar:** Sistema POS y Turnos de Caja (Fase 7) completamente consolidado. Listo para siguientes fases de escalamiento o nuevas funcionalidades solicitadas por el usuario.
+* **Estado actual:** PR-23 completado. Nuevo **Módulo de Configuración** (`SettingsScreen` + `settings.repository.ts` sobre la tabla `app_metadata`): define el **IVA general sugerido** (%) editable por el operador; el formulario de producto en Inventario ahora expone el campo "IVA (% sugerido)" prellenado con el valor global, con sobrescritura opcional por producto (tasas reducidas/exentas). Los fallbacks hardcodeados `0.1600` quedan solo como red de seguridad de último recurso; la fuente de verdad es `products.tax_rate` congelado en `invoice_items`. Soporte `app_metadata` agregado al driver Web/Desktop. 139 tests pasando al 100% (24 suites) y typecheck TypeScript limpio.
+* **Próxima tarea a ejecutar:** Pendientes de producto: gestión de usuarios/cajeros y réplica P2P de la configuración de `app_metadata`.
 
 ---
 
@@ -94,3 +94,8 @@ Archivo de seguimiento y memoria persistente entre sesiones de desarrollo para A
 - [x] **PR-22: Historial de Ventas del Turno, Devoluciones (RETURN) y Sync P2P de Facturas**
   * *Descripción:* Pestaña de facturas emitidas en el turno con vista de comprobante/recibo digital, opción de anulación/devolución auditada que genera el delta `'RETURN'` en Kardex conmutativo, exclusión de facturas anuladas en el arqueo del turno (`calculateShiftAuditTotals` y `performCierreZ`), y encolado de `INVOICE` en `peer_sync_outbox` para sincronización Wi-Fi LAN entre cajas.
   * *Criterio de éxito:* Anular una factura restituye el stock de forma conmutativa, excluye su recaudación del turno y encola eventos en outbox para sincronización P2P. 129 tests pasando al 100% (23 suites) y typecheck TypeScript limpio.
+
+### Fase 8: Configuración Operativa
+- [x] **PR-23: Módulo de Configuración con IVA General Sugerido**
+  * *Descripción:* Crear `SettingsScreen.tsx` (pestaña "Configuración" en `App.tsx`) con repositorio `settings.repository.ts` sobre la tabla `app_metadata` existente (upsert key/value). El IVA general sugerido (%) se configura globalmente y el formulario de producto en Inventario lo trae prellenado con sobrescritura opcional por producto (tasas reducidas 8% o exentas 0%). El badge y el cálculo del ticket ya consumían `products.tax_rate`, sin cambios.
+  * *Criterio de éxito:* Cambiar el IVA sugerido afecta solo productos nuevos; productos existentes y facturas emitidas conservan su tasa congelada. 139 tests (24 suites) y typecheck limpio.

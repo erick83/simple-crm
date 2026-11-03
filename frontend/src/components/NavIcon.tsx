@@ -1,7 +1,7 @@
 import React from "react";
 import Svg, { Circle, Path } from "react-native-svg";
 
-export type NavIconName = "pos" | "inventory" | "shifts" | "balance";
+export type NavIconName = "pos" | "inventory" | "shifts" | "balance" | "settings";
 
 export interface NavIconProps {
   name: NavIconName;
@@ -53,6 +53,16 @@ export const NavIcon: React.FC<NavIconProps> = ({ name, size = 22, color }) => (
         <Path d="M12 20V4.4" />
         <Path d="M19 20v-9.6" />
         <Path d="M2.8 20h18.4" />
+      </>
+    ) : null}
+    {name === "settings" ? (
+      <>
+        <Path d="M3.5 8h8.2" />
+        <Circle cx={14.6} cy={8} r={1.8} />
+        <Path d="M17.8 8h2.7" />
+        <Path d="M3.5 16h2.7" />
+        <Circle cx={9.1} cy={16} r={1.8} />
+        <Path d="M12.3 16h8.2" />
       </>
     ) : null}
   </Svg>

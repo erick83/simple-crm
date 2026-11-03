@@ -43,6 +43,11 @@ import type {
 } from "../database/repositories/product.repository";
 import { getLatestRate } from "../database/repositories/exchange.repository";
 import {
+  getDefaultTaxRate,
+  taxPercentToRate,
+  taxRateToPercent,
+} from "../database/repositories/settings.repository";
+import {
   createDefaultFileStore,
   createDefaultImageEncoder,
   resolveProductImageUri,
@@ -204,6 +209,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   const [formUnit, setFormUnit] = useState<string>("und");
   const [formPriceUsd, setFormPriceUsd] = useState("");
   const [formCostUsd, setFormCostUsd] = useState("");
+  const [formTaxRate, setFormTaxRate] = useState("");
   const [formMinStock, setFormMinStock] = useState("5");
   const [formInitialStock, setFormInitialStock] = useState("0");
   const [formImagePath, setFormImagePath] = useState<string | null>(null);
@@ -384,6 +390,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormUnit("und");
     setFormPriceUsd("");
     setFormCostUsd("");
+    setFormTaxRate(taxRateToPercent(getDefaultTaxRate(db)));
     setFormMinStock("5");
     setFormInitialStock("0");
     setFormImagePath(null);
@@ -404,6 +411,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormUnit(item.unit || "und");
     setFormPriceUsd(item.priceUsd);
     setFormCostUsd(item.costUsd);
+    setFormTaxRate(taxRateToPercent(item.taxRate));
     setFormMinStock(formatQuantity(item.minStock));
     setFormInitialStock(formatQuantity(item.currentStock));
     setFormImagePath(item.imagePath);
@@ -473,6 +481,11 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
         throw new Error("El precio y el costo no pueden ser negativos");
       }
 
+      // IVA explícito del formulario; vacío = IVA sugerido global
+      const taxRateStr = formTaxRate.trim()
+        ? taxPercentToRate(formTaxRate)
+        : getDefaultTaxRate(db);
+
       if (db) {
         const now = Date.now();
         let savedId = editingProductId;
@@ -493,6 +506,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               unit: formUnit.trim() || "und",
               priceUsd: priceDec.toFixed(4),
               costUsd: costDec.toFixed(4),
+              taxRate: taxRateStr,
               minStock: minStockDec.toFixed(4),
             },
             now,
@@ -524,6 +538,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               unit: formUnit.trim() || "und",
               priceUsd: priceDec.toFixed(4),
               costUsd: costDec.toFixed(4),
+              taxRate: taxRateStr,
               minStock: minStockDec.toFixed(4),
               imagePath: formImagePath,
               terminalId,
@@ -1314,6 +1329,19 @@ ListEmptyComponent = {
               placeholderTextColor={theme.textMuted}
               value={formCostUsd}
               onChangeText={setFormCostUsd}
+            />
+          </View>
+
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.inputLabel}>IVA (% sugerido)</Text>
+            <TextInput
+              style={[styles.modalInput, typography.tabularNumeric]}
+              placeholder={taxRateToPercent(getDefaultTaxRate(db))}
+              keyboardType="decimal-pad"
+              placeholderTextColor={theme.textMuted}
+              value={formTaxRate}
+              onChangeText={setFormTaxRate}
+              accessibilityLabel="Alícuota de IVA del producto en porcentaje"
             />
           </View>
 

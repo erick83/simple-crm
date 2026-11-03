@@ -15,6 +15,7 @@ import { PosScreen } from "./screens/PosScreen";
 import { ShiftsScreen } from "./screens/ShiftsScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { MonthlyBalanceScreen } from "./screens/MonthlyBalanceScreen";
+import { SettingsScreen } from "./screens/SettingsScreen";
 import { getOrCreateDefaultSqlDriver } from "./database/connection";
 import type { SqlDriver } from "./database/connection";
 import { createDefaultFileStore } from "./services/image-compressor.service";
@@ -23,7 +24,7 @@ import { P2pSyncService } from "./services/p2p-sync.service";
 import { getOpenShift } from "./database/repositories/shift.repository";
 import type { ShiftEntity } from "./database/repositories/shift.repository";
 
-type NavTab = "pos" | "inventory" | "shifts" | "balance";
+type NavTab = "pos" | "inventory" | "shifts" | "balance" | "settings";
 
 /** Fila completa (escritorio), riel vertical (tablet) o barra inferior (móvil). */
 type NavVariant = "row" | "rail" | "bottom";
@@ -33,6 +34,7 @@ const NAV_ITEMS: ReadonlyArray<{ tab: NavTab; label: string; icon: NavIconName }
   { tab: "inventory", label: "Inventario", icon: "inventory" },
   { tab: "shifts", label: "Turnos", icon: "shifts" },
   { tab: "balance", label: "Balance", icon: "balance" },
+  { tab: "settings", label: "Configuración", icon: "settings" },
 ];
 
 export interface AppProps {
@@ -139,6 +141,8 @@ const AppShell: React.FC<AppProps> = ({
         );
       case "balance":
         return <MonthlyBalanceScreen db={db} />;
+      case "settings":
+        return <SettingsScreen db={db} tenantId={tenantId} terminalId={terminalId} />;
     }
   };
 
