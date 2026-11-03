@@ -241,7 +241,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     // Verificar si el producto tiene stock <= 0 para advertir
     const stockVal = toDecimal(product.currentStock ?? "100.0000");
     if (stockVal.lte(0)) {
-      showNotice(`Aviso: "${product.name}" se encuentra sin stock (0.0000). Se añade al ticket en modo contingencia.`);
+      showNotice(`"${product.name}" no tiene stock registrado. Se agregó al ticket y el inventario quedará en negativo.`);
     }
 
     setTicketItems((prev) => {
@@ -563,12 +563,16 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     return convertUsdToVes(changeUsd, exchangeRate).toFixed(4);
   }, [changeUsd, exchangeRate]);
 
-  const isPaymentComplete = useMemo(() => {
-    if (!toDecimal(remainingUsd).isZero()) return false;
+  // Lo que bloquea el cobro se nombra en el botón: el cajero no busca la cifra en el resumen.
+  const checkoutBlocker = useMemo(() => {
+    if (toDecimal(remainingUsd).gt(0)) return `FALTAN ${formatUsd(remainingUsd)}`;
     // SPLIT persiste el breakdown con los montos entregados: exigir monto exacto
     // (sin vuelto) para que el arqueo de caja no descuadre con el vuelto físico.
-    return selectedPaymentMethod !== "SPLIT" || toDecimal(changeUsd).isZero();
+    if (selectedPaymentMethod === "SPLIT" && toDecimal(changeUsd).gt(0))
+      return `SOBRAN ${formatUsd(changeUsd)}`;
+    return null;
   }, [selectedPaymentMethod, remainingUsd, changeUsd]);
+  const isPaymentComplete = checkoutBlocker === null;
 
   const handleSelectPaymentMethod = (m: PaymentMethod) => {
     setSelectedPaymentMethod(m);
@@ -880,7 +884,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             accessibilityRole="button"
             accessibilityLabel={`Tasa oficial ${formatVes(exchangeRate)}. Editar tasa`}
           >
-            <Text style={styles.ratePillLabel}>Tasa Oficial:</Text>
+            <Text style={styles.ratePillLabel}>Tasa oficial:</Text>
             <Text style={[styles.ratePillValue, typography.tabularNumeric]}>
               {formatVes(exchangeRate)}
             </Text>
@@ -1243,7 +1247,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No hay productos en el ticket</Text>
               <Text style={styles.emptySubText}>
-                Escanee con la pistola HID o seleccione del catálogo
+                Escanee el código de barras o toque un producto del catálogo
               </Text>
             </View>
           }
@@ -1261,7 +1265,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               </View>
 
               <View style={styles.financialSummaryRow}>
-                <Text style={styles.finLabel}>IVA Estimado:</Text>
+                <Text style={styles.finLabel}>IVA:</Text>
                 <Text style={[styles.finValue, typography.tabularNumeric]}>
                   {formatUsd(taxUsd)} <Text style={styles.finSub}>({formatVes(taxVes)})</Text>
                 </Text>
@@ -1330,7 +1334,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             <View style={styles.emptyHistoryBox}>
               <Text style={styles.emptyHistoryText}>No hay ventas en este turno</Text>
               <Text style={styles.emptyHistorySub}>
-                Las ventas cobradas se listarán aquí con opción de comprobante y devolución.
+                Cada venta cobrada aparecerá aquí con su comprobante y la opción de anularla.
               </Text>
             </View>
           }
@@ -1353,8 +1357,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             <View style={styles.checkoutHeader}>
               <Text style={styles.modalTitle}>Confirmar Cobro de Venta</Text>
               <Text style={styles.modalNotice}>
-                Al confirmar, se congelarán de forma inmutable la tasa del segundo de cobro y los
-                totales legales en ambas monedas, descontando el inventario atómicamente.
+                Al confirmar se guardan la tasa del día y los totales en dólares y bolívares, y se
+                descuenta el inventario. La venta no se edita después: si hay un error, anúlela
+                desde su comprobante.
               </Text>
 
               {checkoutError ? <Text style={styles.errorText}>{checkoutError}</Text> : null}
@@ -1388,14 +1393,14 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                   {/* Resumen de Importes Bimoneda con desglose de IVA */}
                   <View style={styles.checkoutSummaryCard}>
                     <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Subtotal Base Imponible:</Text>
+                      <Text style={styles.summaryLabel}>Subtotal (base imponible):</Text>
                       <Text style={[styles.summarySubtotalUsd, typography.tabularNumeric]}>
                         {formatUsd(subtotalUsd)}
                       </Text>
                     </View>
 
                     <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Impuesto IVA Calculado:</Text>
+                      <Text style={styles.summaryLabel}>IVA:</Text>
                       <Text style={[styles.summaryTaxUsd, typography.tabularNumeric]}>
                         {formatUsd(taxUsd)}
                       </Text>
@@ -1404,21 +1409,21 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     <View style={styles.summaryDivider} />
 
                     <View style={styles.summaryRow}>
-                      <Text style={styles.summaryTotalHeroLabel}>Total Legal en Dólares (USD):</Text>
+                      <Text style={styles.summaryTotalHeroLabel}>Total legal en USD:</Text>
                       <Text style={[styles.summaryTotalUsd, typography.tabularNumeric]}>
                         {formatUsd(totalUsd)}
                       </Text>
                     </View>
 
                     <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Equivalente Legal en Bolívares (VES):</Text>
+                      <Text style={styles.summaryLabel}>Equivalente legal en VES:</Text>
                       <Text style={[styles.summaryTotalVes, typography.tabularNumeric]}>
                         {formatVes(totalVes)}
                       </Text>
                     </View>
 
                     <View style={styles.summaryRowSmall}>
-                      <Text style={styles.summaryLabelSmall}>Tasa Oficial Congelada:</Text>
+                      <Text style={styles.summaryLabelSmall}>Tasa oficial congelada:</Text>
                       <Text style={[styles.summaryValueSmall, typography.tabularNumeric]}>
                         {formatVes(exchangeRate)}
                       </Text>
@@ -1427,13 +1432,13 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
                   {/* Selección de Método de Pago */}
                   <View>
-                    <Text style={styles.paymentMethodTitle}>Seleccione Modalidad de Cobro:</Text>
+                    <Text style={styles.paymentMethodTitle}>Forma de pago:</Text>
                     <View style={styles.paymentMethodsGrid}>
                       {[
                         { id: "CASH_USD", label: "Efectivo USD ($)" },
                         { id: "CASH_VES", label: "Efectivo VES (Bs.)" },
                         { id: "PAGO_MOVIL", label: "Pago Móvil (Bs.)" },
-                        { id: "CARD_VES", label: "Punto / Tarjeta (Bs.)" },
+                        { id: "CARD_VES", label: "Tarjeta / Punto (Bs.)" },
                         { id: "SPLIT", label: "Cobro Mixto" },
                       ].map((m) => {
                         const isSelected = selectedPaymentMethod === m.id;
@@ -1465,8 +1470,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                   <View style={styles.tenderSection}>
                     <Text style={styles.tenderSectionTitle}>
                       {selectedPaymentMethod === "SPLIT"
-                        ? "Desglose de Montos Entregados por el Cliente:"
-                        : `Monto Entregado (${selectedPaymentMethod === "CASH_USD" ? "USD" : "VES"}). Edite el monto si recibe más:`}
+                        ? "Montos entregados por el cliente (deben sumar el total exacto, sin vuelto):"
+                        : `Monto recibido (${selectedPaymentMethod === "CASH_USD" ? "USD" : "VES"}): viene precargado con el total exacto. Cámbielo si el cliente entrega otro monto.`}
                     </Text>
 
                     <View style={styles.tenderInputsGrid}>
@@ -1585,7 +1590,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                   <View style={styles.balanceSummaryBox}>
                     {toDecimal(remainingUsd).gt(0) ? (
                       <View style={styles.balanceRow}>
-                        <Text style={styles.balanceWarnLabel}>⚠️ Saldo Restante por Pagar:</Text>
+                        <Text style={styles.balanceWarnLabel}>⚠️ Falta por cobrar:</Text>
                         <View style={styles.balanceAmountsCol}>
                           <Text style={[styles.balanceWarnUsd, typography.tabularNumeric]}>
                             {formatUsd(remainingUsd)}
@@ -1597,7 +1602,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                       </View>
                     ) : selectedPaymentMethod === "SPLIT" && toDecimal(changeUsd).gt(0) ? (
                       <View style={styles.balanceRow}>
-                        <Text style={styles.balanceWarnLabel}>⚠️ Cobro mixto exige monto exacto — sobran:</Text>
+                        <Text style={styles.balanceWarnLabel}>
+                          ⚠️ Sobran (el cobro mixto no da vuelto):
+                        </Text>
                         <View style={styles.balanceAmountsCol}>
                           <Text style={[styles.balanceWarnUsd, typography.tabularNumeric]}>
                             {formatUsd(changeUsd)}
@@ -1609,7 +1616,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                       </View>
                     ) : (
                       <View style={styles.balanceRow}>
-                        <Text style={styles.balanceSuccessLabel}>✓ Monto Cubierto Totalmente</Text>
+                        <Text style={styles.balanceSuccessLabel}>✓ Pago completo</Text>
                         <View style={styles.balanceAmountsCol}>
                           <Text style={styles.changeLabel}>Vuelto a entregar:</Text>
                           <Text style={[styles.changeUsd, typography.tabularNumeric]}>
@@ -1654,9 +1661,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     ? "Cobro exitoso"
                     : isSubmitting
                       ? "Procesando cobro"
-                      : isPaymentComplete
-                        ? "Confirmar cobro"
-                        : "Pago incompleto, no se puede confirmar"
+                      : checkoutBlocker
+                        ? `${checkoutBlocker}: no se puede confirmar el cobro`
+                        : "Confirmar cobro"
                 }
               >
                 <Text style={styles.confirmCheckoutBtnText}>
@@ -1664,9 +1671,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     ? "COBRO EXITOSO"
                     : isSubmitting
                       ? "PROCESANDO COBRO..."
-                      : isPaymentComplete
-                        ? "CONFIRMAR COBRO"
-                        : "PAGO INCOMPLETO"}
+                      : checkoutBlocker ?? "CONFIRMAR COBRO"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1678,17 +1683,17 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       <Modal visible={isRateModalOpen} transparent animationType="fade" onRequestClose={() => setIsRateModalOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Actualizar Tasa BCV / Moneda</Text>
+            <Text style={styles.modalTitle}>Actualizar tasa del día</Text>
             <Text style={styles.modalNotice}>
-              Al modificar la tasa, todos los precios mostrados en Bolívares (VES) se
-              recalcularán reactivamente al instante sin alterar los precios base en USD.
+              Los precios en bolívares se recalculan al instante con la nueva tasa. Las ventas ya
+              cobradas conservan la tasa con la que se emitieron.
             </Text>
 
             {rateError ? <Text style={styles.errorText}>{rateError}</Text> : null}
 
             <View style={styles.modalInputGroup}>
               <Text style={styles.inputLabel}>
-                Nueva Tasa a VES (actual: {formatVes(exchangeRate)}):
+                Nueva tasa (Bs. por USD). Actual: {formatVes(exchangeRate)}
               </Text>
               <TextInput
                 style={[styles.modalInput, typography.tabularNumeric]}
@@ -1702,7 +1707,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             </View>
 
             <View style={styles.modalInputGroup}>
-              <Text style={styles.inputLabel}>Motivo del cambio (Auditoría obligatoria):</Text>
+              <Text style={styles.inputLabel}>Motivo del cambio (obligatorio y auditado):</Text>
               <TextInput
                 style={styles.modalInput}
                 placeholder="Ej. Actualización vespertina oficial BCV"
@@ -1773,7 +1778,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               </Text>
               {editingTicketItem ? (
                 <Text style={[styles.numpadDisplaySub, typography.tabularNumeric]}>
-                  Total estimado: {formatUsd(toDecimal(numpadValue || "0").times(toDecimal(editingTicketItem.unitPriceUsd)).toFixed(4))}
+                  Total de la línea: {formatUsd(toDecimal(numpadValue || "0").times(toDecimal(editingTicketItem.unitPriceUsd)).toFixed(4))}
                 </Text>
               ) : null}
             </View>
@@ -1837,7 +1842,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 onPress={handleClearAllTicket}
                 style={styles.deleteConfirmBtn}
                 accessibilityRole="button"
-                accessibilityLabel="Confirmar vaciado del ticket"
+                accessibilityLabel="Sí, vaciar ticket"
               >
                 <Text style={styles.deleteConfirmBtnText}>SÍ, VACIAR TICKET</Text>
               </TouchableOpacity>
@@ -1855,7 +1860,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 {/* Cabecera del Recibo Térmico */}
                 <View style={styles.receiptHeader}>
                   <Text style={styles.receiptBrand}>BISYNC POS</Text>
-                  <Text style={styles.receiptSubBrand}>P2P Local-First • Comprobante de Venta</Text>
+                  <Text style={styles.receiptSubBrand}>Comprobante de venta</Text>
                   <Text style={styles.receiptTerminal}>
                     Terminal: {selectedReceipt.terminalId} • Turno #{selectedReceipt.shiftId.slice(-4).toUpperCase()}
                   </Text>
@@ -1868,7 +1873,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 {/* Badge de Estado */}
                 <View style={[styles.receiptStatusBadge, selectedReceipt.status === "VOID" ? styles.receiptBadgeVoid : styles.receiptBadgeOk]}>
                   <Text style={styles.receiptStatusText}>
-                    {selectedReceipt.status === "VOID" ? "⚠️ VENTA ANULADA (DEVOLUCIÓN)" : "✅ VENTA COBRADA VÁLIDA"}
+                    {selectedReceipt.status === "VOID" ? "⚠️ VENTA ANULADA (DEVOLUCIÓN)" : "✅ VENTA COBRADA"}
                   </Text>
                   {selectedReceipt.status === "VOID" && selectedReceipt.voidReason ? (
                     <Text style={styles.receiptVoidReason}>Motivo: {selectedReceipt.voidReason}</Text>
@@ -1908,13 +1913,13 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 {/* Totales Bimoneda */}
                 <View style={styles.receiptTotalsBox}>
                   <View style={styles.receiptTotalRow}>
-                    <Text style={styles.receiptTotalLabel}>Subtotal Base:</Text>
+                    <Text style={styles.receiptTotalLabel}>Subtotal:</Text>
                     <Text style={[styles.receiptTotalVal, typography.tabularNumeric]}>
                       {formatUsd(selectedReceipt.subtotalUsd)} ({formatVes(selectedReceipt.subtotalVes)})
                     </Text>
                   </View>
                   <View style={styles.receiptTotalRow}>
-                    <Text style={styles.receiptTotalLabel}>IVA Estimado:</Text>
+                    <Text style={styles.receiptTotalLabel}>IVA:</Text>
                     <Text style={[styles.receiptTotalVal, typography.tabularNumeric]}>
                       {formatUsd(selectedReceipt.taxUsd)} ({formatVes(selectedReceipt.taxVes)})
                     </Text>
@@ -1953,7 +1958,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                       style={styles.receiptVoidBtn}
                       testID="btn-open-void-modal"
                       accessibilityRole="button"
-                      accessibilityLabel="Anular venta y restituir stock"
+                      accessibilityLabel="Anular venta (devolución)"
                     >
                       <Text style={styles.receiptVoidBtnText}>🔴 ANULAR VENTA (DEVOLUCIÓN)</Text>
                     </TouchableOpacity>
@@ -1981,14 +1986,14 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Confirmar Anulación de Venta</Text>
             <Text style={styles.modalNotice}>
-              Al anular esta factura, se generará inmediatamente un movimiento de inventario conmutativo
-              tipo RETURN para reintegrar el stock vendido y se excluirá de la recaudación del turno.
+              Los productos de esta venta vuelven al inventario y la venta deja de contar en la
+              recaudación del turno. No se puede deshacer; el motivo queda en la auditoría.
             </Text>
 
             {voidError ? <Text style={styles.errorText}>{voidError}</Text> : null}
 
             <View style={styles.modalInputGroup}>
-              <Text style={styles.inputLabel}>Motivo de Anulación Obligatorio</Text>
+              <Text style={styles.inputLabel}>Motivo de la anulación (obligatorio)</Text>
               <TextInput
                 style={styles.modalInput}
                 placeholder="Ej. Devolución de cliente / Error en método de pago"
@@ -2015,9 +2020,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 style={styles.deleteConfirmBtn}
                 testID="btn-confirm-void"
                 accessibilityRole="button"
-                accessibilityLabel="Confirmar anulación y restituir stock"
+                accessibilityLabel="Sí, anular venta"
               >
-                <Text style={styles.deleteConfirmBtnText}>SÍ, ANULAR Y RESTITUIR STOCK</Text>
+                <Text style={styles.deleteConfirmBtnText}>SÍ, ANULAR VENTA</Text>
               </TouchableOpacity>
             </View>
           </View>
