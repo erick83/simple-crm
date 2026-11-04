@@ -2418,7 +2418,7 @@ const makeStyles = (c: Palette) =>
     backgroundColor: c.heroSoft,
   },
   stockBadgeTextOk: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: c.heroText,
   },
@@ -2426,7 +2426,7 @@ const makeStyles = (c: Palette) =>
     backgroundColor: c.warningSoft,
   },
   stockBadgeTextLow: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: c.warningText,
   },
@@ -2434,7 +2434,7 @@ const makeStyles = (c: Palette) =>
     backgroundColor: c.errorSoft,
   },
   stockBadgeTextOut: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: c.errorText,
   },

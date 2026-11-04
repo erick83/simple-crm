@@ -1324,7 +1324,7 @@ const makeStyles = (c: Palette) =>
     backgroundColor: c.heroSoft,
   },
   movementBadgeText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: c.textPrimary,
   },
@@ -1587,7 +1587,7 @@ const makeStyles = (c: Palette) =>
     backgroundColor: c.errorSoft,
   },
   historyBadgeText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: c.textPrimary,
   },

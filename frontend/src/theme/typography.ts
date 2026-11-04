@@ -1,7 +1,13 @@
-import { TextStyle } from "react-native";
+import { Platform, TextStyle } from "react-native";
 
 export const typography = {
-  fontFamily: "Plus Jakarta Sans, -apple-system, Roboto, sans-serif",
+  // Plus Jakarta Sans aún no se empaqueta (falta expo-font + .ttf): en nativo se usa la
+  // sans del sistema (Roboto / SF Pro); en web se intenta Jakarta con fallback a sistema.
+  // shortcut: cargar Jakarta con expo-font cuando se quiera la marca tipográfica exacta.
+  fontFamily: Platform.select({
+    web: "Plus Jakarta Sans, -apple-system, Roboto, sans-serif",
+    default: undefined,
+  }),
   monoFamily: "monospace",
 
   sizes: {
@@ -22,10 +28,10 @@ export const typography = {
     extraBold: "800" as TextStyle["fontWeight"],
   },
 
-  // Estilo reutilizable para importes monetarios y cantidades exactas
+  // Estilo reutilizable para importes monetarios y cantidades exactas.
+  // tnum alinea los 4 decimales con la sans de la app (el monospace se ve tosco en montos).
   tabularNumeric: {
     fontVariant: ["tabular-nums"] as TextStyle["fontVariant"],
-    fontFamily: "monospace",
   },
 } as const;
 
