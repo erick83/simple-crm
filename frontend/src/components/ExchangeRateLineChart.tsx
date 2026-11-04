@@ -395,7 +395,7 @@ const makeStyles = (c: Palette) =>
     borderColor: c.warning,
   },
   sourceTagText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
   },
   sourceTextBcv: {

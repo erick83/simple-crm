@@ -2019,7 +2019,7 @@ const makeStyles = (c: Palette) =>
     alignItems: "flex-end",
   },
   kpiLabel: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: c.textMuted,
   },
@@ -2051,7 +2051,7 @@ const makeStyles = (c: Palette) =>
     borderRadius: spacing.radiusFull,
   },
   rowCategoryTagText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: typography.weights.bold,
     color: c.primaryGlow,
   },
