@@ -1,4 +1,5 @@
 import type { SqlDriver } from "../database/connection";
+import { ed25519 } from "@noble/curves/ed25519.js";
 
 const SHA256_K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -69,6 +70,42 @@ function hexToBytes(hex: string): Uint8Array {
     out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   }
   return out;
+}
+
+/** Decodifica base64 estándar (con padding) a bytes crudos. */
+function base64ToBytes(b64: string): Uint8Array {
+  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+  const str = b64 + pad;
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const bytes: number[] = [];
+  for (let i = 0; i < str.length; i += 4) {
+    const c0 = alphabet.indexOf(str[i]!);
+    const c1 = alphabet.indexOf(str[i + 1]!);
+    const c2 = str[i + 2] === "=" ? -1 : alphabet.indexOf(str[i + 2]!);
+    const c3 = str[i + 3] === "=" ? -1 : alphabet.indexOf(str[i + 3]!);
+    if (c0 < 0 || c1 < 0) throw new Error("Base64 inválido");
+    bytes.push((c0 << 2) | (c1 >> 4));
+    if (c2 >= 0) bytes.push(((c1 & 15) << 4) | (c2 >> 2));
+    if (c3 >= 0) bytes.push(((c2 & 3) << 6) | c3);
+  }
+  return new Uint8Array(bytes);
+}
+
+/**
+ * Extrae la llave pública Ed25519 cruda (32 bytes) de un PEM SPKI.
+ * El DER de Ed25519 es fijo (44 bytes): SEQUENCE + OID 1.3.101.112 (bytes
+ * 0x2b 0x65 0x70) + BIT STRING; la llave son los últimos 32 bytes.
+ */
+export function spkiPemToRawPublicKey(publicKeyPem: string): Uint8Array {
+  const body = publicKeyPem
+    .replace(/-----BEGIN PUBLIC KEY-----/g, "")
+    .replace(/-----END PUBLIC KEY-----/g, "")
+    .replace(/\s+/g, "");
+  const der = base64ToBytes(body);
+  if (der.length < 44 || der[6] !== 0x2b || der[7] !== 0x65 || der[8] !== 0x70) {
+    throw new Error("Llave pública PEM inválida (no es Ed25519 SPKI)");
+  }
+  return der.slice(der.length - 32);
 }
 
 function decodeBase64UrlUtf8(b64url: string): string {
@@ -144,7 +181,7 @@ export interface LicenseCheckResult {
  * En desarrollo/tests se puede inyectar la llave pública correspondiente.
  */
 export const DEFAULT_EMBEDDED_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAi43Z8p6F3o9s2r3zX8x5J+N7a5Yq6w8p9z3X2s5J+N4=
+MCowBQYDK2VwAyEA+99LM4nqAu4U3j900tGK/ifP70VXWO8M9grZ4EZsZ5I=
 -----END PUBLIC KEY-----`;
 
 export class LicenseValidatorService {
@@ -183,7 +220,8 @@ export class LicenseValidatorService {
         const pubKey = nodeCrypto.createPublicKey(publicKeyPem);
         return nodeCrypto.verify(null, data, pubKey, sig);
       }
-      return sig.byteLength === 64 && publicKeyPem.includes("BEGIN PUBLIC KEY");
+      // Runtime sin node:crypto (Android/Web): verificación Ed25519 pura en JS.
+      return ed25519.verify(sig, data, spkiPemToRawPublicKey(publicKeyPem));
     } catch {
       return false;
     }

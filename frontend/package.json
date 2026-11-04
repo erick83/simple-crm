@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",
+    "@noble/curves": "^2.4.0",
     "@op-engineering/op-sqlite": "^19.0.3",
     "decimal.js": "^10.4.3",
     "expo": "~52.0.0",

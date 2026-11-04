@@ -84,4 +84,3 @@ const makeStyles = (c: Palette) =>
     color: c.textPrimary,
   },
 });
-

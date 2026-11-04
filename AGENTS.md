@@ -11,7 +11,7 @@ Este documento define las reglas estrictas, la arquitectura y las directrices t�
   * **Escritorio:** Windows vía React Native for Windows o wrapper ligero (Tauri / React Native for Web).
 * **Persistencia Local:** **SQLite nativo** (`op-sqlite` o equivalente de alto rendimiento JSI/C++; en Web/Tauri, SQLite WASM con OPFS). Prohibido el uso de IndexedDB o AsyncStorage para datos de negocio. Todo acceso a SQLite pasa por la interfaz `SqlDriver` (`frontend/src/db/driver.ts`).
 * **Red y Topología:** **Local-First P2P Puro**. No existe base de datos centralizada ni servidor SaaS operativo. Los dispositivos en la misma tienda se comunican y sincronizan directamente por red local (Wi-Fi) vía **mDNS / Bonjour** y peticiones HTTP/TCP directas.
-* **Sin backend:** Todo el sistema (base de datos, lógica de negocio, licenciamiento y sincronización) corre en el cliente React Native bajo `/frontend`. No existe servidor, API remota ni CLI propio. La emisión de licencias (backend/CLI Ed25519) es un **proyecto futuro** fuera de este repositorio; la app solo **verifica** tokens con una llave pública embebida.
+* **Sin backend:** Todo el sistema (base de datos, lógica de negocio, licenciamiento y sincronización) corre en el cliente React Native bajo `/frontend`. No existe servidor ni API remota en línea. La emisión de licencias se hace con un **CLI Ed25519 offline** (`license-issuer/`, módulo Go independiente dentro del repo): firma tokens fuera de línea que se entregan por email; la app solo **verifica** con una llave pública embebida. La llave privada jamás se versiona (`.gitignore`).
 
 ---
 
@@ -45,7 +45,7 @@ Este documento define las reglas estrictas, la arquitectura y las directrices t�
 ## 4. Licenciamiento Criptográfico Offline-First
 
 * **Hardware Binding (Windows):** La app extrae un identificador inmutable (`HWID = SHA256(Motherboard_UUID + CPU_Serial)`). En Android se usará un identificador equivalente definido en el PR correspondiente.
-* **Verificación Ed25519:** La app valida localmente la firma del token JSON emitido por el emisor de licencias externo (proyecto futuro) usando la llave pública embebida. Si `HWID_local != token.hwid` o la fecha expiró, la app bloquea las funciones de cobro.
+* **Verificación Ed25519:** La app valida localmente la firma del token JSON emitido por el CLI offline en `license-issuer/` usando la llave pública embebida. Si `HWID_local != token.hwid` o la fecha expiró, la app bloquea las funciones de cobro.
 * **Guardia de Reloj Monótono:** La app almacena `last_recorded_timestamp` en cada operación. Si el reloj del dispositivo se atrasa deliberadamente, el sistema se bloquea hasta restablecer la hora real.
 
 ---
