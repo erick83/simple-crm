@@ -7,9 +7,15 @@
     "newArchEnabled": true,
     "userInterfaceStyle": "dark",
     "backgroundColor": "#061426",
-    "android": { "package": "com.bisync.pos" },
-    "web": { "bundler": "metro" },
-    "plugins": []
+    "android": {
+      "package": "com.bisync.pos"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ]
   }
 }
-

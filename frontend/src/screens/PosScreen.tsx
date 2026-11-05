@@ -1434,343 +1434,318 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   </View>
   </View>
 
-      {/* Modal Táctil de Cobro / Emisión de Factura */}
+      {/* Pantalla de Cobro / Emisión de Factura: ocupa todo el alto y el total queda fijo arriba */}
       <Modal
         visible={isCheckoutModalOpen}
         transparent
         animationType="fade"
         onRequestClose={handleCloseCheckout}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, styles.checkoutCard]}>
-            {/* 1280×800: dos columnas — importes/método a la izquierda, numpad/vuelto a la derecha */}
-            <View style={styles.checkoutHeader}>
-              <Text style={styles.modalTitle}>Confirmar Cobro de Venta</Text>
-              <Text style={styles.modalNotice}>
-                Al confirmar se guardan la tasa del día y los totales en dólares y bolívares, y se
-                descuenta el inventario. La venta no se edita después: si hay un error, anúlela
-                desde su comprobante.
+        <View style={styles.checkoutScreen}>
+          {/* Barra superior: título, contexto breve y retorno al ticket */}
+          <View style={styles.checkoutTopBar}>
+            <View style={styles.checkoutTopTexts}>
+              <Text style={styles.modalTitle}>Cobro de Venta</Text>
+              <Text style={styles.checkoutTopNote}>
+                Al confirmar se congelan la tasa y los totales de la venta y se descuenta el
+                inventario. Si hay un error, anúlala desde su comprobante.
               </Text>
+            </View>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={handleCloseCheckout}
+              style={styles.checkoutBackBtn}
+              accessibilityRole="button"
+              accessibilityLabel={lastInvoiceSuccess ? "Cerrar aviso de venta cobrada" : "Volver al ticket sin cobrar"}
+            >
+              <Text style={styles.checkoutBackText}>
+                {lastInvoiceSuccess ? "Cerrar" : "Volver al Ticket"}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-              {checkoutError ? <Text style={styles.errorText}>{checkoutError}</Text> : null}
-              {lastInvoiceSuccess ? (
-                <View style={styles.successBox}>
-                  <Text style={styles.successText}>{lastInvoiceSuccess}</Text>
-                  {lastCreatedInvoice ? (
-                    <Text style={[styles.successAmount, typography.tabularNumeric]}>
-                      {formatUsd(lastCreatedInvoice.totalUsd)} • {formatVes(lastCreatedInvoice.totalVes)}
-                    </Text>
-                  ) : null}
-                  {lastCreatedInvoice ? (
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={handleViewCreatedReceipt}
-                      style={styles.successLinkBtn}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Ver comprobante de la venta ${lastCreatedInvoice.invoiceNumber}`}
-                    >
-                      <Text style={styles.successLinkText}>Ver comprobante</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              ) : null}
+          {/* Franja fija del total: nunca se pierde de vista mientras se digita el monto */}
+          <View style={styles.checkoutHero}>
+            <View style={styles.heroMain}>
+              <Text style={styles.heroLabel}>TOTAL A COBRAR</Text>
+              <View style={styles.heroAmountsRow}>
+                <Text style={[styles.heroTotalUsd, typography.tabularNumeric]}>{formatUsd(totalUsd)}</Text>
+                <Text style={[styles.heroTotalVes, typography.tabularNumeric]}>{formatVes(totalVes)}</Text>
+              </View>
+              <Text style={[styles.heroRate, typography.tabularNumeric]}>
+                Tasa oficial congelada: {formatVes(exchangeRate)} / USD
+              </Text>
             </View>
 
-            <ScrollView style={styles.checkoutBody} contentContainerStyle={styles.checkoutBodyContent}>
-              <View style={[styles.checkoutColumns, !isWideCheckout && styles.checkoutColumnsStacked]}>
-                {/* Columna izquierda: importes, modalidad de cobro y montos entregados */}
-                <View style={styles.checkoutLeft}>
-                  {/* Resumen de Importes Bimoneda con desglose de IVA */}
-                  <View style={styles.checkoutSummaryCard}>
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Subtotal (base imponible):</Text>
-                      <Text style={[styles.summarySubtotalUsd, typography.tabularNumeric]}>
-                        {formatUsd(subtotalUsd)}
-                      </Text>
-                    </View>
+            <View style={styles.heroStatus}>
+              {toDecimal(remainingUsd).gt(0) ? (
+                <View style={[styles.heroChip, styles.heroChipWarn]}>
+                  <Text style={[styles.heroChipText, styles.heroChipWarnText]}>
+                    ⚠️ Faltan {formatUsd(remainingUsd)}
+                  </Text>
+                  <Text style={[styles.heroChipSub, styles.heroChipWarnText, typography.tabularNumeric]}>
+                    ≈ {formatVes(remainingVes)}
+                  </Text>
+                </View>
+              ) : selectedPaymentMethod === "SPLIT" && toDecimal(changeUsd).gt(0) ? (
+                <View style={[styles.heroChip, styles.heroChipWarn]}>
+                  <Text style={[styles.heroChipText, styles.heroChipWarnText]}>
+                    ⚠️ Sobran {formatUsd(changeUsd)}
+                  </Text>
+                  <Text style={[styles.heroChipSub, styles.heroChipWarnText, typography.tabularNumeric]}>
+                    ≈ {formatVes(changeVes)} • el cobro mixto no da vuelto
+                  </Text>
+                </View>
+              ) : (
+                <View style={[styles.heroChip, styles.heroChipOk]}>
+                  <Text style={[styles.heroChipText, styles.heroChipOkText]}>✓ Pago completo</Text>
+                  <Text style={[styles.heroChipSub, styles.heroChipOkText, typography.tabularNumeric]}>
+                    {toDecimal(changeUsd).gt(0)
+                      ? `Vuelto: ${formatUsd(changeUsd)} (≈ ${formatVes(changeVes)})`
+                      : "Monto exacto recibido"}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
 
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>IVA:</Text>
-                      <Text style={[styles.summaryTaxUsd, typography.tabularNumeric]}>
-                        {formatUsd(taxUsd)}
-                      </Text>
-                    </View>
+          {checkoutError ? <Text style={styles.errorText}>{checkoutError}</Text> : null}
+          {lastInvoiceSuccess ? (
+            <View style={styles.successBox}>
+              <Text style={styles.successText}>{lastInvoiceSuccess}</Text>
+              {lastCreatedInvoice ? (
+                <Text style={[styles.successAmount, typography.tabularNumeric]}>
+                  {formatUsd(lastCreatedInvoice.totalUsd)} • {formatVes(lastCreatedInvoice.totalVes)}
+                </Text>
+              ) : null}
+              {lastCreatedInvoice ? (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={handleViewCreatedReceipt}
+                  style={styles.successLinkBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Ver comprobante de la venta ${lastCreatedInvoice.invoiceNumber}`}
+                >
+                  <Text style={styles.successLinkText}>Ver comprobante</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
 
-                    <View style={styles.summaryDivider} />
-
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryTotalHeroLabel}>Total legal en USD:</Text>
-                      <Text style={[styles.summaryTotalUsd, typography.tabularNumeric]}>
-                        {formatUsd(totalUsd)}
-                      </Text>
-                    </View>
-
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Equivalente legal en VES:</Text>
-                      <Text style={[styles.summaryTotalVes, typography.tabularNumeric]}>
-                        {formatVes(totalVes)}
-                      </Text>
-                    </View>
-
-                    <View style={styles.summaryRowSmall}>
-                      <Text style={styles.summaryLabelSmall}>Tasa oficial congelada:</Text>
-                      <Text style={[styles.summaryValueSmall, typography.tabularNumeric]}>
-                        {formatVes(exchangeRate)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Selección de Método de Pago */}
-                  <View>
-                    <Text style={styles.paymentMethodTitle}>Forma de pago:</Text>
-                    <View style={styles.paymentMethodsGrid}>
-                      {[
-                        { id: "CASH_USD", label: "Efectivo USD ($)" },
-                        { id: "CASH_VES", label: "Efectivo VES (Bs.)" },
-                        { id: "PAGO_MOVIL", label: "Pago Móvil (Bs.)" },
-                        { id: "CARD_VES", label: "Tarjeta / Punto (Bs.)" },
-                        { id: "SPLIT", label: "Cobro Mixto" },
-                      ].map((m) => {
-                        const isSelected = selectedPaymentMethod === m.id;
-                        return (
-                          <TouchableOpacity
-                            key={m.id}
-                            activeOpacity={0.8}
-                            onPress={() => handleSelectPaymentMethod(m.id as PaymentMethod)}
-                            style={[styles.paymentMethodBtn, isSelected && styles.paymentMethodBtnActive]}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: isSelected }}
-                            accessibilityLabel={m.label}
-                          >
-                            <Text
-                              style={[
-                                styles.paymentMethodText,
-                                isSelected && styles.paymentMethodTextActive,
-                              ]}
-                            >
-                              {m.label}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-
-                  {/* Panel de Desglose de Pago / Cobro Combinado (SPLIT) */}
-                  <View style={styles.tenderSection}>
-                    <Text style={styles.tenderSectionTitle}>
-                      {selectedPaymentMethod === "SPLIT"
-                        ? "Montos entregados por el cliente (deben sumar el total exacto, sin vuelto):"
-                        : `Monto recibido (${selectedPaymentMethod === "CASH_USD" ? "USD" : "VES"}): viene precargado con el total exacto. Cámbielo si el cliente entrega otro monto.`}
+          <ScrollView style={styles.checkoutBody} contentContainerStyle={styles.checkoutBodyContent}>
+            <View style={[styles.checkoutColumns, !isWideCheckout && styles.checkoutColumnsStacked]}>
+              {/* Columna izquierda: importes, modalidad de cobro y montos entregados */}
+              <View style={styles.checkoutLeft}>
+                {/* Subtotal e IVA: el total vive en la franja fija de arriba */}
+                <View style={styles.checkoutSummaryCard}>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Subtotal (base imponible):</Text>
+                    <Text style={[styles.summarySubtotalUsd, typography.tabularNumeric]}>
+                      {formatUsd(subtotalUsd)}
                     </Text>
+                  </View>
 
-                    <View style={styles.tenderInputsGrid}>
-                      {/* Input Efectivo USD */}
-                      {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CASH_USD") && (
-                        <TouchableOpacity
-                          activeOpacity={0.8}
-                          onPress={() => setActivePaymentInput("CASH_USD")}
-                          style={[
-                            styles.tenderFieldBox,
-                            activePaymentInput === "CASH_USD" && styles.tenderFieldBoxActive,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: activePaymentInput === "CASH_USD" }}
-                          accessibilityLabel={`Editar monto en efectivo USD, actual ${tenderCashUsd || "0.0000"}`}
-                        >
-                          <Text style={styles.tenderFieldLabel}>💵 Efectivo USD ($)</Text>
-                          <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
-                            {tenderCashUsd || "$ 0.0000"}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {/* Input Efectivo VES */}
-                      {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CASH_VES") && (
-                        <TouchableOpacity
-                          activeOpacity={0.8}
-                          onPress={() => setActivePaymentInput("CASH_VES")}
-                          style={[
-                            styles.tenderFieldBox,
-                            activePaymentInput === "CASH_VES" && styles.tenderFieldBoxActive,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: activePaymentInput === "CASH_VES" }}
-                          accessibilityLabel={`Editar monto en efectivo VES, actual ${tenderCashVes || "0.0000"}`}
-                        >
-                          <Text style={styles.tenderFieldLabel}>🇻🇪 Efectivo VES (Bs.)</Text>
-                          <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
-                            {tenderCashVes || "Bs. 0.0000"}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {/* Input Pago Móvil */}
-                      {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "PAGO_MOVIL") && (
-                        <TouchableOpacity
-                          activeOpacity={0.8}
-                          onPress={() => setActivePaymentInput("PAGO_MOVIL")}
-                          style={[
-                            styles.tenderFieldBox,
-                            activePaymentInput === "PAGO_MOVIL" && styles.tenderFieldBoxActive,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: activePaymentInput === "PAGO_MOVIL" }}
-                          accessibilityLabel={`Editar monto de Pago Móvil, actual ${tenderPagoMovilVes || "0.0000"}`}
-                        >
-                          <Text style={styles.tenderFieldLabel}>📱 Pago Móvil (Bs.)</Text>
-                          <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
-                            {tenderPagoMovilVes || "Bs. 0.0000"}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {/* Input Tarjeta / Punto */}
-                      {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CARD_VES") && (
-                        <TouchableOpacity
-                          activeOpacity={0.8}
-                          onPress={() => setActivePaymentInput("CARD_VES")}
-                          style={[
-                            styles.tenderFieldBox,
-                            activePaymentInput === "CARD_VES" && styles.tenderFieldBoxActive,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: activePaymentInput === "CARD_VES" }}
-                          accessibilityLabel={`Editar monto de tarjeta, actual ${tenderCardVes || "0.0000"}`}
-                        >
-                          <Text style={styles.tenderFieldLabel}>💳 Tarjeta / Punto (Bs.)</Text>
-                          <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
-                            {tenderCardVes || "Bs. 0.0000"}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>IVA:</Text>
+                    <Text style={[styles.summaryTaxUsd, typography.tabularNumeric]}>
+                      {formatUsd(taxUsd)}
+                    </Text>
                   </View>
                 </View>
 
-                {/* Columna derecha: numpad del monto activo y resultado (saldo/vuelto) */}
-                <View style={[styles.checkoutRight, !isWideCheckout && styles.checkoutRightStacked]}>
-                  {/* Teclado numérico táctil para ingresar el monto en pantalla */}
-                  <View style={styles.paymentNumpadContainer}>
-                    <Numpad
-                      onDigit={handlePaymentNumpadDigit}
-                      onClear={handlePaymentNumpadClear}
-                      onBackspace={handlePaymentNumpadBackspace}
-                      onDecimal={handlePaymentNumpadDecimal}
-                      showDecimal={true}
-                    />
+                {/* Selección de Método de Pago */}
+                <View>
+                  <Text style={styles.paymentMethodTitle}>Forma de pago:</Text>
+                  <View style={styles.paymentMethodsGrid}>
+                    {[
+                      { id: "CASH_USD", label: "Efectivo USD ($)" },
+                      { id: "CASH_VES", label: "Efectivo VES (Bs.)" },
+                      { id: "PAGO_MOVIL", label: "Pago Móvil (Bs.)" },
+                      { id: "CARD_VES", label: "Tarjeta / Punto (Bs.)" },
+                      { id: "SPLIT", label: "Cobro Mixto" },
+                    ].map((m) => {
+                      const isSelected = selectedPaymentMethod === m.id;
+                      return (
+                        <TouchableOpacity
+                          key={m.id}
+                          activeOpacity={0.8}
+                          onPress={() => handleSelectPaymentMethod(m.id as PaymentMethod)}
+                          style={[styles.paymentMethodBtn, isSelected && styles.paymentMethodBtnActive]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: isSelected }}
+                          accessibilityLabel={m.label}
+                        >
+                          <Text
+                            style={[
+                              styles.paymentMethodText,
+                              isSelected && styles.paymentMethodTextActive,
+                            ]}
+                          >
+                            {m.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
+                </View>
 
-                  {/* Botón rápido para asignar restante exacto al método activo */}
-                  {selectedPaymentMethod === "SPLIT" && toDecimal(remainingUsd).gt(0) ? (
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={handleSetExactRemaining}
-                      style={styles.exactRemainingBtn}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Completar el restante en ${activePaymentInput === "CASH_USD" ? "dólares" : "bolívares"}`}
-                    >
-                      <Text style={styles.exactRemainingBtnText}>
-                        ⚡ Completar restante en {activePaymentInput === "CASH_USD" ? "USD" : "VES"}: {activePaymentInput === "CASH_USD" ? formatUsd(remainingUsd) : formatVes(remainingVes)}
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
+                {/* Panel de Desglose de Pago / Cobro Combinado (SPLIT) */}
+                <View style={styles.tenderSection}>
+                  <Text style={styles.tenderSectionTitle}>
+                    {selectedPaymentMethod === "SPLIT"
+                      ? "Montos entregados (deben sumar el total exacto, sin vuelto):"
+                      : `Monto recibido (${selectedPaymentMethod === "CASH_USD" ? "USD" : "VES"}): precargado con el total exacto.`}
+                  </Text>
 
-                  {/* Banner de Saldo Restante y Vuelto Calculado */}
-                  <View style={styles.balanceSummaryBox}>
-                    {toDecimal(remainingUsd).gt(0) ? (
-                      <View style={styles.balanceRow}>
-                        <Text style={styles.balanceWarnLabel}>⚠️ Falta por cobrar:</Text>
-                        <View style={styles.balanceAmountsCol}>
-                          <Text style={[styles.balanceWarnUsd, typography.tabularNumeric]}>
-                            {formatUsd(remainingUsd)}
-                          </Text>
-                          <Text style={[styles.balanceWarnVes, typography.tabularNumeric]}>
-                            ≈ {formatVes(remainingVes)}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : selectedPaymentMethod === "SPLIT" && toDecimal(changeUsd).gt(0) ? (
-                      <View style={styles.balanceRow}>
-                        <Text style={styles.balanceWarnLabel}>
-                          ⚠️ Sobran (el cobro mixto no da vuelto):
+                  <View style={styles.tenderInputsGrid}>
+                    {/* Input Efectivo USD */}
+                    {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CASH_USD") && (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setActivePaymentInput("CASH_USD")}
+                        style={[
+                          styles.tenderFieldBox,
+                          activePaymentInput === "CASH_USD" && styles.tenderFieldBoxActive,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: activePaymentInput === "CASH_USD" }}
+                        accessibilityLabel={`Editar monto en efectivo USD, actual ${tenderCashUsd || "0.0000"}`}
+                      >
+                        <Text style={styles.tenderFieldLabel}>💵 Efectivo USD ($)</Text>
+                        <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
+                          {tenderCashUsd || "$ 0.0000"}
                         </Text>
-                        <View style={styles.balanceAmountsCol}>
-                          <Text style={[styles.balanceWarnUsd, typography.tabularNumeric]}>
-                            {formatUsd(changeUsd)}
-                          </Text>
-                          <Text style={[styles.balanceWarnVes, typography.tabularNumeric]}>
-                            ≈ {formatVes(changeVes)}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : (
-                      <View style={styles.balanceRow}>
-                        <Text style={styles.balanceSuccessLabel}>✓ Pago completo</Text>
-                        <View style={styles.balanceAmountsCol}>
-                          <Text style={styles.changeLabel}>Vuelto a entregar:</Text>
-                          <Text style={[styles.changeUsd, typography.tabularNumeric]}>
-                            {formatUsd(changeUsd)}
-                          </Text>
-                          <Text style={[styles.changeVes, typography.tabularNumeric]}>
-                            ≈ {formatVes(changeVes)}
-                          </Text>
-                        </View>
-                      </View>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* Input Efectivo VES */}
+                    {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CASH_VES") && (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setActivePaymentInput("CASH_VES")}
+                        style={[
+                          styles.tenderFieldBox,
+                          activePaymentInput === "CASH_VES" && styles.tenderFieldBoxActive,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: activePaymentInput === "CASH_VES" }}
+                        accessibilityLabel={`Editar monto en efectivo VES, actual ${tenderCashVes || "0.0000"}`}
+                      >
+                        <Text style={styles.tenderFieldLabel}>🇻🇪 Efectivo VES (Bs.)</Text>
+                        <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
+                          {tenderCashVes || "Bs. 0.0000"}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* Input Pago Móvil */}
+                    {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "PAGO_MOVIL") && (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setActivePaymentInput("PAGO_MOVIL")}
+                        style={[
+                          styles.tenderFieldBox,
+                          activePaymentInput === "PAGO_MOVIL" && styles.tenderFieldBoxActive,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: activePaymentInput === "PAGO_MOVIL" }}
+                        accessibilityLabel={`Editar monto de Pago Móvil, actual ${tenderPagoMovilVes || "0.0000"}`}
+                      >
+                        <Text style={styles.tenderFieldLabel}>📱 Pago Móvil (Bs.)</Text>
+                        <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
+                          {tenderPagoMovilVes || "Bs. 0.0000"}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* Input Tarjeta / Punto */}
+                    {(selectedPaymentMethod === "SPLIT" || selectedPaymentMethod === "CARD_VES") && (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setActivePaymentInput("CARD_VES")}
+                        style={[
+                          styles.tenderFieldBox,
+                          activePaymentInput === "CARD_VES" && styles.tenderFieldBoxActive,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: activePaymentInput === "CARD_VES" }}
+                        accessibilityLabel={`Editar monto de tarjeta, actual ${tenderCardVes || "0.0000"}`}
+                      >
+                        <Text style={styles.tenderFieldLabel}>💳 Tarjeta / Punto (Bs.)</Text>
+                        <Text style={[styles.tenderFieldValue, typography.tabularNumeric]}>
+                          {tenderCardVes || "Bs. 0.0000"}
+                        </Text>
+                      </TouchableOpacity>
                     )}
                   </View>
                 </View>
               </View>
-            </ScrollView>
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={handleCloseCheckout}
-                style={styles.cancelBtn}
-                accessibilityRole="button"
-                accessibilityLabel={lastInvoiceSuccess ? "Cerrar aviso de venta cobrada" : "Volver al ticket sin cobrar"}
-              >
-                <Text style={styles.cancelBtnText}>
-                  {lastInvoiceSuccess ? "Cerrar" : "Volver al Ticket"}
-                </Text>
-              </TouchableOpacity>
+              {/* Columna derecha: numpad del monto activo y botón maestro de cobro */}
+              <View style={[styles.checkoutRight, !isWideCheckout && styles.checkoutRightStacked]}>
+                {/* Teclado numérico táctil para ingresar el monto en pantalla */}
+                <View style={styles.paymentNumpadContainer}>
+                  <Numpad
+                    onDigit={handlePaymentNumpadDigit}
+                    onClear={handlePaymentNumpadClear}
+                    onBackspace={handlePaymentNumpadBackspace}
+                    onDecimal={handlePaymentNumpadDecimal}
+                    showDecimal={true}
+                  />
+                </View>
 
-              <TouchableOpacity
-                activeOpacity={0.8}
-                disabled={!isPaymentComplete || isSubmitting}
-                onPress={handleConfirmCheckout}
-                style={[
-                  styles.confirmCheckoutBtn,
-                  (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnDisabled,
-                ]}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: !isPaymentComplete || isSubmitting }}
-                accessibilityLabel={
-                  lastInvoiceSuccess
-                    ? "Cobro exitoso"
-                    : isSubmitting
-                      ? "Procesando cobro"
-                      : checkoutBlocker
-                        ? `${checkoutBlocker}: no se puede confirmar el cobro`
-                        : "Confirmar cobro"
-                }
-              >
-                <Text
+                {/* Botón rápido para asignar restante exacto al método activo */}
+                {selectedPaymentMethod === "SPLIT" && toDecimal(remainingUsd).gt(0) ? (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={handleSetExactRemaining}
+                    style={styles.exactRemainingBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Completar el restante en ${activePaymentInput === "CASH_USD" ? "dólares" : "bolívares"}`}
+                  >
+                    <Text style={styles.exactRemainingBtnText}>
+                      ⚡ Completar restante en {activePaymentInput === "CASH_USD" ? "USD" : "VES"}: {activePaymentInput === "CASH_USD" ? formatUsd(remainingUsd) : formatVes(remainingVes)}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {/* Botón maestro de cobro: junto al teclado, nunca fuera de pantalla */}
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  disabled={!isPaymentComplete || isSubmitting}
+                  onPress={handleConfirmCheckout}
                   style={[
-                    styles.confirmCheckoutBtnText,
-                    (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnTextDisabled,
+                    styles.confirmCheckoutBtn,
+                    (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnDisabled,
                   ]}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !isPaymentComplete || isSubmitting }}
+                  accessibilityLabel={
+                    lastInvoiceSuccess
+                      ? "Cobro exitoso"
+                      : isSubmitting
+                        ? "Procesando cobro"
+                        : checkoutBlocker
+                          ? `${checkoutBlocker}: no se puede confirmar el cobro`
+                          : "Confirmar cobro"
+                  }
                 >
-                  {lastInvoiceSuccess
-                    ? "COBRO EXITOSO"
-                    : isSubmitting
-                      ? "PROCESANDO COBRO..."
-                      : checkoutBlocker ?? "CONFIRMAR COBRO"}
-                </Text>
-              </TouchableOpacity>
+                  <Text
+                    style={[
+                      styles.confirmCheckoutBtnText,
+                      (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnTextDisabled,
+                    ]}
+                  >
+                    {lastInvoiceSuccess
+                      ? "COBRO EXITOSO"
+                      : isSubmitting
+                        ? "PROCESANDO COBRO..."
+                        : checkoutBlocker ?? "CONFIRMAR COBRO"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -2658,34 +2633,6 @@ const makeStyles = (c: Palette) =>
     fontSize: typography.sizes.body,
     color: c.textSecondary,
   },
-  summaryTotalUsd: {
-    fontSize: typography.sizes.titleMd,
-    fontWeight: typography.weights.bold,
-    color: c.textPrimary,
-  },
-  summaryTotalVes: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.bold,
-    color: c.primaryGlow,
-  },
-  summaryRowSmall: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: c.border,
-    paddingTop: 4,
-  },
-  summaryLabelSmall: {
-    fontSize: typography.sizes.caption,
-    color: c.textMuted,
-  },
-  summaryValueSmall: {
-    fontSize: typography.sizes.caption,
-    color: c.textSecondary,
-    fontWeight: typography.weights.semibold,
-  },
   paymentMethodTitle: {
     fontSize: typography.sizes.caption,
     fontWeight: typography.weights.bold,
@@ -2881,16 +2828,6 @@ const makeStyles = (c: Palette) =>
     fontWeight: typography.weights.semibold,
     color: c.primaryGlow,
   },
-  summaryDivider: {
-    height: 1,
-    backgroundColor: c.border,
-    marginVertical: 4,
-  },
-  summaryTotalHeroLabel: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.bold,
-    color: c.textPrimary,
-  },
   numpadModalCard: {
     width: "100%",
     maxWidth: 420,
@@ -3040,56 +2977,9 @@ const makeStyles = (c: Palette) =>
   paymentNumpadContainer: {
     alignItems: "center",
   },
-  balanceSummaryBox: {
-    backgroundColor: c.surfaceContainerLow,
-    borderRadius: spacing.radiusMd,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  balanceRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  balanceWarnLabel: {
-    fontSize: typography.sizes.caption,
-    fontWeight: typography.weights.bold,
-    color: c.warningText,
-    flex: 1,
-  },
-  balanceAmountsCol: {
-    alignItems: "flex-end",
-  },
-  balanceWarnUsd: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.bold,
-    color: c.warningText,
-  },
-  balanceWarnVes: {
-    fontSize: typography.sizes.caption,
-    color: c.warningText,
-  },
-  balanceSuccessLabel: {
-    fontSize: typography.sizes.caption,
-    fontWeight: typography.weights.bold,
-    color: c.heroText,
-    flex: 1,
-  },
-  changeLabel: {
-    fontSize: 12,
-    color: c.textSecondary,
-  },
-  changeUsd: {
-    fontSize: typography.sizes.body,
-    fontWeight: typography.weights.bold,
-    color: c.heroText,
-  },
-  changeVes: {
-    fontSize: typography.sizes.caption,
-    color: c.heroText,
-  },
   confirmCheckoutBtn: {
+    // Botón maestro de cobro: 64 px (AGENTS.md) y ancho completo de la columna derecha
+    alignSelf: "stretch",
     height: spacing.touchTargetHero, // 64px hero height para cobro (AGENTS.md)
     backgroundColor: c.hero, // Verde maestro #00B074
     paddingHorizontal: spacing.xl,
@@ -3238,14 +3128,115 @@ const makeStyles = (c: Palette) =>
     backgroundColor: c.surfaceContainerLow,
     overflow: "hidden",
   },
-  checkoutCard: {
-    width: "100%",
-    maxWidth: 920,
-    maxHeight: "92%",
+  checkoutScreen: {
+    // Pantalla completa de cobro: todo cabe en el lienzo 1280×800 sin scroll
+    flex: 1,
+    backgroundColor: c.surfaceBase,
     padding: spacing.lg,
+    gap: spacing.md,
   },
-  checkoutHeader: {
-    marginBottom: spacing.md,
+  checkoutTopBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.lg,
+  },
+  checkoutTopTexts: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  checkoutTopNote: {
+    fontSize: typography.sizes.caption,
+    color: c.textMuted,
+  },
+  checkoutBackBtn: {
+    minHeight: spacing.touchTargetMin, // 48px
+    paddingHorizontal: spacing.lg,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: spacing.radiusMd,
+    borderWidth: 1,
+    borderColor: c.border,
+    backgroundColor: c.surfaceContainer,
+  },
+  checkoutBackText: {
+    fontSize: typography.sizes.subText,
+    fontWeight: typography.weights.bold,
+    color: c.textSecondary,
+  },
+  checkoutHero: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.lg,
+    backgroundColor: c.surfaceContainer,
+    borderRadius: spacing.radiusLg,
+    borderWidth: 1,
+    borderColor: c.border,
+    borderLeftWidth: 4,
+    borderLeftColor: c.hero,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  heroMain: {
+    flex: 1,
+    gap: 2,
+  },
+  heroLabel: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.bold,
+    color: c.textMuted,
+    letterSpacing: 1,
+  },
+  heroAmountsRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: spacing.md,
+    flexWrap: "wrap",
+  },
+  heroTotalUsd: {
+    fontSize: typography.sizes.heroTotal,
+    fontWeight: typography.weights.extraBold,
+    color: c.textPrimary,
+  },
+  heroTotalVes: {
+    fontSize: typography.sizes.titleMd,
+    fontWeight: typography.weights.bold,
+    color: c.primaryGlow,
+  },
+  heroRate: {
+    fontSize: typography.sizes.caption,
+    color: c.textMuted,
+  },
+  heroStatus: {
+    alignItems: "flex-end",
+  },
+  heroChip: {
+    alignItems: "flex-end",
+    gap: 2,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: spacing.radiusMd,
+  },
+  heroChipWarn: {
+    backgroundColor: c.warningSoft,
+  },
+  heroChipOk: {
+    backgroundColor: c.heroSoft,
+  },
+  heroChipText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.extraBold,
+  },
+  heroChipWarnText: {
+    color: c.warningText,
+  },
+  heroChipOkText: {
+    color: c.heroText,
+  },
+  heroChipSub: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
   },
   checkoutBody: {
     flex: 1,
@@ -3256,6 +3247,7 @@ const makeStyles = (c: Palette) =>
   checkoutColumns: {
     flexDirection: "row",
     gap: spacing.lg,
+    flexGrow: 1,
   },
   checkoutColumnsStacked: {
     flexDirection: "column",
@@ -3265,11 +3257,14 @@ const makeStyles = (c: Palette) =>
     gap: spacing.md,
   },
   checkoutRight: {
-    width: 320,
+    width: 360,
     gap: spacing.sm,
+    // Empuja el botón maestro al fondo de la columna, siempre al alcance del pulgar
+    justifyContent: "space-between",
   },
   checkoutRightStacked: {
     width: "100%",
+    justifyContent: "flex-start",
   },
   receiptScroll: {
     flex: 1,
