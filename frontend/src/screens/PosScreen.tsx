@@ -12,8 +12,9 @@ import {
 } from "react-native";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
-import { useTheme, useThemedStyles } from "../theme/ThemeContext";
+import { useTheme, useThemedStyles, useMetrics } from "../theme/ThemeContext";
 import { useBreakpoint } from "../theme/responsive";
+import type { Metrics } from "../theme/metrics";
 import type { Palette } from "../theme/tokens";
 import { ButtonHero } from "../components/ButtonHero";
 import { TouchStepper } from "../components/TouchStepper";
@@ -358,15 +359,20 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
   // Estado del modal de cobro (Checkout)
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
-  // Tablet landscape (1280×800) usa dos columnas; pantallas angostas apilan el cobro
+  // Cobro a dos columnas solo en PC/tablet con alto real suficiente (métricas fluidas,
+  // theme/metrics.ts); en móvil y ventanas muy bajas el cobro apila sin perder el total.
   const { width: windowWidth, isMobile } = useBreakpoint();
-  const isWideCheckout = windowWidth >= 900;
+  const metrics = useMetrics();
+  const isWideCheckout = metrics.twoPaneCheckout;
   // Móvil: un solo panel visible a la vez (catálogo / ticket / ventas)
   const [mobilePane, setMobilePane] = useState<"catalog" | "ticket" | "history">("catalog");
   // Columnas según el ancho real del panel de catálogo (no el de la ventana):
   // el ticket ocupa la mitad derecha en tablet y escritorio.
   const [catalogWidth, setCatalogWidth] = useState(0);
-  const catalogColumns = Math.max(2, Math.min(4, Math.floor((catalogWidth - 8) / 190)));
+  const catalogColumns = Math.max(
+    2,
+    Math.min(4, Math.floor((catalogWidth - 8) / metrics.catalogCard)),
+  );
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("CASH_USD");
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [lastInvoiceSuccess, setLastInvoiceSuccess] = useState<string | null>(null);
@@ -840,6 +846,45 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       setVoidError((err as Error).message);
     }
   };
+
+  // Botón maestro de cobro definido una vez: en dos columnas cierra la columna del
+  // numpad; en pantallas verticales (móvil/tablet baja) viaja a una barra fija abajo
+  // para que nunca quede fuera de pantalla y quede al alcance del pulgar.
+  const confirmCheckoutButton = (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      disabled={!isPaymentComplete || isSubmitting}
+      onPress={handleConfirmCheckout}
+      style={[
+        styles.confirmCheckoutBtn,
+        (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnDisabled,
+      ]}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !isPaymentComplete || isSubmitting }}
+      accessibilityLabel={
+        lastInvoiceSuccess
+          ? "Cobro exitoso"
+          : isSubmitting
+            ? "Procesando cobro"
+            : checkoutBlocker
+              ? `${checkoutBlocker}: no se puede confirmar el cobro`
+              : "Confirmar cobro"
+      }
+    >
+      <Text
+        style={[
+          styles.confirmCheckoutBtnText,
+          (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnTextDisabled,
+        ]}
+      >
+        {lastInvoiceSuccess
+          ? "COBRO EXITOSO"
+          : isSubmitting
+            ? "PROCESANDO COBRO..."
+            : checkoutBlocker ?? "CONFIRMAR COBRO"}
+      </Text>
+    </TouchableOpacity>
+  );
 
   return (
     <View style={styles.container}>
@@ -1710,42 +1755,15 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 ) : null}
 
                 {/* Botón maestro de cobro: junto al teclado, nunca fuera de pantalla */}
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  disabled={!isPaymentComplete || isSubmitting}
-                  onPress={handleConfirmCheckout}
-                  style={[
-                    styles.confirmCheckoutBtn,
-                    (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnDisabled,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: !isPaymentComplete || isSubmitting }}
-                  accessibilityLabel={
-                    lastInvoiceSuccess
-                      ? "Cobro exitoso"
-                      : isSubmitting
-                        ? "Procesando cobro"
-                        : checkoutBlocker
-                          ? `${checkoutBlocker}: no se puede confirmar el cobro`
-                          : "Confirmar cobro"
-                  }
-                >
-                  <Text
-                    style={[
-                      styles.confirmCheckoutBtnText,
-                      (!isPaymentComplete || isSubmitting) && styles.confirmCheckoutBtnTextDisabled,
-                    ]}
-                  >
-                    {lastInvoiceSuccess
-                      ? "COBRO EXITOSO"
-                      : isSubmitting
-                        ? "PROCESANDO COBRO..."
-                        : checkoutBlocker ?? "CONFIRMAR COBRO"}
-                  </Text>
-                </TouchableOpacity>
+                {isWideCheckout ? confirmCheckoutButton : null}
               </View>
             </View>
           </ScrollView>
+
+          {!isWideCheckout ? (
+            /* Móvil / ventana baja: barra fija al pulgar con el botón maestro siempre a la vista */
+            <View style={styles.checkoutStickyBar}>{confirmCheckoutButton}</View>
+          ) : null}
         </View>
       </Modal>
 
@@ -2102,7 +2120,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   );
 };
 
-const makeStyles = (c: Palette) =>
+const makeStyles = (c: Palette, m: Metrics) =>
   StyleSheet.create({
   container: {
     flex: 1,
@@ -3257,7 +3275,8 @@ const makeStyles = (c: Palette) =>
     gap: spacing.md,
   },
   checkoutRight: {
-    width: 360,
+    // Columna del numpad: proporcional al viewport, acotada entre 224 y el lienzo 1280
+    width: m.checkoutRight,
     gap: spacing.sm,
     // Empuja el botón maestro al fondo de la columna, siempre al alcance del pulgar
     justifyContent: "space-between",
@@ -3265,6 +3284,12 @@ const makeStyles = (c: Palette) =>
   checkoutRightStacked: {
     width: "100%",
     justifyContent: "flex-start",
+  },
+  checkoutStickyBar: {
+    // Barra fija de pulgar en modo vertical: el botón maestro jamás scrollea fuera
+    borderTopWidth: 1,
+    borderTopColor: c.border,
+    paddingTop: spacing.sm,
   },
   receiptScroll: {
     flex: 1,

@@ -1,6 +1,6 @@
 import { useWindowDimensions } from "react-native";
+import { screenTierFor } from "./metrics";
 
-/** Cortes por contenido, no por dispositivo: el layout se rompe en estos anchos. */
 export const breakpoints = {
   mobile: 720, // debajo: una sola columna + navegación inferior
   desktop: 1024, // encima: barra lateral completa
@@ -19,10 +19,11 @@ export interface BreakpointInfo {
   isTwoPane: boolean;
 }
 
+/** Corte de dispositivo: la fuente única de tiers es theme/metrics.ts. */
 export function useBreakpoint(): BreakpointInfo {
   const { width, height } = useWindowDimensions();
-  const layout: Layout =
-    width < breakpoints.mobile ? "mobile" : width < breakpoints.desktop ? "tablet" : "desktop";
+  const tier = screenTierFor(width);
+  const layout: Layout = tier === "movil" ? "mobile" : tier === "tablet" ? "tablet" : "desktop";
   return {
     width,
     height,
