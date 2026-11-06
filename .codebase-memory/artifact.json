@@ -1,0 +1,12 @@
+{
+    "schema_version": 2,
+    "commit": "d3d4a477c52c6f978f3990ca2a285259892b7234",
+    "indexed_at": "2026-11-06T17:25:52Z",
+    "project": "C-Users-Erick-Code-myprojects-bisync-simple-crm",
+    "nodes": 1057,
+    "edges": 3433,
+    "original_size": 6356992,
+    "compressed_size": 1181027,
+    "compression_level": 9,
+    "reconcile_basis": "git-clean-head"
+}
