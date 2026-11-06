@@ -221,5 +221,14 @@ describe("Gestión de Operadores y Auditoría en Configuración", () => {
       expect(updateLogs[0]?.entityId).toBe(cashier.id);
       expect(updateLogs[0]?.details).toContain('"field":"pin"');
     });
+
+    it("rechaza actualización de PIN si no tiene exactamente 4 dígitos numéricos", () => {
+      const cashier = listOperators(db).find((o) => o.role === "CASHIER")!;
+
+      expect(() => updateOperatorPin(db, cashier.id, "123")).toThrow(/4 d[íi]gitos/i);
+      expect(() => updateOperatorPin(db, cashier.id, "12345")).toThrow(/4 d[íi]gitos/i);
+      expect(() => updateOperatorPin(db, cashier.id, "abcd")).toThrow(/4 d[íi]gitos/i);
+      expect(() => updateOperatorPin(db, cashier.id, "12a4")).toThrow(/4 d[íi]gitos/i);
+    });
   });
 });

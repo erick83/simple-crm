@@ -3,7 +3,7 @@ import React from "react";
 import { colors } from "../src/theme/colors";
 import { SPACING_BASE } from "../src/theme/spacing";
 import { brandMark, brandWordmark } from "../src/components/brand-logo.paths";
-import { formatUsd, formatVes, toDecimal, convertUsdToVes } from "../src/utils/decimal";
+import { formatUsd, formatVes, formatExchangeRate, toDecimal, convertUsdToVes } from "../src/utils/decimal";
 import { deriveSyncState, formatSyncAge } from "../src/components/SyncBadge";
 import { createTestDb } from "./helpers";
 import { insertProduct } from "../src/database/repositories/product.repository";
@@ -69,9 +69,10 @@ describe("Design Tokens y Reglas de la Constitución", () => {
     expect(brandWordmark.length).toBeGreaterThan(0);
   });
 
-  it("formatea moneda a 4 decimales exactos", () => {
-    expect(formatUsd("1250")).toBe("$ 1,250.0000");
-    expect(formatVes("45625.5")).toBe("Bs. 45,625.5000");
+  it("formatea moneda a 2 decimales y tasa BCV a 4 decimales", () => {
+    expect(formatUsd("1250")).toBe("$ 1,250.00");
+    expect(formatVes("45625.5")).toBe("Bs. 45,625.50");
+    expect(formatExchangeRate("36.5")).toBe("Bs. 36.5000");
     expect(convertUsdToVes("10.0000", "36.5000").toFixed(4)).toBe("365.0000");
   });
 

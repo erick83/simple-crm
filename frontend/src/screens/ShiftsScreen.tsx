@@ -12,7 +12,7 @@ import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 import { useTheme, useThemedStyles } from "../theme/ThemeContext";
 import type { Palette } from "../theme/tokens";
-import { formatUsd, formatVes, toDecimal, formatFixed4 } from "../utils/decimal";
+import { formatUsd, formatVes, formatExchangeRate, toDecimal, formatFixed4 } from "../utils/decimal";
 import type { SqlDriver } from "../database/connection";
 import {
   getOpenShift,
@@ -371,7 +371,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                   <View style={styles.infoRow}>
                     <Text style={styles.infoLabel}>Tasa fijada de turno:</Text>
                     <Text style={[styles.infoValue, typography.tabularNumeric]}>
-                      {formatVes(activeShift.exchangeRateApplied)}
+                      {formatExchangeRate(activeShift.exchangeRateApplied)}
                     </Text>
                   </View>
 

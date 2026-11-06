@@ -72,6 +72,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [opSuccess, setOpSuccess] = useState<string | null>(null);
   const [editingPinOperatorId, setEditingPinOperatorId] = useState<string | null>(null);
   const [pinEditValue, setPinEditValue] = useState("");
+  const [pinConfirmValue, setPinConfirmValue] = useState("");
 
   // Gestión de Licenciamiento, Registro de Email y Periodo de Prueba
   const hwid = currentHwid ?? LicenseValidatorService.computeHwid({ fallbackSeed: terminalId });
@@ -273,10 +274,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const handleSavePin = (operatorId: string, operatorName: string) => {
     if (!db) return;
+    setOpError(null);
+    setOpSuccess(null);
+
+    const cleanPin = pinEditValue.replace(/[^0-9]/g, "");
+    const cleanConfirm = pinConfirmValue.replace(/[^0-9]/g, "");
+
+    if (cleanPin.length !== 4) {
+      setOpError("El nuevo PIN debe contener exactamente 4 dígitos numéricos.");
+      return;
+    }
+
+    if (cleanPin !== cleanConfirm) {
+      setOpError("Los PINs no coinciden. Por favor confirme el mismo número de 4 dígitos.");
+      return;
+    }
+
     try {
-      setOpError(null);
-      setOpSuccess(null);
-      updateOperatorPin(db, operatorId, pinEditValue);
+      updateOperatorPin(db, operatorId, cleanPin);
 
       try {
         logOperatorAction(db, {
@@ -294,6 +309,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       setOpSuccess(`PIN de "${operatorName}" actualizado con éxito.`);
       setEditingPinOperatorId(null);
       setPinEditValue("");
+      setPinConfirmValue("");
       refreshOperators();
     } catch (err) {
       setOpError((err as Error).message);
@@ -322,11 +338,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     setOpError(null);
     setOpSuccess(null);
     if (!db) return;
+
+    const cleanPin = newPin.replace(/[^0-9]/g, "");
+    if (cleanPin.length !== 4) {
+      setOpError("El PIN del operador debe contener exactamente 4 dígitos numéricos.");
+      return;
+    }
+
     try {
       const op = createOperator(db, {
         name: newName,
         role: newRole,
-        pin: newPin,
+        pin: cleanPin,
       });
 
       try {
@@ -674,7 +697,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               maxLength={4}
               placeholderTextColor={theme.textMuted}
               value={newPin}
-              onChangeText={setNewPin}
+              onChangeText={(val) => setNewPin(val.replace(/[^0-9]/g, "").slice(0, 4))}
             />
             <View style={styles.roleGroup}>
               <TouchableOpacity
@@ -754,6 +777,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       onPress={() => {
                         setEditingPinOperatorId(editingPinOperatorId === op.id ? null : op.id);
                         setPinEditValue("");
+                        setPinConfirmValue("");
                         setOpError(null);
                         setOpSuccess(null);
                       }}
@@ -802,33 +826,101 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
                 {editingPinOperatorId === op.id ? (
                   <View style={styles.pinEditContainer}>
-                    <TextInput
-                      style={styles.pinEditInput}
-                      placeholder="Nuevo PIN (4 dígitos)"
-                      placeholderTextColor={theme.textMuted}
-                      keyboardType="numeric"
-                      maxLength={4}
-                      secureTextEntry
-                      value={pinEditValue}
-                      onChangeText={setPinEditValue}
-                    />
-                    <TouchableOpacity
-                      style={styles.pinSaveBtn}
-                      onPress={() => handleSavePin(op.id, op.name)}
-                      activeOpacity={0.85}
-                    >
-                      <Text style={styles.pinSaveBtnText}>Guardar PIN</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.pinCancelBtn}
-                      onPress={() => {
-                        setEditingPinOperatorId(null);
-                        setPinEditValue("");
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.pinCancelBtnText}>Cancelar</Text>
-                    </TouchableOpacity>
+                    <View style={styles.pinInputsRow}>
+                      <View style={styles.pinFieldGroup}>
+                        <Text style={styles.pinFieldLabel}>Nuevo PIN (4 dígitos):</Text>
+                        <TextInput
+                          style={[styles.pinEditInput, typography.tabularNumeric]}
+                          placeholder="••••"
+                          placeholderTextColor={theme.textMuted}
+                          keyboardType="number-pad"
+                          maxLength={4}
+                          secureTextEntry
+                          value={pinEditValue}
+                          onChangeText={(val) => {
+                            setPinEditValue(val.replace(/[^0-9]/g, "").slice(0, 4));
+                            setOpError(null);
+                          }}
+                          accessibilityLabel={`Nuevo PIN para ${op.name}`}
+                        />
+                      </View>
+
+                      <View style={styles.pinFieldGroup}>
+                        <Text style={styles.pinFieldLabel}>Confirmar PIN:</Text>
+                        <TextInput
+                          style={[
+                            styles.pinEditInput,
+                            typography.tabularNumeric,
+                            pinConfirmValue.length === 4 &&
+                              pinEditValue === pinConfirmValue &&
+                              styles.pinInputMatch,
+                            pinConfirmValue.length > 0 &&
+                              pinConfirmValue.length === 4 &&
+                              pinEditValue !== pinConfirmValue &&
+                              styles.pinInputMismatch,
+                          ]}
+                          placeholder="••••"
+                          placeholderTextColor={theme.textMuted}
+                          keyboardType="number-pad"
+                          maxLength={4}
+                          secureTextEntry
+                          value={pinConfirmValue}
+                          onChangeText={(val) => {
+                            setPinConfirmValue(val.replace(/[^0-9]/g, "").slice(0, 4));
+                            setOpError(null);
+                          }}
+                          accessibilityLabel={`Confirmar nuevo PIN para ${op.name}`}
+                        />
+                      </View>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.pinSaveBtn,
+                          (pinEditValue.length !== 4 ||
+                            pinConfirmValue.length !== 4 ||
+                            pinEditValue !== pinConfirmValue) &&
+                            styles.pinSaveBtnDisabled,
+                        ]}
+                        onPress={() => handleSavePin(op.id, op.name)}
+                        activeOpacity={0.85}
+                        disabled={
+                          pinEditValue.length !== 4 ||
+                          pinConfirmValue.length !== 4 ||
+                          pinEditValue !== pinConfirmValue
+                        }
+                        accessibilityRole="button"
+                        accessibilityLabel="Guardar nuevo PIN"
+                      >
+                        <Text style={styles.pinSaveBtnText}>Guardar PIN</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.pinCancelBtn}
+                        onPress={() => {
+                          setEditingPinOperatorId(null);
+                          setPinEditValue("");
+                          setPinConfirmValue("");
+                          setOpError(null);
+                        }}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Cancelar cambio de PIN"
+                      >
+                        <Text style={styles.pinCancelBtnText}>Cancelar</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {pinConfirmValue.length > 0 &&
+                    pinConfirmValue.length === 4 &&
+                    pinEditValue !== pinConfirmValue ? (
+                      <Text style={styles.pinMismatchText}>
+                        ⚠ Los PINs no coinciden
+                      </Text>
+                    ) : pinEditValue.length === 4 && pinEditValue === pinConfirmValue ? (
+                      <Text style={styles.pinMatchText}>
+                        ✓ Los PINs coinciden (4 dígitos)
+                      </Text>
+                    ) : null}
                   </View>
                 ) : null}
               </View>
@@ -1074,14 +1166,26 @@ const makeStyles = (c: Palette) =>
       color: c.errorText,
     },
     pinEditContainer: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
+      flexDirection: "column",
+      gap: spacing.xs,
       marginTop: spacing.xs,
       paddingTop: spacing.sm,
       borderTopWidth: 1,
       borderTopColor: c.border,
+    },
+    pinInputsRow: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      gap: spacing.sm,
       flexWrap: "wrap",
+    },
+    pinFieldGroup: {
+      gap: 2,
+    },
+    pinFieldLabel: {
+      fontSize: 11,
+      color: c.textMuted,
+      fontWeight: typography.weights.medium,
     },
     pinEditInput: {
       borderWidth: 1,
@@ -1091,9 +1195,19 @@ const makeStyles = (c: Palette) =>
       paddingVertical: spacing.xs,
       color: c.textPrimary,
       backgroundColor: c.surfaceContainerLow,
-      minWidth: 160,
+      minWidth: 110,
+      width: 120,
       height: 40,
       fontSize: typography.sizes.body,
+      letterSpacing: 2,
+    },
+    pinInputMatch: {
+      borderColor: c.hero,
+      borderWidth: 1.5,
+    },
+    pinInputMismatch: {
+      borderColor: c.error,
+      borderWidth: 1.5,
     },
     pinSaveBtn: {
       minHeight: 40,
@@ -1102,6 +1216,9 @@ const makeStyles = (c: Palette) =>
       backgroundColor: c.primary,
       justifyContent: "center",
       alignItems: "center",
+    },
+    pinSaveBtnDisabled: {
+      opacity: 0.45,
     },
     pinSaveBtnText: {
       color: "#FFFFFF",
@@ -1119,6 +1236,16 @@ const makeStyles = (c: Palette) =>
     pinCancelBtnText: {
       color: c.textSecondary,
       fontSize: typography.sizes.caption,
+    },
+    pinMatchText: {
+      fontSize: 12,
+      color: c.heroText,
+      fontWeight: typography.weights.medium,
+    },
+    pinMismatchText: {
+      fontSize: 12,
+      color: c.errorText,
+      fontWeight: typography.weights.medium,
     },
     historyChip: {
       paddingHorizontal: spacing.sm,

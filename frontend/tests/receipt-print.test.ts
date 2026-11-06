@@ -77,8 +77,8 @@ describe("Formato XP-58IIHT (58 mm / 32 columnas)", () => {
     expect(text).toContain("Terminal: TERM-01");
     expect(text).toContain("Turno #2735");
     expect(text).toContain("Arroz Primor 1kg");
-    expect(text).toContain("$ 1.5000");
-    expect(text).toContain("Bs. 63.5100");
+    expect(text).toContain("$ 1.50");
+    expect(text).toContain("Bs. 63.51");
     expect(text).toContain("36.5000");
     expect(text).toMatch(/Metodo de pago: Efectivo USD/);
   });
@@ -122,7 +122,7 @@ describe("Formato XP-58IIHT (58 mm / 32 columnas)", () => {
     });
     const text = renderReceiptText(buildReceiptModel(invoice, ctx));
     expect(text).toContain("Efectivo USD:");
-    expect(text).toContain("$ 1.0000");
+    expect(text).toContain("$ 1.00");
     expect(text).toContain("Pago Movil:");
     expect(text).not.toContain("Tarjeta/Punto"); // montos en cero no ensucian el ticket
   });
@@ -135,7 +135,7 @@ describe("Formato XP-58IIHT (58 mm / 32 columnas)", () => {
     const model = buildReceiptModel(big, ctx);
     const wide = model.filter((l) => l.wide).map((l) => l.text);
     expect(wide.every((t) => t.length <= 16)).toBe(true);
-    expect(renderReceiptText(model)).toContain("$ 12,345.6700");
+    expect(renderReceiptText(model)).toContain("$ 12,345.67");
   });
 });
 

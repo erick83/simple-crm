@@ -4,7 +4,7 @@ import { useTheme, useThemedStyles } from "../theme/ThemeContext";
 import type { Palette } from "../theme/tokens";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
-import { formatUsd, formatVes } from "../utils/decimal";
+import { formatUsd, formatVes, formatExchangeRate } from "../utils/decimal";
 import type { SqlDriver } from "../database/connection";
 import {
   generatePeriodicBalance,
@@ -378,7 +378,7 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
               <Text style={styles.cardLabel}>Tasa Oficial Vigente</Text>
               <Text style={[styles.cardValue, typography.tabularNumeric]}>
                 {ratesReport.latestRate !== "0.0000"
-                  ? formatVes(ratesReport.latestRate)
+                  ? formatExchangeRate(ratesReport.latestRate)
                   : "Sin registro"}
               </Text>
               <Text style={styles.cardSub}>
@@ -526,7 +526,7 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
                         { flex: 2 },
                       ]}
                     >
-                      {formatVes(row.rateToVes)}
+                      {formatExchangeRate(row.rateToVes)}
                     </Text>
 
                     {/* Variación diaria */}

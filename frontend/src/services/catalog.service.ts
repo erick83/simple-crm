@@ -15,8 +15,8 @@ export interface BimonetaryProduct {
   name: string;
   priceUsd: string; // Base permanente en USD (inmutable en SQLite)
   priceVes: string; // Calculado dinámicamente según la tasa activa
-  formattedUsd: string; // "$ X,XXX.0000"
-  formattedVes: string; // "Bs. X,XXX.0000"
+  formattedUsd: string; // "$ X,XXX.00"
+  formattedVes: string; // "Bs. X,XXX.00"
   costUsd: string;
   taxRate: string; // Alícuota impositiva (ej. "0.1600")
   minStock: string;
