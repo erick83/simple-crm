@@ -1,5 +1,6 @@
 import type { SqlDriver } from "./connection";
 import { SCHEMA_SQL } from "./schema.generated";
+import { hashOperatorPin } from "./repositories/operator.repository";
 
 /**
  * Inicializa y migra la base de datos local SQLite ejecutando el esquema DDL oficial.
@@ -150,6 +151,47 @@ export function migrateDatabase(driver: SqlDriver, customSchemaSql?: string): vo
     `);
   } catch {
     // Ignorar si ya existe
+  }
+
+  // Operadores y bitácora de auditoría (control de acceso y roles)
+  try {
+    driver.exec(`
+      CREATE TABLE IF NOT EXISTS operators (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('ADMIN', 'CASHIER')),
+        pin_hash TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS operator_audit_logs (
+        id TEXT PRIMARY KEY,
+        operator_id TEXT NOT NULL,
+        operator_name TEXT NOT NULL,
+        action TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT,
+        details TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_operator ON operator_audit_logs(operator_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON operator_audit_logs(created_at);
+    `);
+
+    const rows = driver.all<{ count: number }>("SELECT COUNT(*) as count FROM operators");
+    if ((rows[0]?.count ?? 0) === 0) {
+      const now = Date.now();
+      driver.run(
+        "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
+        ["01940000-0000-7000-8000-000000000001", "Administrador", "ADMIN", hashOperatorPin("1234"), now],
+      );
+      driver.run(
+        "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
+        ["01940000-0000-7000-8000-000000000002", "Cajero 1", "CASHIER", hashOperatorPin("0000"), now],
+      );
+    }
+  } catch {
+    // Ignorar si ya existe o está inicializado
   }
 }
 

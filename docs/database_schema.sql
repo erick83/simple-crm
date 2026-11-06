@@ -243,7 +243,33 @@ CREATE TABLE IF NOT EXISTS peer_sync_outbox (
 CREATE INDEX IF NOT EXISTS idx_sync_outbox_created ON peer_sync_outbox(created_at);
 
 -- -----------------------------------------------------------------------------
--- 8. VISTA DE CONSULTA RÁPIDA: STOCK ACTUAL POR MOVIMIENTOS
+-- 8. OPERADORES Y AUDITORÍA DE ACCIONES (LOCAL-FIRST)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS operators (
+    id TEXT PRIMARY KEY,                       -- UUIDv7
+    name TEXT NOT NULL,                        -- Nombre del operador / cajero
+    role TEXT NOT NULL CHECK (role IN ('ADMIN', 'CASHIER')),
+    pin_hash TEXT NOT NULL,                    -- Hash SHA-256 (con sal) del PIN de 4 dígitos
+    is_active INTEGER NOT NULL DEFAULT 1,      -- 1=Activo, 0=Bloqueado / Inactivo
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS operator_audit_logs (
+    id TEXT PRIMARY KEY,                       -- UUIDv7
+    operator_id TEXT NOT NULL,                 -- Operador que ejecutó la acción
+    operator_name TEXT NOT NULL,               -- Nombre congelado al momento del evento
+    action TEXT NOT NULL,                      -- 'LOGIN', 'OPEN_SHIFT', 'CLOSE_SHIFT', etc.
+    entity_type TEXT NOT NULL,                 -- 'AUTH', 'SHIFT', 'INVOICE', 'PRODUCT', etc.
+    entity_id TEXT,                            -- ID de la entidad afectada
+    details TEXT,                              -- Metadatos JSON adicionales
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_operator ON operator_audit_logs(operator_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON operator_audit_logs(created_at);
+
+-- -----------------------------------------------------------------------------
+-- 9. VISTA DE CONSULTA RÁPIDA: STOCK ACTUAL POR MOVIMIENTOS
 -- -----------------------------------------------------------------------------
 -- Aritmética 100% entera: cada delta tiene exactamente 4 decimales (CHECK), por lo que
 -- quitar el punto lo convierte en diezmilésimas enteras. Sin REAL. Dividir entre 10000 en la app (decimal.js).
