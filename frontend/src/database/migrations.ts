@@ -182,12 +182,12 @@ export function migrateDatabase(driver: SqlDriver, customSchemaSql?: string): vo
     if ((rows[0]?.count ?? 0) === 0) {
       const now = Date.now();
       driver.run(
-        "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
-        ["01940000-0000-7000-8000-000000000001", "Administrador", "ADMIN", hashOperatorPin("1234"), now],
+        "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ["01940000-0000-7000-8000-000000000001", "Administrador", "ADMIN", hashOperatorPin("1234"), 1, now],
       );
       driver.run(
-        "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
-        ["01940000-0000-7000-8000-000000000002", "Cajero 1", "CASHIER", hashOperatorPin("0000"), now],
+        "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ["01940000-0000-7000-8000-000000000002", "Cajero 1", "CASHIER", hashOperatorPin("0000"), 1, now],
       );
     }
   } catch {

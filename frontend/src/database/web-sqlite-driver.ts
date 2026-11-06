@@ -17,6 +17,8 @@ interface RelationalStore {
   invoice_sequences: Record<string, SqlValue>[];
   invoice_items: Record<string, SqlValue>[];
   peer_sync_outbox: Record<string, SqlValue>[];
+  operators: Record<string, SqlValue>[];
+  operator_audit_logs: Record<string, SqlValue>[];
 }
 
 function createEmptyStore(): RelationalStore {
@@ -33,6 +35,8 @@ function createEmptyStore(): RelationalStore {
     invoice_sequences: [],
     invoice_items: [],
     peer_sync_outbox: [],
+    operators: [],
+    operator_audit_logs: [],
   };
 }
 
@@ -678,6 +682,63 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         }
         return;
       }
+
+      // 13. operators
+      if (/^INSERT INTO operators/i.test(norm)) {
+        if (norm.includes("VALUES (?, ?, ?, ?, 1, ?)") || params.length === 5) {
+          const [id, name, role, pin_hash, created_at] = params;
+          store.operators.push({
+            id: id ?? null,
+            name: name ?? "",
+            role: role ?? "CASHIER",
+            pin_hash: pin_hash ?? "",
+            is_active: 1,
+            created_at: created_at ?? Date.now(),
+          });
+          return;
+        }
+        const [id, name, role, pin_hash, is_active, created_at] = params;
+        store.operators.push({
+          id: id ?? null,
+          name: name ?? "",
+          role: role ?? "CASHIER",
+          pin_hash: pin_hash ?? "",
+          is_active: Number(is_active) === 0 ? 0 : 1,
+          created_at: created_at ?? Date.now(),
+        });
+        return;
+      }
+
+      if (/^UPDATE operators SET is_active = \? WHERE id = \?/i.test(norm)) {
+        const [is_active, id] = params;
+        const op = store.operators.find((o) => o.id === id);
+        if (op) {
+          op.is_active = is_active ?? 1;
+        }
+        return;
+      }
+
+      if (/^DELETE FROM operators WHERE id = \?/i.test(norm)) {
+        const [id] = params;
+        store.operators = store.operators.filter((o) => o.id !== id);
+        return;
+      }
+
+      // 14. operator_audit_logs
+      if (/^INSERT INTO operator_audit_logs/i.test(norm)) {
+        const [id, operator_id, operator_name, action, entity_type, entity_id, details, created_at] = params;
+        store.operator_audit_logs.push({
+          id: id ?? null,
+          operator_id: operator_id ?? "",
+          operator_name: operator_name ?? "",
+          action: action ?? "",
+          entity_type: entity_type ?? "",
+          entity_id: entity_id ?? null,
+          details: details ?? null,
+          created_at: created_at ?? Date.now(),
+        });
+        return;
+      }
     },
 
     all<T = Record<string, SqlValue>>(sql: string, params: SqlValue[] = []): T[] {
@@ -979,6 +1040,61 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
       // 11. Configuración (app_metadata)
       if (norm.includes("FROM app_metadata")) {
         return store.app_metadata.filter((m) => m.key === params[0]) as unknown as T[];
+      }
+
+      // 12. Operadores (operators)
+      if (norm.includes("FROM operators")) {
+        if (norm.includes("COUNT(*)")) {
+          let list = store.operators;
+          if (norm.includes("role = 'ADMIN'")) {
+            list = list.filter((o) => o.role === "ADMIN");
+          }
+          if (norm.includes("is_active = 1")) {
+            list = list.filter((o) => Number(o.is_active) === 1);
+          }
+          if (norm.includes("id != ?")) {
+            const excludedId = params[0];
+            list = list.filter((o) => o.id !== excludedId);
+          }
+          return [{ count: list.length }] as unknown as T[];
+        }
+
+        let list = store.operators;
+        if (norm.includes("pin_hash = ?")) {
+          const hash = params[0];
+          list = list.filter((o) => o.pin_hash === hash);
+        }
+        if (norm.includes("is_active = 1")) {
+          list = list.filter((o) => Number(o.is_active) === 1);
+        } else if (norm.includes("is_active = 0")) {
+          list = list.filter((o) => Number(o.is_active) === 0);
+        }
+        if (norm.includes("WHERE id = ?")) {
+          const id = params[0];
+          list = list.filter((o) => o.id === id);
+        }
+        return list as unknown as T[];
+      }
+
+      // 13. Bitácora de auditoría (operator_audit_logs)
+      if (norm.includes("FROM operator_audit_logs")) {
+        if (norm.includes("COUNT(*)")) {
+          let list = store.operator_audit_logs;
+          if (norm.includes("operator_id = ?")) {
+            list = list.filter((l) => l.operator_id === params[0]);
+          }
+          return [{ count: list.length }] as unknown as T[];
+        }
+        let list = [...store.operator_audit_logs];
+        if (norm.includes("operator_id = ?")) {
+          list = list.filter((l) => l.operator_id === params[0]);
+        }
+        if (norm.includes("action = ?")) {
+          const act = params.find((p) => typeof p === "string" && p !== params[0]) ?? params[0];
+          list = list.filter((l) => l.action === act);
+        }
+        list.sort((a, b) => Number(b.created_at) - Number(a.created_at));
+        return list as unknown as T[];
       }
 
       return [];

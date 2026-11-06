@@ -209,7 +209,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
       try {
         setMovementError(null);
         if (db) {
-          const movId = addCashMovement(db, {
+          const mov = addCashMovement(db, {
             shiftId: activeShift.id,
             terminalId,
             movementType,
@@ -225,7 +225,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
               operatorName: currentOperator?.name ?? activeShift.cashierName,
               action: "CASH_MOVEMENT",
               entityType: "CASH_MOVEMENT",
-              entityId: movId,
+              entityId: mov.id,
               details: {
                 movementType,
                 currency: movementCurrency,

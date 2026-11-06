@@ -82,6 +82,28 @@ export function hashOperatorPin(pin: string): string {
   return sha256Hex(`bisync-operator:${cleanPin}`);
 }
 
+/**
+ * Garantiza que existan los operadores semilla predeterminados si la tabla está vacía.
+ */
+export function ensureDefaultOperatorsSeed(db: SqlDriver): void {
+  try {
+    const rows = db.all<{ count: number }>("SELECT COUNT(*) as count FROM operators");
+    if ((rows[0]?.count ?? 0) === 0) {
+      const now = Date.now();
+      db.run(
+        "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ["01940000-0000-7000-8000-000000000001", "Administrador", "ADMIN", hashOperatorPin("1234"), 1, now],
+      );
+      db.run(
+        "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ["01940000-0000-7000-8000-000000000002", "Cajero 1", "CASHIER", hashOperatorPin("0000"), 1, now],
+      );
+    }
+  } catch {
+    // Si la tabla no está creada aún, ignorar
+  }
+}
+
 function mapOperatorRow(row: OperatorRow): OperatorEntity {
   return {
     id: row.id,
@@ -98,6 +120,7 @@ function mapOperatorRow(row: OperatorRow): OperatorEntity {
  * Devuelve el operador correspondiente o null si el PIN no coincide o el operador está bloqueado.
  */
 export function verifyOperatorPin(db: SqlDriver, pin: string): OperatorEntity | null {
+  ensureDefaultOperatorsSeed(db);
   const hash = hashOperatorPin(pin);
   const rows = db.all<OperatorRow>(
     "SELECT id, name, role, pin_hash, is_active, created_at FROM operators WHERE pin_hash = ? AND is_active = 1 LIMIT 1",
@@ -167,8 +190,8 @@ export function createOperator(
 
   const id = uuidv7(now);
   db.run(
-    "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
-    [id, cleanName, args.role, hash, now],
+    "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    [id, cleanName, args.role, hash, 1, now],
   );
 
   return {
