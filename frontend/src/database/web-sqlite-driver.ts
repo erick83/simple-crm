@@ -6,6 +6,7 @@ import { openShift, getOpenShift } from "./repositories/shift.repository";
 
 interface RelationalStore {
   license_state: Record<string, SqlValue>[];
+  device_trials: Record<string, SqlValue>[];
   exchange_rates: Record<string, SqlValue>[];
   exchange_rate_corrections: Record<string, SqlValue>[];
   categories: Record<string, SqlValue>[];
@@ -24,6 +25,7 @@ interface RelationalStore {
 function createEmptyStore(): RelationalStore {
   return {
     license_state: [],
+    device_trials: [],
     exchange_rates: [],
     exchange_rate_corrections: [],
     categories: [],
@@ -44,6 +46,38 @@ function cloneStore(store: RelationalStore): RelationalStore {
   return JSON.parse(JSON.stringify(store)) as RelationalStore;
 }
 
+const WEB_STORE_STORAGE_KEY = "bisync_pos_relational_store_v1";
+
+function loadStoreFromStorage(): RelationalStore {
+  if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+    try {
+      const serialized = localStorage.getItem(WEB_STORE_STORAGE_KEY);
+      if (serialized) {
+        const parsed = JSON.parse(serialized);
+        return {
+          ...createEmptyStore(),
+          ...parsed,
+          license_state: parsed.license_state ?? [],
+          device_trials: parsed.device_trials ?? [],
+        };
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return createEmptyStore();
+}
+
+function persistStoreToStorage(store: RelationalStore): void {
+  if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem(WEB_STORE_STORAGE_KEY, JSON.stringify(store));
+    } catch {
+      // ignore
+    }
+  }
+}
+
 function toScaledIntE4(deltaStr: SqlValue | undefined): number {
   if (deltaStr === null || deltaStr === undefined) return 0;
   const cleaned = String(deltaStr).replace(".", "");
@@ -58,7 +92,7 @@ function toScaledIntE4(deltaStr: SqlValue | undefined): number {
  * atómicas y cálculo entero e4 de la vista v_product_current_stock.
  */
 export function createWebDesktopSqliteDriver(): SqlDriver {
-  let store: RelationalStore = createEmptyStore();
+  let store: RelationalStore = loadStoreFromStorage();
 
   const computeViewProductCurrentStock = (): Record<string, SqlValue>[] => {
     return store.products
@@ -746,6 +780,144 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           details: details ?? null,
           created_at: created_at ?? Date.now(),
         });
+        persistStoreToStorage(store);
+        return;
+      }
+
+      // 15. INSERT OR REPLACE INTO device_trials
+      if (/^INSERT (?:OR REPLACE )?INTO device_trials/i.test(norm)) {
+        const [hwid, email, started_at, expires_at] = params;
+        const hwidStr = String(hwid ?? "").toLowerCase();
+        const existingIdx = store.device_trials.findIndex(
+          (t) => String(t.hwid ?? "").toLowerCase() === hwidStr,
+        );
+        const row = {
+          hwid: hwid ?? "",
+          email: email ?? "",
+          started_at: started_at ?? Date.now(),
+          expires_at: expires_at ?? Date.now(),
+        };
+        if (existingIdx >= 0) {
+          store.device_trials[existingIdx] = row;
+        } else {
+          store.device_trials.push(row);
+        }
+        persistStoreToStorage(store);
+        return;
+      }
+
+      // 16. INSERT OR REPLACE INTO license_state
+      if (/^INSERT (?:OR REPLACE )?INTO license_state/i.test(norm)) {
+        let tenant_id: SqlValue = "TENANT-001";
+        let branch_id: SqlValue = "SEDE-CENTRAL";
+        let terminal_id: SqlValue = "TERM-01";
+        let hwid: SqlValue = "";
+        let raw_license_token: SqlValue = "";
+        let issued_at: SqlValue = Date.now();
+        let valid_until: SqlValue = Date.now();
+        let grace_period_days: SqlValue = 0;
+        let last_recorded_timestamp: SqlValue = Date.now();
+        let p2p_sync_enabled: SqlValue = 1;
+        let status: SqlValue = "ACTIVE";
+
+        if (params.length === 8) {
+          tenant_id = params[0] ?? "TENANT-001";
+          branch_id = params[1] ?? "SEDE-CENTRAL";
+          terminal_id = params[2] ?? "TERM-01";
+          hwid = params[3] ?? "";
+          raw_license_token = params[4] ?? "";
+          issued_at = params[5] ?? Date.now();
+          valid_until = params[6] ?? Date.now();
+          last_recorded_timestamp = params[7] ?? Date.now();
+          grace_period_days = 0;
+          p2p_sync_enabled = 1;
+          status = "ACTIVE";
+        } else if (params.length >= 11) {
+          tenant_id = params[0] ?? "TENANT-001";
+          branch_id = params[1] ?? "SEDE-CENTRAL";
+          terminal_id = params[2] ?? "TERM-01";
+          hwid = params[3] ?? "";
+          raw_license_token = params[4] ?? "";
+          issued_at = params[5] ?? Date.now();
+          valid_until = params[6] ?? Date.now();
+          grace_period_days = params[7] ?? 0;
+          last_recorded_timestamp = params[8] ?? Date.now();
+          p2p_sync_enabled = params[9] ?? 1;
+          status = params[10] ?? "ACTIVE";
+        }
+
+        const newLicense = {
+          id: "current_license",
+          tenant_id: tenant_id ?? "TENANT-001",
+          branch_id: branch_id ?? "SEDE-CENTRAL",
+          terminal_id: terminal_id ?? "TERM-01",
+          hwid: hwid ?? "",
+          raw_license_token: raw_license_token ?? "",
+          issued_at: issued_at ?? Date.now(),
+          valid_until: valid_until ?? Date.now(),
+          grace_period_days: grace_period_days ?? 0,
+          last_recorded_timestamp: last_recorded_timestamp ?? Date.now(),
+          p2p_sync_enabled: p2p_sync_enabled ?? 1,
+          status: status ?? "ACTIVE",
+        };
+
+        const existingIdx = store.license_state.findIndex((l) => l.id === "current_license");
+        if (existingIdx >= 0) {
+          store.license_state[existingIdx] = newLicense;
+        } else {
+          store.license_state.push(newLicense);
+        }
+        persistStoreToStorage(store);
+        return;
+      }
+
+      // 17. UPDATE license_state
+      if (/^UPDATE license_state SET/i.test(norm)) {
+        let currentLic = store.license_state.find((l) => l.id === "current_license");
+        if (!currentLic) {
+          currentLic = {
+            id: "current_license",
+            tenant_id: "TENANT-001",
+            branch_id: "SEDE-CENTRAL",
+            terminal_id: "TERM-01",
+            hwid: "",
+            raw_license_token: "",
+            issued_at: Date.now(),
+            valid_until: Date.now(),
+            grace_period_days: 0,
+            last_recorded_timestamp: Date.now(),
+            p2p_sync_enabled: 1,
+            status: "ACTIVE",
+          };
+          store.license_state.push(currentLic);
+        }
+
+        if (/SET status = 'TAMPERED'/i.test(norm)) {
+          currentLic.status = "TAMPERED";
+          persistStoreToStorage(store);
+          return;
+        }
+        if (/SET status = 'EXPIRED'/i.test(norm)) {
+          currentLic.status = "EXPIRED";
+          persistStoreToStorage(store);
+          return;
+        }
+        if (/SET status = 'GRACE'/i.test(norm)) {
+          currentLic.status = "GRACE";
+          persistStoreToStorage(store);
+          return;
+        }
+        if (/SET last_recorded_timestamp = \?/i.test(norm)) {
+          currentLic.last_recorded_timestamp = params[0] ?? Date.now();
+          persistStoreToStorage(store);
+          return;
+        }
+        if (/SET status = \?/i.test(norm)) {
+          currentLic.status = params[0] ?? "ACTIVE";
+          persistStoreToStorage(store);
+          return;
+        }
+        persistStoreToStorage(store);
         return;
       }
     },
@@ -1046,6 +1218,17 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         return store.license_state.filter((l) => l.id === "current_license") as unknown as T[];
       }
 
+      // 10.1 Dispositivos en prueba (device_trials)
+      if (norm.includes("FROM device_trials")) {
+        if (/WHERE LOWER\(hwid\) = LOWER\(\?\)/i.test(norm) || /WHERE hwid = \?/i.test(norm)) {
+          const filter = String(params[0] ?? "").toLowerCase();
+          return store.device_trials.filter(
+            (t) => String(t.hwid ?? "").toLowerCase() === filter,
+          ) as unknown as T[];
+        }
+        return store.device_trials as unknown as T[];
+      }
+
       // 11. Configuración (app_metadata)
       if (norm.includes("FROM app_metadata")) {
         return store.app_metadata.filter((m) => m.key === params[0]) as unknown as T[];
@@ -1116,7 +1299,9 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
     transaction<T>(fn: () => T): T {
       const snapshot = cloneStore(store);
       try {
-        return fn();
+        const res = fn();
+        persistStoreToStorage(store);
+        return res;
       } catch (err) {
         store = snapshot;
         throw err;

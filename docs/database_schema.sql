@@ -24,6 +24,13 @@ CREATE TABLE IF NOT EXISTS license_state (
     status TEXT NOT NULL DEFAULT 'ACTIVE'      -- 'ACTIVE', 'GRACE', 'EXPIRED', 'TAMPERED'
 );
 
+CREATE TABLE IF NOT EXISTS device_trials (
+    hwid TEXT PRIMARY KEY,                     -- Hash Hardware ID (1 solo trial por máquina)
+    email TEXT NOT NULL,                       -- Correo del propietario registrado
+    started_at INTEGER NOT NULL,               -- Timestamp Unix de inicio del trial
+    expires_at INTEGER NOT NULL                -- Timestamp Unix de vencimiento (15 días)
+);
+
 -- -----------------------------------------------------------------------------
 -- 2. HISTÓRICO DE TASAS DE CAMBIO (EXCLUSIVO VENEZUELA / BIMONEDA)
 -- -----------------------------------------------------------------------------

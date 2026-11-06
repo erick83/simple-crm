@@ -17,7 +17,7 @@ Esta especificación detalla las directrices estéticas, paletas cromáticas (Da
 * **Filosofía Táctil**:
   * **Cero interacciones basadas en hover**: Todo control debe comunicar su estado sin necesidad de puntero de ratón.
   * **Zonas táctiles (Touch Targets)**: Mínimo **48 × 48 px** para controles secundarios (steppers, filtros, pestañas); botones de acción crítica (Cobrar, Confirmar, Cerrar Turno) y teclas de teclados numéricos a **64 px**.
-  * **Tipografía numérica tabular**: Importes monetarios presentados con fuente monoespaciada/tabular y **4 decimales exactos** (formato: `$ 22,015.0000`).
+  * **Tipografía numérica tabular**: Importes monetarios presentados con fuente monoespaciada/tabular y **2 decimales exactos** para montos comerciales/facturación (formato: `$ 22,015.00` y `Bs. 1,450.50`). Se reservan **4 decimales** únicamente para la tasa de cambio BCV (`Bs. XX.XXXX`) y cantidades fraccionadas de inventario.
 
 ---
 
@@ -131,7 +131,7 @@ Los tokens viven en `frontend/src/theme/tokens.ts`; `useTheme()` expone la palet
 
 ## 6. Instrucciones para Agentes / Modelos al Generar Nuevas Pantallas
 
-1. **Nunca omitir los 4 decimales**: Siempre formatear importes como `$ X,XXX.0000`.
+1. **Formato monetario a 2 decimales**: Formatear siempre importes monetarios en UI y tickets como `$ X,XXX.00` y `Bs. X,XXX.00`. Mantener 4 decimales únicamente en la tasa oficial BCV (`Bs. XX.XXXX`) y en cantidades fraccionadas de inventario.
 2. **Tema oscuro por defecto, ambos temas soportados**: La app arranca en el tema del sistema y ofrece un conmutador claro/oscuro. Nunca codificar colores literales: usar los tokens de `frontend/src/theme/tokens.ts` vía `useThemedStyles`.
 3. **Responsive en tres anchos**: móvil (`< 720 px`, una columna + navegación inferior de 64 px), tablet (`720–1023 px`, riel lateral de iconos de 88 px) y escritorio (`≥ 1024 px`, barra lateral de 240 px). Conservar 1280×800 como lienzo de referencia para tablet horizontal, sin scrollbars innecesarias en el contenedor principal.
 4. **Usar los identificadores de imagen oficiales**:

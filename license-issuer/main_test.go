@@ -96,3 +96,29 @@ func TestPrivateKeyHexRoundTrip(t *testing.T) {
 		t.Fatal("la llave privada hex no sobrevive el round-trip")
 	}
 }
+
+func TestLoadRequestWithEmail(t *testing.T) {
+	raw := `{
+		"requestId": "018d9f42-7000-7000-8000-000000000001",
+		"email": "comercio@bisync.dev",
+		"tenantId": "TENANT-001",
+		"branchId": "SEDE-1",
+		"terminalId": "TERM-01",
+		"hwid": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+		"deviceLabel": "Caja 1"
+	}`
+	path := t.TempDir() + "/request.json"
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	req, err := loadRequest(path)
+	if err != nil {
+		t.Fatalf("loadRequest: %v", err)
+	}
+	if req.Email != "comercio@bisync.dev" {
+		t.Errorf("req.Email = %q, want %q", req.Email, "comercio@bisync.dev")
+	}
+	if req.HWID == "" || req.TenantID != "TENANT-001" {
+		t.Errorf("datos de solicitud corruptos: %+v", req)
+	}
+}

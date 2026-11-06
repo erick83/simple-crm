@@ -32,8 +32,8 @@ describe("PR-05: Integración Bimoneda en Catálogo y Conversión Reactiva", () 
     expect(result).toHaveLength(1);
     expect(result[0]?.priceUsd).toBe("1.2500");
     expect(result[0]?.priceVes).toBe("45.6250"); // 1.2500 * 36.5000 = 45.6250
-    expect(result[0]?.formattedUsd).toBe("$ 1.2500");
-    expect(result[0]?.formattedVes).toBe("Bs. 45.6250");
+    expect(result[0]?.formattedUsd).toBe("$ 1.25");
+    expect(result[0]?.formattedVes).toBe("Bs. 45.63");
   });
 
   it("actualizar la tasa del día recalcula los precios mostrados en VES sin alterar price_usd en SQLite", () => {
@@ -80,8 +80,8 @@ describe("PR-05: Integración Bimoneda en Catálogo y Conversión Reactiva", () 
     // Precios en VES recalculados reactivamente al instante
     expect(itemA2?.priceVes).toBe("168.0000"); // 4.2000 * 40.0000 = 168.0000
     expect(itemB2?.priceVes).toBe("140.0000"); // 3.5000 * 40.0000 = 140.0000
-    expect(itemA2?.formattedVes).toBe("Bs. 168.0000");
-    expect(itemB2?.formattedVes).toBe("Bs. 140.0000");
+    expect(itemA2?.formattedVes).toBe("Bs. 168.00");
+    expect(itemB2?.formattedVes).toBe("Bs. 140.00");
 
     // 4. VERIFICACIÓN CRUCIAL: La base de datos SQLite NUNCA fue mutada
     const [rawA] = db.all<{ price_usd: string }>("SELECT price_usd FROM products WHERE id = ?", [p1]);
@@ -121,6 +121,6 @@ describe("PR-05: Integración Bimoneda en Catálogo y Conversión Reactiva", () 
     // 10.5000 * 36.5000 = 383.2500
     const converted = convertUsdToVes("10.5000", "36.5000");
     expect(converted.toFixed(4)).toBe("383.2500");
-    expect(formatVes(converted)).toBe("Bs. 383.2500");
+    expect(formatVes(converted)).toBe("Bs. 383.25");
   });
 });

@@ -17,6 +17,11 @@ import { InventoryScreen } from "./screens/InventoryScreen";
 import { MonthlyBalanceScreen } from "./screens/MonthlyBalanceScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { LockScreen } from "./screens/LockScreen";
+import { ActivationScreen } from "./screens/ActivationScreen";
+import {
+  LicenseValidatorService,
+  LicenseCheckResult,
+} from "./services/license-validator.service";
 import { getOrCreateDefaultSqlDriver } from "./database/connection";
 import type { SqlDriver } from "./database/connection";
 import { createDefaultFileStore } from "./services/image-compressor.service";
@@ -47,6 +52,8 @@ export interface AppProps {
   branchName?: string;
   fileStore?: FileStore;
   initialOperator?: OperatorEntity | null;
+  initialHwid?: string;
+  skipActivationGate?: boolean;
   [key: string]: unknown;
 }
 
@@ -63,6 +70,8 @@ const AppShell: React.FC<AppProps> = ({
   branchName,
   fileStore: customFileStore,
   initialOperator = null,
+  initialHwid,
+  skipActivationGate = false,
 }) => {
   const { colors: theme, mode } = useTheme();
   const styles = useThemedStyles(makeStyles);
@@ -73,6 +82,23 @@ const AppShell: React.FC<AppProps> = ({
   const [currentTab, setCurrentTab] = useState<NavTab>("pos");
   const db = initialDb ?? getOrCreateDefaultSqlDriver({ tenantId, terminalId });
   const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
+
+  const hwid =
+    initialHwid ??
+    LicenseValidatorService.computeHwid({ fallbackSeed: terminalId });
+
+  const [licenseState, setLicenseState] = useState<LicenseCheckResult>(() =>
+    db ? LicenseValidatorService.evaluateLicense(db, hwid) : { status: "UNLICENSED", canCheckout: false },
+  );
+
+  const refreshLicenseState = useCallback(() => {
+    if (!db) return;
+    try {
+      setLicenseState(LicenseValidatorService.evaluateLicense(db, hwid));
+    } catch {
+      // ignore
+    }
+  }, [db, hwid]);
   const [pendingCount, setPendingCount] = useState<number>(() =>
     db ? P2pSyncService.getUnreplicatedCount(db) : 0,
   );
@@ -126,6 +152,26 @@ const AppShell: React.FC<AppProps> = ({
     setCurrentOperator(null);
   }, [db, currentOperator, terminalId]);
 
+  // 1. Puerta de enlace: Si la terminal no cuenta con licencia ni prueba registrada,
+  // se exige registrar el correo del propietario y activar el trial antes de operar
+  if (!skipActivationGate && licenseState.status === "UNLICENSED") {
+    return (
+      <ActivationScreen
+        db={db}
+        terminalId={terminalId}
+        tenantId={tenantId}
+        currentHwid={hwid}
+        onActivated={() => {
+          if (db) {
+            const evaluated = LicenseValidatorService.evaluateLicense(db, hwid);
+            setLicenseState(evaluated);
+          }
+        }}
+      />
+    );
+  }
+
+  // 2. Si no hay operador autenticado, mostrar pantalla de bloqueo PIN
   if (!currentOperator) {
     return (
       <LockScreen
@@ -214,6 +260,7 @@ const AppShell: React.FC<AppProps> = ({
             tenantId={tenantId}
             terminalId={terminalId}
             currentOperator={currentOperator}
+            currentHwid={hwid}
           />
         );
     }
@@ -345,6 +392,41 @@ const AppShell: React.FC<AppProps> = ({
               </Text>
             </View>
             <View style={styles.headerRight}>
+              <TouchableOpacity
+                style={[
+                  styles.headerLicBadge,
+                  licenseState.status === "ACTIVE" && !licenseState.isTrial && styles.headerLicBadgeActive,
+                  licenseState.status === "ACTIVE" && licenseState.isTrial && styles.headerLicBadgeTrial,
+                  licenseState.status === "GRACE" && styles.headerLicBadgeTrial,
+                  (licenseState.status === "EXPIRED" || licenseState.status === "TAMPERED") && styles.headerLicBadgeExpired,
+                ]}
+                activeOpacity={currentOperator?.role === "ADMIN" ? 0.8 : 1}
+                onPress={() => {
+                  if (currentOperator?.role === "ADMIN") {
+                    setCurrentTab("settings");
+                  }
+                }}
+                disabled={currentOperator?.role !== "ADMIN"}
+                accessibilityRole="button"
+                accessibilityLabel={`Estado de licencia: ${licenseState.status}`}
+              >
+                <Text
+                  style={[
+                    styles.headerLicText,
+                    licenseState.status === "ACTIVE" && !licenseState.isTrial && styles.headerLicTextActive,
+                    licenseState.status === "ACTIVE" && licenseState.isTrial && styles.headerLicTextTrial,
+                    licenseState.status === "GRACE" && styles.headerLicTextTrial,
+                    (licenseState.status === "EXPIRED" || licenseState.status === "TAMPERED") && styles.headerLicTextExpired,
+                  ]}
+                >
+                  {licenseState.status === "ACTIVE" && !licenseState.isTrial && "✓ Licencia Activa"}
+                  {licenseState.status === "ACTIVE" && licenseState.isTrial && `⏳ Prueba: ${licenseState.daysRemaining ?? 15}d`}
+                  {licenseState.status === "GRACE" && "⚠ Licencia por vencer"}
+                  {licenseState.status === "EXPIRED" && "⚠ Cobro suspendido (Expirada)"}
+                  {licenseState.status === "TAMPERED" && "⚠ Licencia adulterada"}
+                </Text>
+              </TouchableOpacity>
+
               <SyncBadge
                 state={syncState}
                 pendingCount={pendingCount}
@@ -593,6 +675,36 @@ const makeStyles = (c: Palette) =>
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
+    gap: spacing.sm,
+  },
+  headerLicBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: spacing.radiusFull,
+    backgroundColor: c.surfaceContainerHigh,
+  },
+  headerLicBadgeActive: {
+    backgroundColor: c.heroSoft,
+  },
+  headerLicBadgeTrial: {
+    backgroundColor: c.warningSoft,
+  },
+  headerLicBadgeExpired: {
+    backgroundColor: c.errorSoft,
+  },
+  headerLicText: {
+    fontSize: 11,
+    fontWeight: typography.weights.bold,
+    color: c.textSecondary,
+  },
+  headerLicTextActive: {
+    color: c.heroText,
+  },
+  headerLicTextTrial: {
+    color: c.warningText,
+  },
+  headerLicTextExpired: {
+    color: c.errorText,
   },
   screenContainer: {
     flex: 1,

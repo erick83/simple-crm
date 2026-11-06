@@ -193,5 +193,18 @@ export function migrateDatabase(driver: SqlDriver, customSchemaSql?: string): vo
   } catch {
     // Ignorar si ya existe o está inicializado
   }
-}
 
+  // Registro de periodo de prueba de 15 días por hardware (1 solo trial por HWID)
+  try {
+    driver.exec(`
+      CREATE TABLE IF NOT EXISTS device_trials (
+        hwid TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+    `);
+  } catch {
+    // Ignorar si ya existe
+  }
+}

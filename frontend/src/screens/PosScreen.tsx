@@ -23,6 +23,7 @@ import { Numpad } from "../components/Numpad";
 import {
   formatUsd,
   formatVes,
+  formatExchangeRate,
   convertUsdToVes,
   toDecimal,
   formatFixed4,
@@ -1294,11 +1295,11 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             }}
             style={styles.ratePill}
             accessibilityRole="button"
-            accessibilityLabel={`Tasa oficial ${formatVes(exchangeRate)}. Editar tasa`}
+            accessibilityLabel={`Tasa oficial ${formatExchangeRate(exchangeRate)}. Editar tasa`}
           >
             <Text style={styles.ratePillLabel}>Tasa oficial:</Text>
             <Text style={[styles.ratePillValue, typography.tabularNumeric]}>
-              {formatVes(exchangeRate)}
+              {formatExchangeRate(exchangeRate)}
             </Text>
             <Text style={styles.ratePillEdit}>✎</Text>
           </TouchableOpacity>
@@ -1817,7 +1818,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 <Text style={[styles.heroTotalVes, typography.tabularNumeric]}>{formatVes(totalVes)}</Text>
               </View>
               <Text style={[styles.heroRate, typography.tabularNumeric]}>
-                Tasa oficial congelada: {formatVes(exchangeRate)} / USD
+                Tasa oficial congelada: {formatExchangeRate(exchangeRate)} / USD
               </Text>
             </View>
 
@@ -2080,7 +2081,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
 
             <View style={styles.modalInputGroup}>
               <Text style={styles.inputLabel}>
-                Nueva tasa (Bs. por USD). Actual: {formatVes(exchangeRate)}
+                Nueva tasa (Bs. por USD). Actual: {formatExchangeRate(exchangeRate)}
               </Text>
               <TextInput
                 style={[styles.modalInput, typography.tabularNumeric]}
@@ -2325,7 +2326,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     </View>
                     <View style={styles.receiptRateNotice}>
                       <Text style={styles.receiptRateNoticeText}>
-                        Tasa congelada: {formatVes(selectedReceipt.exchangeRate)} / USD
+                        Tasa congelada: {formatExchangeRate(selectedReceipt.exchangeRate)} / USD
                       </Text>
                       <Text style={styles.receiptRateNoticeText}>
                         Método de pago: {PAYMENT_METHOD_LABELS[selectedReceipt.paymentMethod] ?? selectedReceipt.paymentMethod}

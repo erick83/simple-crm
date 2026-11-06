@@ -29,27 +29,43 @@ export function toDecimal(value: string | Decimal, fieldName = "Monto"): Decimal
   }
 }
 
-/** Formatea a string con exactamente 4 decimales requeridos por la constitución. */
+/** Formatea a string con exactamente 4 decimales requeridos para precisión interna, Kardex y tasas. */
 export function formatFixed4(value: string | Decimal): string {
   return toDecimal(value).toFixed(4);
 }
 
+/** Formatea a string con exactamente 2 decimales para cobro y liquidación fiscal. */
+export function formatFixed2(value: string | Decimal): string {
+  return toDecimal(value).toFixed(2);
+}
+
 /**
- * Formatea un importe en USD con separadores de miles y 4 decimales:
- * Formato: "$ 1,250.0000"
+ * Formatea un importe monetario en USD con separadores de miles y 2 decimales:
+ * Formato: "$ 1,250.00"
  */
 export function formatUsd(value: string | Decimal): string {
   const d = toDecimal(value);
-  const parts = d.toFixed(4).split(".");
+  const parts = d.toFixed(2).split(".");
   const integerPart = parts[0]!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `$ ${integerPart}.${parts[1]}`;
 }
 
 /**
- * Formatea un importe en VES (Bolívares) con separadores de miles y 4 decimales:
- * Formato: "Bs. 45,625.5000"
+ * Formatea un importe monetario en VES (Bolívares) con separadores de miles y 2 decimales:
+ * Formato: "Bs. 45,625.50"
  */
 export function formatVes(value: string | Decimal): string {
+  const d = toDecimal(value);
+  const parts = d.toFixed(2).split(".");
+  const integerPart = parts[0]!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `Bs. ${integerPart}.${parts[1]}`;
+}
+
+/**
+ * Formatea la tasa oficial de cambio en VES con separadores de miles y 4 decimales exactos:
+ * Formato: "Bs. 36.5000"
+ */
+export function formatExchangeRate(value: string | Decimal): string {
   const d = toDecimal(value);
   const parts = d.toFixed(4).split(".");
   const integerPart = parts[0]!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");

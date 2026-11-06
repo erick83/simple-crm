@@ -18,6 +18,7 @@ import type { Palette } from "../theme/tokens";
 import {
   formatUsd,
   formatVes,
+  formatExchangeRate,
   convertUsdToVes,
   formatFixed4,
   toDecimal,
@@ -769,7 +770,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
         <View style={[styles.titleContainer, isMobile && styles.fullWidth]}>
           <Text style={styles.title}>Control de Inventario y Kardex</Text>
           <Text style={styles.subtitle}>
-            Stock computado por deltas conmutativos • Tasa: {formatVes(exchangeRate)}
+            Stock computado por deltas conmutativos • Tasa: {formatExchangeRate(exchangeRate)}
           </Text>
         </View>
 

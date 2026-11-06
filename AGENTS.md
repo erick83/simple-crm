@@ -18,7 +18,7 @@ Este documento define las reglas estrictas, la arquitectura y las directrices t�
 ## 2. Reglas Estrictas de Tipos e Integridad
 
 1. **Identificadores:** Uso mandatorio de **UUIDv7** para todas las transacciones, productos, turnos, movimientos de inventario y tasas de cambio para garantizar orden cronológico y evitar colisiones entre cajas independientes.
-2. **Matemática Financiera y Cantidades:** Uso obligatorio de librerías de precisión fija (ej. `decimal.js` o `bignumber.js` en TypeScript). **PROHIBIDO** el uso de tipos `number` flotantes nativos en precios, tasas cambiarias, totales o inventario (incluye `CAST ... AS REAL` en SQL).
+2. **Matemática Financiera y Cantidades:** Uso obligatorio de librerías de precisión fija (ej. `decimal.js` o `bignumber.js` en TypeScript). **PROHIBIDO** el uso de tipos `number` flotantes nativos en precios, tasas cambiarias, totales o inventario (incluye `CAST ... AS REAL` en SQL). El motor de cálculo y la base de datos mantienen precisión interna de 4 decimales (tasas cambiarias, inventario y cálculos intermedios). La liquidación final, cobro y facturación fiscal aplican redondeo estándar (`ROUND_HALF_UP`) a 2 decimales para la moneda circulante.
 3. **Kardex Conmutativo por Deltas:** Ninguna caja puede sobreescribir el stock de otra. El inventario se computa mediante la suma acumulada de registros delta inmutables (`quantity_delta: -1.0000`, `+10.0000`, 4 decimales) en la tabla `stock_movements`.
 
 ---
@@ -57,7 +57,7 @@ Todo componente visual debe cumplir estrictamente con:
 * Orientación preferente horizontal (**Landscape**, estándar 1280×800 px para tablets).
 * Tema por defecto: el del sistema operativo, con conmutador claro/oscuro (Dark: base `#0A0D12`, contenedores `#10141A`, acento primario `#1D61E0`, cobro `#00B074`; Light: base `#F4F6F8`, contenedores `#FFFFFF`, acento `#1550BC`, cobro `#047857`). Superficies neutras: el cobalto no tiñe la interfaz entera.
 * **Touch Targets mínimos de 48×48 px** (64 px para cobro, cierre Z y teclado numérico). Cero dependencias de eventos `hover`.
-* Formateo numérico tabular con 4 decimales exactos (`tabular-nums`, Plus Jakarta Sans): `$ X,XXX.0000` y `Bs. X,XXX.0000`.
+* Formateo numérico tabular (`tabular-nums`, Plus Jakarta Sans): importes monetarios en UI y facturación a **2 decimales exactos** (`$ X,XXX.00` y `Bs. X,XXX.00`). Excepciones que mantienen **4 decimales**: tasa oficial BCV (`Bs. XX.XXXX`) y cantidades fraccionadas/balanza en inventario (`formatQuantity`).
 
 ---
 

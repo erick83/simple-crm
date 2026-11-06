@@ -10,7 +10,7 @@ import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 import { useTheme, useThemedStyles } from "../theme/ThemeContext";
 import type { Palette } from "../theme/tokens";
-import { formatVes } from "../utils/decimal";
+import { formatExchangeRate } from "../utils/decimal";
 import type { ExchangeRateHistoryItem } from "../database/repositories/exchange.repository";
 
 export interface ExchangeRateLineChartProps {
@@ -137,7 +137,7 @@ export const ExchangeRateLineChart: React.FC<ExchangeRateLineChartProps> = ({
 
             <View style={styles.inspectRateBlock}>
               <Text style={[styles.inspectRate, typography.tabularNumeric]}>
-                {formatVes(activePoint.item.rateToVes)}
+                {formatExchangeRate(activePoint.item.rateToVes)}
               </Text>
               {activePoint.item.deltaPreviousDay ? (
                 <Text

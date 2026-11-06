@@ -15,7 +15,7 @@
 import { PAYMENT_METHOD_LABELS } from "../database/repositories/balance.repository";
 import type { InvoiceEntity, InvoiceItemEntity } from "../database/repositories/invoice.repository";
 import { parseSplitBreakdown } from "../database/repositories/invoice.repository";
-import { formatUsd, formatVes, toDecimal } from "../utils/decimal";
+import { formatUsd, formatVes, formatExchangeRate, toDecimal } from "../utils/decimal";
 
 /** Columnas de la XP-58IIHT en fuente A de 58 mm. */
 export const RECEIPT_COLS = 32;
@@ -139,7 +139,7 @@ export function buildReceiptModel(
   }
   out.push(line(`~ ${formatVes(invoice.totalVes)}`));
   out.push(line(rule("=")));
-  out.push(line(fitRow("Tasa congelada:", `${formatVes(invoice.exchangeRate)} / USD`)));
+  out.push(line(fitRow("Tasa congelada:", `${formatExchangeRate(invoice.exchangeRate)} / USD`)));
   const method = PAYMENT_METHOD_LABELS[invoice.paymentMethod] ?? invoice.paymentMethod;
   out.push(line(fitRow("Metodo de pago:", method)));
 
