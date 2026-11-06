@@ -12,7 +12,7 @@ import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 import { useTheme, useThemedStyles } from "../theme/ThemeContext";
 import type { Palette } from "../theme/tokens";
-import { formatUsd, formatVes, formatExchangeRate, toDecimal, formatFixed4 } from "../utils/decimal";
+import { formatUsd, formatVes, formatExchangeRate, toDecimal, formatFixed4, Decimal } from "../utils/decimal";
 import type { SqlDriver } from "../database/connection";
 import {
   getOpenShift,
@@ -942,7 +942,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                         </TouchableOpacity>
                       </View>
                       <Text style={[styles.denomSubtotal, typography.tabularNumeric]}>
-                        ${(d * count).toFixed(2)}
+                        {formatUsd(new Decimal(d).times(count))}
                       </Text>
                     </View>
                   );
@@ -996,7 +996,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                         </TouchableOpacity>
                       </View>
                       <Text style={[styles.denomSubtotal, typography.tabularNumeric]}>
-                        Bs. {(d * count).toFixed(2)}
+                        {formatVes(new Decimal(d).times(count))}
                       </Text>
                     </View>
                   );
