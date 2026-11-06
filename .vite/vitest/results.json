@@ -1,1 +1,1 @@
-{"version":"1.6.1","results":[[":frontend/tests/settings-tax.test.ts",{"duration":47,"failed":false}],[":frontend/tests/shifts.test.ts",{"duration":48,"failed":false}]]}
+{"version":"1.6.1","results":[[":frontend/tests/lock-screen.test.ts",{"duration":55,"failed":false}],[":frontend/tests/operator.repository.test.ts",{"duration":86,"failed":false}]]}
