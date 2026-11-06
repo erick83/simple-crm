@@ -37,6 +37,7 @@ export interface ShiftsScreenProps {
   db?: SqlDriver;
   terminalId?: string;
   defaultExchangeRate?: string;
+  initialCashierName?: string;
   onShiftChanged?: (shift: ShiftEntity | null) => void;
 }
 
@@ -44,6 +45,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   db,
   terminalId = "TERM-01",
   defaultExchangeRate = "36.5000",
+  initialCashierName,
   onShiftChanged,
 }) => {
   const { colors: theme } = useTheme();
@@ -51,7 +53,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   const [activeShift, setActiveShift] = useState<ShiftEntity | null>(null);
 
   // Apertura de turno
-  const [newCashier, setNewCashier] = useState("Erick");
+  const [newCashier, setNewCashier] = useState(initialCashierName ?? "Erick");
   const [newInitialUsd, setNewInitialUsd] = useState("50.0000");
   const [newInitialVes, setNewInitialVes] = useState("1825.0000");
   const [newExchangeRate, setNewExchangeRate] = useState(defaultExchangeRate);

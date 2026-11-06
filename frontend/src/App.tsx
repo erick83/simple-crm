@@ -16,6 +16,7 @@ import { ShiftsScreen } from "./screens/ShiftsScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { MonthlyBalanceScreen } from "./screens/MonthlyBalanceScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
+import { LockScreen } from "./screens/LockScreen";
 import { getOrCreateDefaultSqlDriver } from "./database/connection";
 import type { SqlDriver } from "./database/connection";
 import { createDefaultFileStore } from "./services/image-compressor.service";
@@ -23,6 +24,8 @@ import type { FileStore } from "./services/image-compressor.service";
 import { P2pSyncService } from "./services/p2p-sync.service";
 import { getOpenShift } from "./database/repositories/shift.repository";
 import type { ShiftEntity } from "./database/repositories/shift.repository";
+import type { OperatorEntity } from "./database/repositories/operator.repository";
+import { logOperatorAction } from "./database/repositories/operator.repository";
 
 type NavTab = "pos" | "inventory" | "shifts" | "balance" | "settings";
 
@@ -43,6 +46,7 @@ export interface AppProps {
   terminalId?: string;
   branchName?: string;
   fileStore?: FileStore;
+  initialOperator?: OperatorEntity | null;
   [key: string]: unknown;
 }
 
@@ -58,10 +62,14 @@ const AppShell: React.FC<AppProps> = ({
   terminalId = "TERM-01",
   branchName,
   fileStore: customFileStore,
+  initialOperator = null,
 }) => {
   const { colors: theme, mode } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const { isMobile, isTablet } = useBreakpoint();
+  const [currentOperator, setCurrentOperator] = useState<OperatorEntity | null>(
+    () => initialOperator,
+  );
   const [currentTab, setCurrentTab] = useState<NavTab>("pos");
   const db = initialDb ?? getOrCreateDefaultSqlDriver({ tenantId, terminalId });
   const [fileStore] = useState<FileStore>(() => customFileStore ?? createDefaultFileStore());
@@ -101,8 +109,61 @@ const AppShell: React.FC<AppProps> = ({
     refreshActiveShift();
   }, [currentTab, refreshPendingCount, refreshActiveShift]);
 
+  const handleLockTerminal = useCallback(() => {
+    if (db && currentOperator) {
+      try {
+        logOperatorAction(db, {
+          operatorId: currentOperator.id,
+          operatorName: currentOperator.name,
+          action: "LOGOUT",
+          entityType: "AUTH",
+          details: { terminalId },
+        });
+      } catch {
+        // Ignorar si la bitácora falla
+      }
+    }
+    setCurrentOperator(null);
+  }, [db, currentOperator, terminalId]);
+
+  if (!currentOperator) {
+    return (
+      <LockScreen
+        db={db}
+        terminalId={terminalId}
+        tenantId={tenantId}
+        onUnlock={(operator) => {
+          setCurrentOperator(operator);
+          if (operator.role === "CASHIER") {
+            try {
+              const shift = db ? getOpenShift(db, terminalId) : null;
+              if (!shift) {
+                setCurrentTab("shifts");
+              } else {
+                setCurrentTab("pos");
+              }
+            } catch {
+              setCurrentTab("shifts");
+            }
+          } else {
+            setCurrentTab("pos");
+          }
+        }}
+      />
+    );
+  }
+
+  const allowedTabs: NavTab[] =
+    currentOperator.role === "ADMIN"
+      ? ["pos", "inventory", "shifts", "balance", "settings"]
+      : ["pos", "shifts"];
+
+  const visibleNavItems = NAV_ITEMS.filter((item) => allowedTabs.includes(item.tab));
+
   const renderScreen = () => {
-    switch (currentTab) {
+    const activeTab = allowedTabs.includes(currentTab) ? currentTab : "pos";
+
+    switch (activeTab) {
       case "pos":
         return (
           <PosScreen
@@ -134,6 +195,7 @@ const AppShell: React.FC<AppProps> = ({
           <ShiftsScreen
             db={db}
             terminalId={terminalId}
+            initialCashierName={currentOperator.name}
             onShiftChanged={(shift) => {
               setActiveShift(shift);
             }}
@@ -208,12 +270,34 @@ const AppShell: React.FC<AppProps> = ({
             </View>
 
             <View style={styles.navGroup} accessibilityRole="tablist">
-              {NAV_ITEMS.map((item) =>
+              {visibleNavItems.map((item) =>
                 navItem(item.tab, item.label, item.icon, isTablet ? "rail" : "row"),
               )}
             </View>
 
             <View style={styles.sidebarFooter}>
+              <View style={[styles.operatorBox, isTablet && styles.operatorBoxRail]}>
+                {isTablet ? null : (
+                  <View style={styles.operatorInfo}>
+                    <Text style={styles.operatorRole}>
+                      {currentOperator.role === "ADMIN" ? "👑 Admin" : "👤 Cajero"}
+                    </Text>
+                    <Text style={styles.operatorName} numberOfLines={1}>
+                      {currentOperator.name}
+                    </Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={styles.lockBtn}
+                  onPress={handleLockTerminal}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Bloquear terminal y cambiar operador"
+                >
+                  <Text style={styles.lockBtnText}>🔒</Text>
+                </TouchableOpacity>
+              </View>
+
               <ThemeToggle compact={isTablet} />
               <TouchableOpacity
                 style={[styles.shiftFooter, isTablet && styles.shiftFooterRail]}
@@ -265,7 +349,16 @@ const AppShell: React.FC<AppProps> = ({
         {/* Navegación inferior (móvil): pulgar primero, targets de 64 px */}
         {isMobile ? (
           <View style={styles.bottomNav}>
-            {NAV_ITEMS.map((item) => navItem(item.tab, item.label, item.icon, "bottom"))}
+            {visibleNavItems.map((item) => navItem(item.tab, item.label, item.icon, "bottom"))}
+            <TouchableOpacity
+              style={styles.bottomLockBtn}
+              onPress={handleLockTerminal}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Bloquear terminal"
+            >
+              <Text style={styles.bottomLockIcon}>🔒</Text>
+            </TouchableOpacity>
             <ThemeToggle compact />
           </View>
         ) : null}
@@ -370,6 +463,59 @@ const makeStyles = (c: Palette) =>
     paddingTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: c.border,
+  },
+  operatorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: c.surfaceContainer,
+    borderRadius: spacing.radiusMd,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  operatorBoxRail: {
+    justifyContent: "center",
+    paddingHorizontal: 0,
+    paddingVertical: spacing.xs,
+  },
+  operatorInfo: {
+    flex: 1,
+    marginRight: spacing.xs,
+  },
+  operatorRole: {
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+    color: c.primaryGlow,
+    textTransform: "uppercase",
+  },
+  operatorName: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: c.textPrimary,
+  },
+  lockBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: spacing.radiusSm,
+    backgroundColor: c.surfaceContainerHigh,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lockBtnText: {
+    fontSize: 16,
+  },
+  bottomLockBtn: {
+    width: spacing.touchTargetMin,
+    height: spacing.touchTargetMin,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: spacing.radiusMd,
+    backgroundColor: c.surfaceContainer,
+  },
+  bottomLockIcon: {
+    fontSize: 20,
   },
   shiftFooter: {
     flexDirection: "row",
