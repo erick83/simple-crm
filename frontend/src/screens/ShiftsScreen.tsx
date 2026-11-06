@@ -60,8 +60,8 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   const [newCashier, setNewCashier] = useState(
     () => currentOperator?.name ?? initialCashierName ?? "",
   );
-  const [newInitialUsd, setNewInitialUsd] = useState("50.0000");
-  const [newInitialVes, setNewInitialVes] = useState("1825.0000");
+  const [newInitialUsd, setNewInitialUsd] = useState("50.00");
+  const [newInitialVes, setNewInitialVes] = useState("1825.00");
   const [newExchangeRate, setNewExchangeRate] = useState(defaultExchangeRate);
   const [openError, setOpenError] = useState<string | null>(null);
 
@@ -274,10 +274,10 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
       const totalUsd = calculateDenominationsTotal(usdDenomCounts);
       const totalVes = calculateDenominationsTotal(vesDenomCounts);
       if (toDecimal(totalUsd).gt(0)) {
-        setDeclaredUsd(totalUsd);
+        setDeclaredUsd(toDecimal(totalUsd).toFixed(2));
       }
       if (toDecimal(totalVes).gt(0)) {
-        setDeclaredVes(totalVes);
+        setDeclaredVes(toDecimal(totalVes).toFixed(2));
       }
       setIsDenomModalOpen(false);
     };
@@ -482,7 +482,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                                 <Text style={styles.inputLabel}>Efectivo USD Contado ($)</Text>
                                 <TextInput
                                   style={[styles.input, typography.tabularNumeric]}
-                                  placeholder="0.0000"
+                                  placeholder="0.00"
                                   placeholderTextColor={theme.textMuted}
                                   keyboardType="decimal-pad"
                                   value={declaredUsd}
@@ -494,7 +494,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                                 <Text style={styles.inputLabel}>Efectivo VES Contado (Bs.)</Text>
                                 <TextInput
                                   style={[styles.input, typography.tabularNumeric]}
-                                  placeholder="0.0000"
+                                  placeholder="0.00"
                                   placeholderTextColor={theme.textMuted}
                                   keyboardType="decimal-pad"
                                   value={declaredVes}
@@ -611,6 +611,8 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                                   <TextInput
                                     style={[styles.input, typography.tabularNumeric]}
                                     value={newInitialUsd}
+                                    placeholder="0.00"
+                                    placeholderTextColor={theme.textMuted}
                                     onChangeText={setNewInitialUsd}
                                     keyboardType="decimal-pad"
                                   />
@@ -621,6 +623,8 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                                   <TextInput
                                     style={[styles.input, typography.tabularNumeric]}
                                     value={newInitialVes}
+                                    placeholder="0.00"
+                                    placeholderTextColor={theme.textMuted}
                                     onChangeText={setNewInitialVes}
                                     keyboardType="decimal-pad"
                                   />
@@ -645,7 +649,9 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
           <Text style={styles.historyTitle}>📜 Historial de Cierres Z Anteriores</Text>
           <View style={styles.historyList}>
             {closedShiftsHistory.map((s) => {
-              const isSquare = s.differenceUsd === "0.0000" && s.differenceVes === "0.0000";
+              const isSquare =
+                toDecimal(s.differenceUsd ?? "0").isZero() &&
+                toDecimal(s.differenceVes ?? "0").isZero();
               const closedDate = s.closedAt ? new Date(s.closedAt) : null;
               return (
                 <View key={s.id} style={styles.historyRow}>
@@ -659,10 +665,10 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
                   </View>
                   <View style={styles.historyAmounts}>
                     <Text style={[styles.historyAmountText, typography.tabularNumeric]}>
-                      USD: {formatUsd(s.declaredCashUsd ?? "0")} (Dif: {s.differenceUsd ?? "0.0000"})
+                      USD: {formatUsd(s.declaredCashUsd ?? "0")} (Dif: {formatUsd(s.differenceUsd ?? "0")})
                     </Text>
                     <Text style={[styles.historyAmountText, typography.tabularNumeric]}>
-                      VES: {formatVes(s.declaredCashVes ?? "0")} (Dif: {s.differenceVes ?? "0.0000"})
+                      VES: {formatVes(s.declaredCashVes ?? "0")} (Dif: {formatVes(s.differenceVes ?? "0")})
                     </Text>
                   </View>
                   <View style={[styles.historyBadge, isSquare ? styles.badgeSquare : styles.badgeDiff]}>
@@ -838,7 +844,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
               <Text style={styles.inputLabel}>Monto ({movementCurrency})</Text>
               <TextInput
                 style={[styles.input, typography.tabularNumeric]}
-                placeholder="0.0000"
+                placeholder="0.00"
                 placeholderTextColor={theme.textMuted}
                 keyboardType="decimal-pad"
                 value={movementAmount}
