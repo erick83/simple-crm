@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { SPACING_BASE } from "../src/theme/spacing";
 import { brandMark, brandWordmark } from "../src/components/brand-logo.paths";
 import { formatUsd, formatVes, toDecimal, convertUsdToVes } from "../src/utils/decimal";
 import { deriveSyncState, formatSyncAge } from "../src/components/SyncBadge";
@@ -56,8 +56,9 @@ describe("Design Tokens y Reglas de la Constitución", () => {
   });
 
   it("cumple los touch targets mínimos de 48px y 64px", () => {
-    expect(spacing.touchTargetMin).toBe(48);
-    expect(spacing.touchTargetHero).toBe(64);
+    // El contrato de diseño se define en el lienzo de referencia 1280×800.
+    expect(SPACING_BASE.touchTargetMin).toBe(48);
+    expect(SPACING_BASE.touchTargetHero).toBe(64);
   });
 
   it("resuelve los colores del logo con tokens de marca de cada tema", () => {
