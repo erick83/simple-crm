@@ -1,5 +1,6 @@
 import type { SqlDriver } from "../database/connection";
 import { ed25519 } from "@noble/curves/ed25519.js";
+import { uuidv7 } from "../utils/uuid7";
 
 const SHA256_K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -162,6 +163,17 @@ export interface LicenseTokenPayload {
   features: string[];
 }
 
+export interface LicenseRequestData {
+  requestId: string;
+  email: string;
+  tenantId: string;
+  branchId: string;
+  terminalId: string;
+  hwid: string;
+  deviceLabel: string;
+  requestedAt: number; // Unix timestamp en segundos
+}
+
 export interface SignedLicenseEnvelope {
   payload: LicenseTokenPayload;
   signature: string; // Firma Ed25519 en formato Hex
@@ -174,6 +186,9 @@ export interface LicenseCheckResult {
   canCheckout: boolean;
   message?: string;
   payload?: LicenseTokenPayload;
+  isTrial?: boolean;
+  registeredEmail?: string;
+  daysRemaining?: number;
 }
 
 /**
@@ -363,6 +378,231 @@ export class LicenseValidatorService {
   }
 
   /**
+   * Valida formato básico de correo electrónico.
+   */
+  static isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  }
+
+  /**
+   * Consulta si este Hardware ID ya utilizó su periodo de prueba de 15 días.
+   */
+  static getDeviceTrial(
+    db: SqlDriver,
+    currentHwid: string,
+  ): { used: boolean; email?: string; startedAt?: number; expiresAt?: number } {
+    try {
+      const rows = db.all<{ hwid: string; email: string; started_at: number; expires_at: number }>(
+        "SELECT hwid, email, started_at, expires_at FROM device_trials WHERE LOWER(hwid) = LOWER(?)",
+        [currentHwid.trim()],
+      );
+      if (rows.length > 0 && rows[0]) {
+        return {
+          used: true,
+          email: rows[0].email,
+          startedAt: rows[0].started_at,
+          expiresAt: rows[0].expires_at,
+        };
+      }
+    } catch {
+      // Tabla no inicializada aún
+    }
+    return { used: false };
+  }
+
+  /**
+   * Activa el periodo de prueba de 15 días amarrado al HWID físico del equipo.
+   * Rechaza si el HWID ya agotó su prueba previa (regla de 1 solo trial por máquina).
+   */
+  static activateTrial(
+    db: SqlDriver,
+    params: {
+      email: string;
+      currentHwid: string;
+      tenantId?: string;
+      branchId?: string;
+      terminalId?: string;
+      nowMs?: number;
+    },
+  ): { success: boolean; message: string; trial?: { expiresAt: number; daysRemaining: number } } {
+    const email = params.email.trim();
+    if (!this.isValidEmail(email)) {
+      return {
+        success: false,
+        message: "El formato del correo electrónico ingresado no es válido.",
+      };
+    }
+
+    const hwid = params.currentHwid.trim();
+    const existingTrial = this.getDeviceTrial(db, hwid);
+    if (existingTrial.used) {
+      return {
+        success: false,
+        message: `Este equipo ya agotó sus 15 días de prueba (${existingTrial.email ?? "cuenta previa"}). Para reanudar el cobro, instale su licencia oficial.`,
+      };
+    }
+
+    const nowMs = params.nowMs ?? Date.now();
+    const nowSec = Math.floor(nowMs / 1000);
+    const expiresAt = nowSec + 15 * 86400; // 15 días exactos
+
+    try {
+      db.run(
+        "INSERT OR REPLACE INTO device_trials (hwid, email, started_at, expires_at) VALUES (?, ?, ?, ?)",
+        [hwid, email, nowSec, expiresAt],
+      );
+    } catch {
+      // Fallback si la tabla no existe en entornos aislados
+    }
+
+    const trialPayload: LicenseTokenPayload = {
+      tenantId: params.tenantId ?? "TENANT-001",
+      branchId: params.branchId ?? "SEDE-CENTRAL",
+      terminalId: params.terminalId ?? "TERM-01",
+      hwid,
+      issuedAt: nowSec,
+      validUntil: expiresAt,
+      gracePeriodDays: 0,
+      p2pSyncEnabled: true,
+      features: ["pos", "bimoneda", "trial"],
+    };
+
+    const rawTrialToken = JSON.stringify({
+      isTrial: true,
+      email,
+      payload: trialPayload,
+    });
+
+    db.run(
+      `INSERT OR REPLACE INTO license_state (
+        id, tenant_id, branch_id, terminal_id, hwid, raw_license_token,
+        issued_at, valid_until, grace_period_days, last_recorded_timestamp,
+        p2p_sync_enabled, status
+      ) VALUES ('current_license', ?, ?, ?, ?, ?, ?, ?, 0, ?, 1, 'ACTIVE')`,
+      [
+        trialPayload.tenantId,
+        trialPayload.branchId,
+        trialPayload.terminalId,
+        trialPayload.hwid,
+        rawTrialToken,
+        trialPayload.issuedAt,
+        trialPayload.validUntil,
+        nowMs,
+      ],
+    );
+
+    return {
+      success: true,
+      message: "Periodo de prueba de 15 días activado exitosamente en este equipo.",
+      trial: {
+        expiresAt,
+        daysRemaining: 15,
+      },
+    };
+  }
+
+  /**
+   * Genera la estructura de solicitud de licencia para enviar a bisyncdev@gmail.com
+   */
+  static createLicenseRequest(params: {
+    email: string;
+    currentHwid: string;
+    tenantId?: string;
+    branchId?: string;
+    terminalId?: string;
+    deviceLabel?: string;
+    nowSec?: number;
+  }): LicenseRequestData {
+    return {
+      requestId: uuidv7(),
+      email: params.email.trim(),
+      tenantId: params.tenantId ?? "TENANT-001",
+      branchId: params.branchId ?? "SEDE-CENTRAL",
+      terminalId: params.terminalId ?? "TERM-01",
+      hwid: params.currentHwid.trim(),
+      deviceLabel: params.deviceLabel ?? "Caja Principal",
+      requestedAt: params.nowSec ?? Math.floor(Date.now() / 1000),
+    };
+  }
+
+  /**
+   * Construye el enlace mailto: oficial prellenado hacia bisyncdev@gmail.com
+   */
+  static getMailtoUrl(req: LicenseRequestData): string {
+    const subject = encodeURIComponent(`Solicitud de Licencia Bisync POS - ${req.email}`);
+    const body = encodeURIComponent(
+      `Estimado equipo de Bisync,\n\n` +
+      `Solicito la emisión de la licencia comercial para mi terminal:\n\n` +
+      `• Correo: ${req.email}\n` +
+      `• Dispositivo: ${req.deviceLabel} (${req.terminalId})\n` +
+      `• HWID: ${req.hwid}\n` +
+      `• ID Solicitud: ${req.requestId}\n\n` +
+      `--- DATOS DE CONFIGURACIÓN JSON ---\n` +
+      `${JSON.stringify(req, null, 2)}\n\n` +
+      `Por favor coordinar los detalles de pago y emisión del token definitivo.\n`
+    );
+    return `mailto:bisyncdev@gmail.com?subject=${subject}&body=${body}`;
+  }
+
+  /**
+   * Construye el enlace directo a Gmail en la web (mail.google.com) con asunto y cuerpo prellenados.
+   * Evita popups molestos del sistema operativo cuando no hay un cliente local de correo configurado.
+   */
+  static getGmailComposeUrl(req: LicenseRequestData): string {
+    const subject = encodeURIComponent(`Solicitud de Licencia Bisync POS - ${req.email}`);
+    const body = encodeURIComponent(
+      `Estimado equipo de Bisync,\n\n` +
+      `Solicito la emisión de la licencia comercial para mi terminal:\n\n` +
+      `• Correo: ${req.email}\n` +
+      `• Dispositivo: ${req.deviceLabel} (${req.terminalId})\n` +
+      `• HWID: ${req.hwid}\n` +
+      `• ID Solicitud: ${req.requestId}\n\n` +
+      `--- DATOS DE CONFIGURACIÓN JSON ---\n` +
+      `${JSON.stringify(req, null, 2)}\n\n` +
+      `Por favor coordinar los detalles de pago y emisión del token definitivo.\n`
+    );
+    return `https://mail.google.com/mail/?view=cm&fs=1&to=bisyncdev@gmail.com&su=${subject}&body=${body}`;
+  }
+
+  /**
+   * Descarga directamente un archivo JSON en el navegador o entorno web (carpeta Descargas).
+   */
+  static downloadJsonFile(filename: string, content: string): boolean {
+    if (typeof document !== "undefined") {
+      try {
+        const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Copia texto al portapapeles de forma compatible.
+   */
+  static async copyToClipboard(text: string): Promise<boolean> {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fallback
+      }
+    }
+    return false;
+  }
+
+  /**
    * Evalúa el estado de licenciamiento para permitir o bloquear las funciones de cobro.
    */
   static evaluateLicense(
@@ -405,15 +645,41 @@ export class LicenseValidatorService {
       };
     }
 
+    // Extraer metadatos auxiliares de trial o token
+    let isTrial = false;
+    let registeredEmail: string | undefined;
+    let payload: LicenseTokenPayload | undefined;
+    try {
+      if (license.raw_license_token && license.raw_license_token.startsWith("{")) {
+        const parsed = JSON.parse(license.raw_license_token);
+        if (parsed.isTrial) {
+          isTrial = true;
+          registeredEmail = parsed.email;
+          payload = parsed.payload;
+        } else if (parsed.payload) {
+          payload = parsed.payload;
+        }
+      }
+    } catch {
+      // Ignorar errores auxiliares de parseo
+    }
+
     const nowSec = Math.floor(nowMs / 1000);
     const graceSec = license.grace_period_days * 86400;
+    const daysRemaining = Math.max(0, Math.ceil((license.valid_until - nowSec) / 86400));
 
     if (nowSec > license.valid_until + graceSec) {
       db.run("UPDATE license_state SET status = 'EXPIRED' WHERE id = 'current_license'");
       return {
         status: "EXPIRED",
         canCheckout: false,
-        message: "La licencia ha expirado. Por favor renueve su suscripción.",
+        message: isTrial
+          ? "El periodo de prueba de 15 días ha expirado en este equipo. Active su licencia definitiva para reanudar el cobro."
+          : "La licencia ha expirado. Por favor renueve su suscripción.",
+        isTrial,
+        registeredEmail,
+        daysRemaining: 0,
+        payload,
       };
     }
 
@@ -422,13 +688,26 @@ export class LicenseValidatorService {
       return {
         status: "GRACE",
         canCheckout: true,
-        message: "Licencia en período de gracia. Restan pocos días para expirar.",
+        message: isTrial
+          ? "Periodo de prueba por vencer (último día)."
+          : "Licencia en período de gracia. Restan pocos días para expirar.",
+        isTrial,
+        registeredEmail,
+        daysRemaining: 0,
+        payload,
       };
     }
 
     return {
       status: "ACTIVE",
       canCheckout: true,
+      message: isTrial
+        ? `Periodo de prueba activo (${daysRemaining} días restantes).`
+        : undefined,
+      isTrial,
+      registeredEmail,
+      daysRemaining,
+      payload,
     };
   }
 }

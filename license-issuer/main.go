@@ -44,6 +44,7 @@ type Envelope struct {
 // Request es la solicitud que genera la app en el dispositivo y envía por email.
 type Request struct {
 	RequestID   string `json:"requestId"`
+	Email       string `json:"email"`
 	TenantID    string `json:"tenantId"`
 	BranchID    string `json:"branchId"`
 	TerminalID  string `json:"terminalId"`
@@ -169,7 +170,11 @@ func cmdIssue(args []string) {
 		if err := os.WriteFile(*out, append(env, '\n'), 0o644); err != nil {
 			fatal("escribiendo token: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "Token emitido -> %s (dispositivo: %s, %d días)\n", *out, req.DeviceLabel, *days)
+		if req.Email != "" {
+			fmt.Fprintf(os.Stderr, "Token emitido -> %s (email: %s, dispositivo: %s, %d días)\n", *out, req.Email, req.DeviceLabel, *days)
+		} else {
+			fmt.Fprintf(os.Stderr, "Token emitido -> %s (dispositivo: %s, %d días)\n", *out, req.DeviceLabel, *days)
+		}
 	} else {
 		fmt.Println(string(env))
 	}

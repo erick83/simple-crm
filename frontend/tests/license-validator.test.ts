@@ -254,5 +254,74 @@ describe("PR-09: Validador de Licencia en App, Verificación Ed25519 y Guardia d
     const [row] = db.all<{ status: string }>("SELECT status FROM license_state WHERE id = 'current_license'");
     expect(row?.status).toBe("TAMPERED");
   });
+
+  it("activa periodo de prueba de 15 días con correo y rechaza segundo trial en el mismo HWID", () => {
+    const db = createTestDb();
+    const hwid = "hwid-equipo-unico-12345";
+    const nowMs = 1700000000000;
+
+    // Validación de email inválido
+    const resBadEmail = LicenseValidatorService.activateTrial(db, {
+      email: "correo-invalido",
+      currentHwid: hwid,
+      nowMs,
+    });
+    expect(resBadEmail.success).toBe(false);
+    expect(resBadEmail.message).toMatch(/no es válido/i);
+
+    // Activación exitosa de la prueba de 15 días
+    const resTrial = LicenseValidatorService.activateTrial(db, {
+      email: "dueno@tienda.com",
+      currentHwid: hwid,
+      terminalId: "C01",
+      nowMs,
+    });
+    expect(resTrial.success).toBe(true);
+    expect(resTrial.trial?.daysRemaining).toBe(15);
+
+    // Evaluación inmediata: debe permitir cobro (canCheckout = true) y marcar isTrial = true
+    const evalActive = LicenseValidatorService.evaluateLicense(db, hwid, nowMs);
+    expect(evalActive.status).toBe("ACTIVE");
+    expect(evalActive.canCheckout).toBe(true);
+    expect(evalActive.isTrial).toBe(true);
+    expect(evalActive.registeredEmail).toBe("dueno@tienda.com");
+    expect(evalActive.daysRemaining).toBe(15);
+
+    // Intento de activar OTRO trial con OTRO correo en la misma máquina física (HWID)
+    const resDuplicate = LicenseValidatorService.activateTrial(db, {
+      email: "otro-correo@tienda.com",
+      currentHwid: hwid,
+      nowMs: nowMs + 1000,
+    });
+    expect(resDuplicate.success).toBe(false);
+    expect(resDuplicate.message).toMatch(/ya agotó sus 15 días de prueba.*dueno@tienda.com/i);
+
+    // Pasados 16 días (16 * 86400 * 1000 ms), el trial debe expirar y bloquear cobro
+    const evalExpired = LicenseValidatorService.evaluateLicense(
+      db,
+      hwid,
+      nowMs + 16 * 86400 * 1000,
+    );
+    expect(evalExpired.status).toBe("EXPIRED");
+    expect(evalExpired.canCheckout).toBe(false);
+    expect(evalExpired.isTrial).toBe(true);
+
+    // Generar solicitud de licencia JSON y enlace mailto prellenado
+    const req = LicenseValidatorService.createLicenseRequest({
+      email: "dueno@tienda.com",
+      currentHwid: hwid,
+      terminalId: "C01",
+      deviceLabel: "Caja Principal",
+    });
+    expect(req.requestId).toBeDefined();
+    expect(req.email).toBe("dueno@tienda.com");
+    expect(req.hwid).toBe(hwid);
+    expect(req.deviceLabel).toBe("Caja Principal");
+
+    const mailto = LicenseValidatorService.getMailtoUrl(req);
+    expect(mailto).toContain("mailto:bisyncdev@gmail.com");
+    expect(mailto).toContain(encodeURIComponent("dueno@tienda.com"));
+    expect(mailto).toContain(encodeURIComponent(hwid));
+  });
 });
 
