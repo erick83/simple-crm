@@ -171,6 +171,7 @@ const AppShell: React.FC<AppProps> = ({
             tenantId={tenantId}
             terminalId={terminalId}
             fileStore={fileStore}
+            currentOperator={currentOperator}
             onInvoiceCreated={() => {
               refreshPendingCount();
               refreshActiveShift();
@@ -196,6 +197,7 @@ const AppShell: React.FC<AppProps> = ({
             db={db}
             terminalId={terminalId}
             initialCashierName={currentOperator.name}
+            currentOperator={currentOperator}
             onShiftChanged={(shift) => {
               setActiveShift(shift);
             }}
@@ -204,7 +206,14 @@ const AppShell: React.FC<AppProps> = ({
       case "balance":
         return <MonthlyBalanceScreen db={db} />;
       case "settings":
-        return <SettingsScreen db={db} tenantId={tenantId} terminalId={terminalId} />;
+        return (
+          <SettingsScreen
+            db={db}
+            tenantId={tenantId}
+            terminalId={terminalId}
+            currentOperator={currentOperator}
+          />
+        );
     }
   };
 

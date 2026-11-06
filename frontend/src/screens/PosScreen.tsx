@@ -53,6 +53,8 @@ import type { KeyEventTargetLike } from "../services/barcode-scanner.service";
 import { listCategories, getProductById } from "../database/repositories/product.repository";
 import type { CategoryEntity } from "../database/repositories/product.repository";
 import { PAYMENT_METHOD_LABELS } from "../database/repositories/balance.repository";
+import { logOperatorAction } from "../database/repositories/operator.repository";
+import type { OperatorEntity } from "../database/repositories/operator.repository";
 import {
   buildReceiptModel,
   encodeEscPos,
@@ -113,6 +115,7 @@ export interface PosScreenProps {
   initialExchangeRate?: string;
   initialProducts?: PosProductItem[];
   keyEventTarget?: KeyEventTargetLike;
+  currentOperator?: OperatorEntity | null;
   onRateChange?: (newRate: string) => void;
   onInvoiceCreated?: (invoiceId: string) => void;
   onNavigateToShifts?: () => void;
@@ -136,6 +139,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   initialExchangeRate = "36.5000",
   initialProducts,
   keyEventTarget,
+  currentOperator,
   onRateChange,
   onInvoiceCreated,
   onNavigateToShifts,
@@ -827,6 +831,24 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           items: itemsInput,
         });
 
+        try {
+          logOperatorAction(db, {
+            operatorId: currentOperator?.id ?? "op-cashier",
+            operatorName: currentOperator?.name ?? openShift.cashierName,
+            action: "INVOICE_CREATE",
+            entityType: "INVOICE",
+            entityId: invoiceId,
+            details: {
+              totalUsd,
+              totalVes,
+              paymentMethod: selectedPaymentMethod,
+              shiftId: openShift.id,
+            },
+          });
+        } catch {
+          // No bloquear el cobro si la bitácora falla
+        }
+
         // La factura ya está persistida: si falla la relectura no debe convertirse en
         // un error de cobro que invite a reintentar y duplicar la venta.
         try {
@@ -977,6 +999,23 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         reason: voidReasonInput,
         terminalId,
       });
+
+      try {
+        logOperatorAction(db, {
+          operatorId: currentOperator?.id ?? "op-admin",
+          operatorName: currentOperator?.name ?? "Admin",
+          action: "INVOICE_VOID",
+          entityType: "INVOICE",
+          entityId: selectedReceipt.id,
+          details: {
+            reason: voidReasonInput,
+            invoiceNumber: selectedReceipt.invoiceNumber,
+            totalUsd: selectedReceipt.totalUsd,
+          },
+        });
+      } catch {
+        // ignore
+      }
       setSelectedReceipt(updated);
       setIsVoidConfirmOpen(false);
       setVoidReasonInput("");

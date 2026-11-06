@@ -32,12 +32,15 @@ import {
   VES_DENOMINATIONS,
   calculateDenominationsTotal,
 } from "../utils/denominations";
+import { logOperatorAction } from "../database/repositories/operator.repository";
+import type { OperatorEntity } from "../database/repositories/operator.repository";
 
 export interface ShiftsScreenProps {
   db?: SqlDriver;
   terminalId?: string;
   defaultExchangeRate?: string;
   initialCashierName?: string;
+  currentOperator?: OperatorEntity | null;
   onShiftChanged?: (shift: ShiftEntity | null) => void;
 }
 
@@ -46,6 +49,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   terminalId = "TERM-01",
   defaultExchangeRate = "36.5000",
   initialCashierName,
+  currentOperator,
   onShiftChanged,
 }) => {
   const { colors: theme } = useTheme();
@@ -135,13 +139,31 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
           return;
         }
 
-        openShift(db, {
+        const openedId = openShift(db, {
           terminalId,
           cashierName: newCashier,
           exchangeRateApplied: newExchangeRate,
           initialCashUsd: newInitialUsd,
           initialCashVes: newInitialVes,
         });
+
+        try {
+          logOperatorAction(db, {
+            operatorId: currentOperator?.id ?? "op-shift",
+            operatorName: currentOperator?.name ?? newCashier,
+            action: "OPEN_SHIFT",
+            entityType: "SHIFT",
+            entityId: openedId,
+            details: {
+              cashier: newCashier,
+              exchangeRate: newExchangeRate,
+              initialCashUsd: newInitialUsd,
+              initialCashVes: newInitialVes,
+            },
+          });
+        } catch {
+          // No romper apertura si falla auditoría
+        }
 
         refreshShiftData();
       } catch (err) {
@@ -187,7 +209,7 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
       try {
         setMovementError(null);
         if (db) {
-          addCashMovement(db, {
+          const movId = addCashMovement(db, {
             shiftId: activeShift.id,
             terminalId,
             movementType,
@@ -196,6 +218,25 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
             reason: movementReason,
             cashierName: activeShift.cashierName,
           });
+
+          try {
+            logOperatorAction(db, {
+              operatorId: currentOperator?.id ?? "op-shift",
+              operatorName: currentOperator?.name ?? activeShift.cashierName,
+              action: "CASH_MOVEMENT",
+              entityType: "CASH_MOVEMENT",
+              entityId: movId,
+              details: {
+                movementType,
+                currency: movementCurrency,
+                amount: movementAmount,
+                reason: movementReason,
+              },
+            });
+          } catch {
+            // ignore
+          }
+
           setCashMovements(listCashMovements(db, activeShift.id));
         } else {
           const simulated: CashMovementEntity = {
@@ -241,6 +282,26 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
             declaredCashUsd: declaredUsd || "0",
             declaredCashVes: declaredVes || "0",
           });
+
+          try {
+            logOperatorAction(db, {
+              operatorId: currentOperator?.id ?? "op-shift",
+              operatorName: currentOperator?.name ?? activeShift.cashierName,
+              action: "CLOSE_SHIFT",
+              entityType: "SHIFT",
+              entityId: activeShift.id,
+              details: {
+                declaredUsd,
+                declaredVes,
+                isSquare: result.isSquare,
+                diffUsd: result.differenceUsd,
+                diffVes: result.differenceVes,
+              },
+            });
+          } catch {
+            // ignore
+          }
+
           setCloseReport(result);
           setActiveShift(result.shift);
           onShiftChanged?.(null);
