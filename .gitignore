@@ -4,3 +4,4 @@ target/
 frontend/src-tauri/gen/schemas/
 *.db
 
+.codebase-memory/
