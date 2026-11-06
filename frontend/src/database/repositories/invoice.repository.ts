@@ -156,17 +156,65 @@ export interface InvoiceEntity {
 }
 
 /**
- * Genera el siguiente consecutivo de factura para la terminal: ej. C01-000001
+ * Número máximo ya usado por la terminal mirando las facturas existentes.
+ * Solo sirve para sembrar la secuencia al migrar; no es la fuente de emisión.
  */
-export function generateNextInvoiceNumber(db: SqlDriver, terminalId: string): string {
-  const [row] = db.all<{ count: number }>(
-    "SELECT COUNT(*) as count FROM invoices WHERE terminal_id = ?",
+function maxInvoiceSeqFromRows(db: SqlDriver, terminalId: string): number {
+  const [row] = db.all<{ last_seq: number | null }>(
+    `SELECT MAX(CAST(SUBSTR(invoice_number, INSTR(invoice_number, '-') + 1) AS INTEGER)) AS last_seq
+     FROM invoices
+     WHERE terminal_id = ?`,
     [terminalId],
   );
-  const nextSeq = (row?.count ?? 0) + 1;
+  return Number(row?.last_seq ?? 0) || 0;
+}
+
+function currentSequenceNumber(db: SqlDriver, terminalId: string): number {
+  const [row] = db.all<{ last_number: number | null }>(
+    "SELECT last_number FROM invoice_sequences WHERE terminal_id = ?",
+    [terminalId],
+  );
+  return Number(row?.last_number ?? 0) || 0;
+}
+
+const formatInvoiceNumber = (terminalId: string, seq: number): string => {
   const cleanTerm = terminalId.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  const padSeq = String(nextSeq).padStart(6, "0");
-  return `${cleanTerm}-${padSeq}`;
+  return `${cleanTerm}-${String(seq).padStart(6, "0")}`;
+};
+
+/**
+ * Siguiente consecutivo de la terminal SIN consumirlo: ej. C01-000001. Útil para vistas
+ * previas y auditoría. La emisión usa `allocateInvoiceNumber`, que avanza la secuencia
+ * (auditoría §F5: borrar físicamente la factura más alta no libera su número).
+ */
+export function generateNextInvoiceNumber(db: SqlDriver, terminalId: string): string {
+  const seq =
+    Math.max(currentSequenceNumber(db, terminalId), maxInvoiceSeqFromRows(db, terminalId)) + 1;
+  return formatInvoiceNumber(terminalId, seq);
+}
+
+/**
+ * Reserva el siguiente consecutivo. Debe correr dentro de la misma transacción de la
+ * emisión: si la factura no se concreta, el `ROLLBACK` restaura la secuencia y el número
+ * no se quema ni se duplica.
+ */
+export function allocateInvoiceNumber(db: SqlDriver, terminalId: string, now: number): string {
+  // Al migrar una base existente la secuencia debe conocer su propio máximo histórico.
+  db.run(
+    `INSERT INTO invoice_sequences (terminal_id, last_number, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(terminal_id) DO UPDATE SET
+       last_number = MAX(invoice_sequences.last_number, excluded.last_number),
+       updated_at = excluded.updated_at`,
+    [terminalId, maxInvoiceSeqFromRows(db, terminalId), now],
+  );
+
+  db.run(
+    "UPDATE invoice_sequences SET last_number = last_number + 1, updated_at = ? WHERE terminal_id = ?",
+    [now, terminalId],
+  );
+
+  return formatInvoiceNumber(terminalId, currentSequenceNumber(db, terminalId));
 }
 
 /**
@@ -196,9 +244,9 @@ export function createInvoice(
   }
 
   return db.transaction(() => {
-    // 2. Validar que el turno exista y esté ABIERTO
-    const [shift] = db.all<{ status: string }>(
-      "SELECT status FROM cash_shifts WHERE id = ?",
+    // 2. Validar que el turno exista, esté ABIERTO y que la tasa sea la del turno
+    const [shift] = db.all<{ status: string; exchange_rate_applied?: string }>(
+      "SELECT status, exchange_rate_applied FROM cash_shifts WHERE id = ?",
       [input.shiftId],
     );
     if (!shift) {
@@ -210,9 +258,22 @@ export function createInvoice(
 
     const invoiceId = uuidv7(now);
     const invoiceNumber =
-      input.invoiceNumber ?? generateNextInvoiceNumber(db, input.terminalId);
+      input.invoiceNumber ?? allocateInvoiceNumber(db, input.terminalId, now);
     const rate = toDecimal(input.exchangeRate, "Tasa de cambio");
     if (rate.lte(0)) throw new Error("La tasa de cambio debe ser mayor a cero");
+
+    // Una tasa por turno: la del día se fija al abrir y no puede cambiar dentro del mismo
+    // turno, porque el arqueo Z cuadra Bs. de una sola conversión (auditoría §F3).
+    // Corregirla exige cerrar el turno o, si aún no hay ventas, `setShiftExchangeRate`.
+    if (shift.exchange_rate_applied !== undefined && shift.exchange_rate_applied !== null) {
+      const shiftRate = toDecimal(shift.exchange_rate_applied, "exchange_rate_applied").toFixed(4);
+      if (rate.toFixed(4) !== shiftRate) {
+        throw new Error(
+          `La tasa del ticket (${rate.toFixed(4)}) no coincide con la tasa fijada en el turno (${shiftRate}). ` +
+            "Si la tasa del día está mal, corrígela con 'setShiftExchangeRate' (turno sin ventas) o cierra el turno (Z) y abre uno nuevo.",
+        );
+      }
+    }
 
     // 2. Calcular o validar sumatorias monetarias con Decimal exacto
     let computedSubtotalUsd = new Decimal("0");

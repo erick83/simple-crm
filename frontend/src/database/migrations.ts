@@ -105,5 +105,51 @@ export function migrateDatabase(driver: SqlDriver, customSchemaSql?: string): vo
       // Ignorar si ya existe
     }
   }
+
+  // Bitácora de correcciones de tasa (auditoría §F3/§F4) y unicidad del consecutivo
+  // fiscal por caja (§F5). Tabla/índice idempotentes para instalaciones ya existentes.
+  try {
+    driver.exec(`
+      CREATE TABLE IF NOT EXISTS exchange_rate_corrections (
+        id TEXT PRIMARY KEY,
+        rate_date TEXT NOT NULL,
+        context TEXT NOT NULL,
+        context_id TEXT,
+        previous_rate TEXT NOT NULL,
+        new_rate TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        source TEXT NOT NULL,
+        terminal_id TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_rate_corrections_date ON exchange_rate_corrections(rate_date);
+      CREATE INDEX IF NOT EXISTS idx_rate_corrections_shift ON exchange_rate_corrections(context_id);
+    `);
+  } catch {
+    // Ignorar si ya existe
+  }
+
+  try {
+    driver.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_terminal_number ON invoices(terminal_id, invoice_number)",
+    );
+  } catch {
+    // Una base con números duplicados (solo posible tras un replay P2P defectuoso) no debe
+    // inutilizar la caja: se omite el constraint y la secuencia evita nuevos choques.
+  }
+
+  // Secuencia de consecutivos por caja (auditoría §F5): reemplaza al COUNT(*)+1, que
+  // reutilizaba números si una factura desaparecía físicamente.
+  try {
+    driver.exec(`
+      CREATE TABLE IF NOT EXISTS invoice_sequences (
+        terminal_id TEXT PRIMARY KEY,
+        last_number INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+  } catch {
+    // Ignorar si ya existe
+  }
 }
 

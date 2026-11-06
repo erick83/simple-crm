@@ -7,12 +7,14 @@ import { openShift, getOpenShift } from "./repositories/shift.repository";
 interface RelationalStore {
   license_state: Record<string, SqlValue>[];
   exchange_rates: Record<string, SqlValue>[];
+  exchange_rate_corrections: Record<string, SqlValue>[];
   categories: Record<string, SqlValue>[];
   app_metadata: Record<string, SqlValue>[];
   products: Record<string, SqlValue>[];
   stock_movements: Record<string, SqlValue>[];
   cash_shifts: Record<string, SqlValue>[];
   invoices: Record<string, SqlValue>[];
+  invoice_sequences: Record<string, SqlValue>[];
   invoice_items: Record<string, SqlValue>[];
   peer_sync_outbox: Record<string, SqlValue>[];
 }
@@ -21,12 +23,14 @@ function createEmptyStore(): RelationalStore {
   return {
     license_state: [],
     exchange_rates: [],
+    exchange_rate_corrections: [],
     categories: [],
     app_metadata: [],
     products: [],
     stock_movements: [],
     cash_shifts: [],
     invoices: [],
+    invoice_sequences: [],
     invoice_items: [],
     peer_sync_outbox: [],
   };
@@ -432,6 +436,35 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         return;
       }
 
+      // 5.1 INSERT INTO exchange_rate_corrections (bitácora auditada de correcciones de tasa)
+      if (/^INSERT INTO exchange_rate_corrections/i.test(norm)) {
+        const [
+          id,
+          rate_date,
+          context,
+          context_id,
+          previous_rate,
+          new_rate,
+          reason,
+          source,
+          terminal_id,
+          created_at,
+        ] = params;
+        store.exchange_rate_corrections.push({
+          id: id ?? null,
+          rate_date: rate_date ?? "",
+          context: context ?? "EXCHANGE_RATE",
+          context_id: context_id ?? null,
+          previous_rate: previous_rate ?? "0.0000",
+          new_rate: new_rate ?? "0.0000",
+          reason: reason ?? "",
+          source: source ?? "MANUAL",
+          terminal_id: terminal_id ?? null,
+          created_at: created_at ?? Date.now(),
+        });
+        return;
+      }
+
       // 6. INSERT INTO cash_shifts
       if (/^INSERT INTO cash_shifts/i.test(norm)) {
         const [id, terminal_id, cashier_name, opened_at, exchange_rate_applied, initial_cash_usd, initial_cash_ves] =
@@ -458,6 +491,15 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
 
       // 7. UPDATE cash_shifts
       if (/^UPDATE cash_shifts SET/i.test(norm)) {
+        // Corrección de la tasa de un turno aún sin ventas (auditoría §F3)
+        if (/SET exchange_rate_applied = \? WHERE id = \?/i.test(norm)) {
+          const [exchange_rate_applied, id] = params;
+          const shift = store.cash_shifts.find((s) => s.id === id);
+          if (shift && exchange_rate_applied !== undefined) {
+            shift.exchange_rate_applied = exchange_rate_applied;
+          }
+          return;
+        }
         const [
           closed_at,
           expected_cash_usd,
@@ -478,6 +520,35 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           shift.declared_cash_ves = declared_cash_ves ?? "0.0000";
           shift.difference_usd = difference_usd ?? "0.0000";
           shift.difference_ves = difference_ves ?? "0.0000";
+        }
+        return;
+      }
+
+      // 7.1 invoice_sequences: reserva del consecutivo por caja (auditoría §F5)
+      if (/^INSERT INTO invoice_sequences/i.test(norm)) {
+        const [terminal_id, last_number, updated_at] = params;
+        const existing = store.invoice_sequences.find((s) => s.terminal_id === terminal_id);
+        const seed = Number(last_number ?? 0);
+        if (existing) {
+          // ON CONFLICT DO UPDATE SET last_number = MAX(actual, excluido)
+          existing.last_number = Math.max(Number(existing.last_number ?? 0), seed);
+          existing.updated_at = updated_at ?? Date.now();
+        } else {
+          store.invoice_sequences.push({
+            terminal_id: terminal_id ?? "",
+            last_number: seed,
+            updated_at: updated_at ?? Date.now(),
+          });
+        }
+        return;
+      }
+
+      if (/^UPDATE invoice_sequences SET/i.test(norm)) {
+        const [updated_at, terminal_id] = params;
+        const row = store.invoice_sequences.find((s) => s.terminal_id === terminal_id);
+        if (row) {
+          row.last_number = Number(row.last_number ?? 0) + 1;
+          row.updated_at = updated_at ?? Date.now();
         }
         return;
       }
@@ -746,6 +817,23 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         }
       }
 
+      // 6.1 Bitácora de correcciones de tasa
+      if (norm.includes("FROM exchange_rate_corrections")) {
+        let idx = 0;
+        const filterDate = norm.includes("rate_date = ?") ? params[idx++] : undefined;
+        const filterShift = norm.includes("context_id = ?") ? params[idx++] : undefined;
+
+        let list = [...store.exchange_rate_corrections];
+        if (filterDate !== undefined) list = list.filter((c) => c.rate_date === filterDate);
+        if (filterShift !== undefined) list = list.filter((c) => c.context_id === filterShift);
+        list.sort((a, b) => Number(b.created_at) - Number(a.created_at));
+        if (norm.includes("LIMIT ?")) {
+          const limitVal = Number(params[idx]);
+          if (!isNaN(limitVal)) list = list.slice(0, limitVal);
+        }
+        return list as unknown as T[];
+      }
+
       // 6. Tasas de cambio (exchange_rates)
       if (norm.includes("FROM exchange_rates")) {
         if (norm.includes("WHERE rate_date = ?")) {
@@ -823,9 +911,21 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         return store.invoice_items.filter((ii) => ii.invoice_id === params[0]) as unknown as T[];
       }
 
-      if (norm.includes("SELECT COUNT(*) as count FROM invoices WHERE terminal_id = ?")) {
-        const count = store.invoices.filter((i) => i.terminal_id === params[0]).length;
-        return [{ count }] as unknown as T[];
+      if (norm.includes("SELECT last_number FROM invoice_sequences")) {
+        const row = store.invoice_sequences.find((s) => s.terminal_id === params[0]);
+        return (row ? [{ last_number: Number(row.last_number ?? 0) }] : []) as unknown as T[];
+      }
+
+      if (norm.includes("AS last_seq FROM invoices WHERE terminal_id = ?")) {
+        // Máximo del consecutivo por terminal (auditoría §F5): un borrado no libera el número
+        const lastSeq = store.invoices
+          .filter((i) => i.terminal_id === params[0])
+          .reduce((max, i) => {
+            const suffix = String(i.invoice_number ?? "").split("-").pop() ?? "";
+            const seq = parseInt(suffix, 10);
+            return isNaN(seq) ? max : Math.max(max, seq);
+          }, 0);
+        return [{ last_seq: lastSeq }] as unknown as T[];
       }
 
       if (norm.includes("FROM invoices")) {

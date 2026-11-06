@@ -6,12 +6,15 @@ import {
   getLatestRate,
   getRateHistory,
   generateExchangeRateReport,
+  recordRateCorrection,
+  listRateCorrections,
 } from "../database/repositories/exchange.repository";
 import type {
   StoredRate,
   RateHistoryOptions,
   ExchangeRateHistoryItem,
   ExchangeRateReport,
+  RateCorrection,
 } from "../database/repositories/exchange.repository";
 
 export {
@@ -20,12 +23,15 @@ export {
   getLatestRate,
   getRateHistory,
   generateExchangeRateReport,
+  recordRateCorrection,
+  listRateCorrections,
 };
 export type {
   StoredRate,
   RateHistoryOptions,
   ExchangeRateHistoryItem,
   ExchangeRateReport,
+  RateCorrection,
 };
 
 export const BCV_URL = "https://www.bcv.org.ve/";
@@ -86,16 +92,40 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function registerManualRate(
   db: SqlDriver,
-  args: { rateDate: string; rate: string; reason: string; allowUpdate?: boolean },
+  args: {
+    rateDate: string;
+    rate: string;
+    reason: string;
+    allowUpdate?: boolean;
+    terminalId?: string | null;
+  },
   now: number = Date.now(),
 ): StoredRate {
   if (!ISO_DATE.test(args.rateDate)) throw new RateError("Fecha inválida (use YYYY-MM-DD)");
   if (!args.reason.trim()) throw new RateError("El registro manual requiere un motivo para auditoría");
-  if (!args.allowUpdate && getRateForDate(db, args.rateDate)) {
+  const previous = getRateForDate(db, args.rateDate);
+  if (!args.allowUpdate && previous) {
     throw new RateError(`Ya existe una tasa para ${args.rateDate}`);
   }
   const rate = parseManualRate(args.rate).toFixed(4);
   insertRate(db, args.rateDate, rate, "MANUAL", args.reason.trim(), now);
+  // Corregir una tasa ya fijada es legal (el BCV se equivoca), pero deja un rastro auditable
+  // y no afecta ninguna venta emitida: ésas conservan `invoices.exchange_rate`.
+  if (previous && previous.rateToVes !== rate) {
+    recordRateCorrection(
+      db,
+      {
+        rateDate: args.rateDate,
+        context: "EXCHANGE_RATE",
+        previousRate: previous.rateToVes,
+        newRate: rate,
+        reason: args.reason.trim(),
+        source: "MANUAL",
+        terminalId: args.terminalId ?? null,
+      },
+      now,
+    );
+  }
   return getRateForDate(db, args.rateDate)!;
 }
 

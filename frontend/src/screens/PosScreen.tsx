@@ -43,7 +43,7 @@ import type {
   InvoiceEntity,
   InvoiceItemEntity,
 } from "../database/repositories/invoice.repository";
-import { getOpenShift } from "../database/repositories/shift.repository";
+import { getOpenShift, setShiftExchangeRate } from "../database/repositories/shift.repository";
 import type { ShiftEntity } from "../database/repositories/shift.repository";
 import {
   useBarcodeScanner,
@@ -189,6 +189,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     try {
       const shift = getOpenShift(db, terminalId);
       setActiveShift(shift ?? null);
+      // La tasa del turno es la única del ticket mientras el turno esté abierto
+      // (auditoría §F3): una corrección del BCV a media jornada no puede re-tasar la caja.
+      if (shift) setExchangeRate(shift.exchangeRateApplied);
     } catch {
       setActiveShift(null);
     }
@@ -239,7 +242,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             taxRate: p.taxRate,
           })),
         );
-        setExchangeRate(result.activeRate);
+        // Con turno abierto la tasa del ticket es la del turno, no la última del día (§F3).
+        const openShift = getOpenShift(db, terminalId);
+        setExchangeRate(openShift ? openShift.exchangeRateApplied : result.activeRate);
         setCatalogError(null);
 
         try {
@@ -256,7 +261,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         setCatalogError((err as Error).message || "No se pudo leer el catálogo local.");
       }
     }
-  }, [db, initialExchangeRate, tenantId]);
+  }, [db, initialExchangeRate, tenantId, terminalId]);
 
   useEffect(() => {
     refreshCatalog();
@@ -520,18 +525,42 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         throw new Error("El motivo del ajuste de tasa es obligatorio para la auditoría.");
       }
 
+      let appliedRate = formatted;
+
       if (db) {
         const todayIso = new Date().toISOString().split("T")[0]!;
+        // 1. Corregir el valor OFICIAL del día (deja rastro en exchange_rate_corrections).
         registerManualRate(db, {
           rateDate: todayIso,
           rate: formatted,
           reason: cleanReason,
           allowUpdate: true,
+          terminalId,
         });
+
+        // 2. Reapuntar la tasa del turno SOLO si aún no tiene ventas (§F3). Las ventas ya
+        //    emitidas conservan su tasa congelada; con ventas registradas hay que cerrar Z.
+        if (activeShift) {
+          try {
+            const updated = setShiftExchangeRate(db, {
+              shiftId: activeShift.id,
+              rate: formatted,
+              reason: cleanReason,
+              terminalId,
+            });
+            appliedRate = updated.exchangeRateApplied;
+            setActiveShift(updated);
+          } catch (err) {
+            appliedRate = activeShift.exchangeRateApplied;
+            showNotice(
+              `${(err as Error).message} La tasa corregida regirá desde el próximo turno.`,
+            );
+          }
+        }
       }
 
-      setExchangeRate(formatted);
-      onRateChange?.(formatted);
+      setExchangeRate(appliedRate);
+      onRateChange?.(appliedRate);
       setIsRateModalOpen(false);
       setNewRateInput("");
       setRateReasonInput("");

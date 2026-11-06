@@ -51,7 +51,7 @@ Renombrar un rubro, o cambiar su SKU, **altera tickets ya impresos y reportes ce
 
 **Implementado:** las tres columnas nullable se copian en `createInvoice` (nombre: `item.productName` o el del producto; SKU y unidad siempre del producto al cobrar). `buildReceiptModel` ahora imprime `it.productName` cuando existe y solo consulta `resolveItemName` para líneas heredadas — la garantía es estructural del compositor del documento, no del llamador; el POS además prefiere el nombre congelado en `receiptItemName`. El ranking del balance reporta nombre y SKU históricos. El hallazgo lo confirmó el primer run de `tests/invoice-snapshot.test.ts`: sin el cambio en `buildReceiptModel` el ticket reimprimía el nombre nuevo.
 
-### F3 — La tasa del turno no es vinculante · **alta** (es exactamente el caso que planteas)
+### F3 — La tasa del turno no es vinculante · **CERRADO (PR-29)**
 
 Hoy coexisten dos fuentes de tasa en el mismo turno:
 
@@ -62,17 +62,23 @@ Y `createInvoice()` valida que el turno exista y esté `OPEN` (`invoice.reposito
 
 **Fix:** el ticket usa `activeShift.exchangeRateApplied` como única fuente; el campo de captura manual de tasa pasa a modificar el **turno** (con motivo obligatorio y solo si aún no hay ventas) en lugar del ticket; `createInvoice` rechaza toda tasa distinta a la del turno.
 
-### F4 — La corrección de tasa borra el rastro de la corrección · **media**
+**Implementado:** `createInvoice` compara la tasa del ticket contra `cash_shifts.exchange_rate_applied` (equivalencia decimal, así `"40"` == `"40.0000"`) y rechaza cualquier diferencia con mensaje que indica el procedimiento. El POS toma la tasa del turno en `checkShift` y en `refreshCatalog` (ya no persigue a `getLatestRate` mientras hay turno abierto). Nuevo `setShiftExchangeRate(db, {shiftId, rate, reason, terminalId})`: exige motivo, rechaza turnos cerrados, tasas idénticas y turnos **con ventas emitidas** (dirige a cerrar Z y abrir uno nuevo). La política adoptada es la restrictiva: la tasa del turno es definitiva mientras el turno tenga dinero dentro; corregir el valor oficial del día sigue siendo posible y no re-tasa nada.
+
+### F4 — La corrección de tasa borra el rastro de la corrección · **CERRADA (PR-30)**
 
 `insertRate()` (`exchange.repository.ts:47-65`) hace `ON CONFLICT DO UPDATE` pisando `rate_to_ves`, `source`, `fetched_at` y `notes`. El valor erróneo desaparece: no queda qué se corrigió, cuándo, quién ni por qué. El servicio ya tiene un semáforo (`bcv-exchange.service.ts:94`: falla si ya existe tasa del día salvo `allowUpdate`), pero al permitir el override se pierde la auditoría.
 
 **Fix:** mantener `UNIQUE(rate_date, currency_code)` como valor **oficial vigente del día** y registrar cada corrección en `exchange_rate_corrections(rate_id, previous_rate_to_ves, new_rate_to_ves, reason, corrected_by, corrected_at)`. Con `invoices.exchange_rate` congelado (tabla §1) y F3, corregir la tasa del día **no** re-tasa ninguna venta: la corrección es un hecho auditable, no un recálculo.
 
-### F5 — Secuencia de factura sin garantía de unicidad · **media**
+**Implementado:** tabla `exchange_rate_corrections (id, rate_date, context, context_id, previous_rate, new_rate, reason, source, terminal_id, created_at)` con índices por día y por turno. `recordRateCorrection` exige motivo y rechaza correcciones sin cambio real; `listRateCorrections` filtra por `rateDate` o `shiftId`. `registerManualRate` registra la corrección cuando el valor del día cambia (contexto `EXCHANGE_RATE`, fuente `MANUAL`) y `setShiftExchangeRate` hace lo propio (contexto `SHIFT`, fuente `SHIFT_OVERRIDE`). `resolveDailyRate` no toca una tasa ya publicada del día. Vista de la bitácora en pantalla queda como mejora posterior: el dato ya es consultable desde el repositorio.
+
+### F5 — Secuencia de factura sin garantía de unicidad · **CERRADA (PR-30)**
 
 `generateNextInvoiceNumber()` (`invoice.repository.ts:148`) es `COUNT(*) + 1` por terminal, y `invoices.invoice_number` **no tiene `UNIQUE`** (`docs/database_schema.sql:150`). Mientras solo exista la ruta actual (un escritor por caja, borrado lógico) funciona; pero un `DELETE` físico, una migración o un replay P2P que reordene el conteo puede producir números duplicados o reutilizados, que en un documento fiscal es más grave que un salto de número.
 
-**Fix:** `UNIQUE(terminal_id, invoice_number)` + generación por `MAX(secuencia numérica)+1` (así un borrado no libera el número). Requiere migración y decisión sobre huecos: conservar el número de las anuladas (ya se hace, porque VOID no borra).
+**Fix originally propuesto:** `UNIQUE(terminal_id, invoice_number)` + generación por `MAX(secuencia numérica)+1`.
+
+**Implementado (y por qué cambió):** al probar el escenario, `MAX(...)+1` **también** reutiliza el número si se borra físicamente la factura más alta — el test lo demostró. La corrección real exige un contador que no retrocede: tabla `invoice_sequences (terminal_id PRIMARY KEY, last_number, updated_at)` con `allocateInvoiceNumber(db, terminalId, now)`, que siembra su máximo histórico al primer uso (migración de bases existentes), se incrementa **dentro del mismo `transaction()`** de la emisión (un `ROLLBACK` restaura la secuencia: no quema ni duplica números) y devuelve el consecutivo. `generateNextInvoiceNumber` se conserva como lectura sin consumo (`peek`) para vistas previas y auditoría. Se mantiene además el índice `UNIQUE(terminal_id, invoice_number)` como segunda línea de defensa; en una base con duplicados históricos la migración omite el índice en vez de inutilizar la caja.
 
 ### F6 — Categoría como atributo vivo en agregaciones · **baja, riesgo latente**
 
@@ -88,8 +94,8 @@ Y `createInvoice()` valida que el turno exista y esté `OPEN` (`invoice.reposito
 |---|---|---|---|
 | **PR-27** Congelar costo en la línea de factura | F1 | Sí (`invoice_items.unit_cost_usd`) | ✅ entregado |
 | **PR-28** Congelar identidad del producto en la línea | F2 | Sí (`product_name`, `product_sku`, `product_unit`) | ✅ entregado (junto a PR-27, un solo DDL) |
-| **PR-29** Tasa del turno vinculante | F3 | No (validación + POS) | pendiente |
-| **PR-30** Auditoría de corrección de tasa + secuencia única | F4, F5 | Sí (tabla nueva + constraint) | pendiente |
+| **PR-29** Tasa del turno vinculante | F3 | No (validación + POS) | ✅ entregado |
+| **PR-30** Auditoría de corrección de tasa + secuencia única | F4, F5 | Sí (2 tablas nuevas + constraint) | ✅ entregado |
 | PR-31 (opcional, bajo demanda) | F6 | Sí | pendiente |
 
 Dependencias: PR-27 y PR-28 son la misma familia de columnas y pueden salir en un solo DDL; PR-29 es conducta pura y no bloquea a nadie; PR-30 va después porque su premisa ("corregir no re-tasa") solo es cierta cuando F3 y F1 están cerrados.

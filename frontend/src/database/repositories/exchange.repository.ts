@@ -64,6 +64,122 @@ export function insertRate(
   );
 }
 
+/**
+ * Corrección auditada de una tasa ya fijada (auditoría §F3/§F4). `exchange_rates` conserva
+ * el valor oficial del día; esta bitácora guarda el valor reemplazado, el nuevo, el motivo,
+ * la caja y el momento. Las ventas NO se re-tasan: su tasa vive en `invoices.exchange_rate`.
+ */
+export interface RateCorrection {
+  id: string;
+  rateDate: string;
+  /** 'EXCHANGE_RATE' = tasa del día; 'SHIFT' = tasa de un turno abierto sin ventas. */
+  context: "EXCHANGE_RATE" | "SHIFT";
+  contextId: string | null;
+  previousRate: string;
+  newRate: string;
+  reason: string;
+  source: "MANUAL" | "SHIFT_OVERRIDE";
+  terminalId: string | null;
+  createdAt: number;
+}
+
+export function recordRateCorrection(
+  db: SqlDriver,
+  args: {
+    rateDate: string;
+    context: RateCorrection["context"];
+    contextId?: string | null;
+    previousRate: string;
+    newRate: string;
+    reason: string;
+    source: RateCorrection["source"];
+    terminalId?: string | null;
+  },
+  now: number = Date.now(),
+): string {
+  const reason = args.reason.trim();
+  if (!reason) {
+    throw new Error("Toda corrección de tasa exige un motivo auditado.");
+  }
+  const previous = toDecimal(args.previousRate, "previousRate").toFixed(4);
+  const next = toDecimal(args.newRate, "newRate").toFixed(4);
+  if (previous === next) {
+    throw new Error("La tasa nueva es idéntica a la vigente; no hay nada que corregir.");
+  }
+
+  const id = uuidv7(now);
+  db.run(
+    `INSERT INTO exchange_rate_corrections (
+       id, rate_date, context, context_id, previous_rate, new_rate, reason, source, terminal_id, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      args.rateDate,
+      args.context,
+      args.contextId ?? null,
+      previous,
+      next,
+      reason,
+      args.source,
+      args.terminalId ?? null,
+      now,
+    ],
+  );
+  return id;
+}
+
+export function listRateCorrections(
+  db: SqlDriver,
+  filter: { rateDate?: string; shiftId?: string; limit?: number } = {},
+): RateCorrection[] {
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (filter.rateDate) {
+    conditions.push("rate_date = ?");
+    params.push(filter.rateDate);
+  }
+  if (filter.shiftId) {
+    conditions.push("context_id = ?");
+    params.push(filter.shiftId);
+  }
+
+  let sql = `SELECT id, rate_date, context, context_id, previous_rate, new_rate, reason, source, terminal_id, created_at
+     FROM exchange_rate_corrections`;
+  if (conditions.length > 0) sql += ` WHERE ${conditions.join(" AND ")}`;
+  sql += " ORDER BY created_at DESC";
+  if (typeof filter.limit === "number" && filter.limit > 0) {
+    sql += " LIMIT ?";
+    params.push(filter.limit);
+  }
+
+  return db
+    .all<{
+      id: string;
+      rate_date: string;
+      context: RateCorrection["context"];
+      context_id: string | null;
+      previous_rate: string;
+      new_rate: string;
+      reason: string;
+      source: RateCorrection["source"];
+      terminal_id: string | null;
+      created_at: number;
+    }>(sql, params)
+    .map((r) => ({
+      id: r.id,
+      rateDate: r.rate_date,
+      context: r.context,
+      contextId: r.context_id,
+      previousRate: r.previous_rate,
+      newRate: r.new_rate,
+      reason: r.reason,
+      source: r.source,
+      terminalId: r.terminal_id,
+      createdAt: r.created_at,
+    }));
+}
+
 export function getLatestRate(db: SqlDriver): StoredRate | undefined {
   const [r] = db.all<{
     rate_date: string;
