@@ -91,6 +91,7 @@ const DEFAULT_ITEMS: InventoryItemWithStock[] = [
     minStock: "5.0000",
     currentStock: "24.0000",
     isLowStock: false,
+    tracksInventory: true,
     isActive: true,
     updatedAt: Date.now(),
   },
@@ -110,6 +111,7 @@ const DEFAULT_ITEMS: InventoryItemWithStock[] = [
     minStock: "5.0000",
     currentStock: "4.0000",
     isLowStock: true,
+    tracksInventory: true,
     isActive: true,
     updatedAt: Date.now(),
   },
@@ -129,6 +131,7 @@ const DEFAULT_ITEMS: InventoryItemWithStock[] = [
     minStock: "5.0000",
     currentStock: "12.0000",
     isLowStock: false,
+    tracksInventory: true,
     isActive: true,
     updatedAt: Date.now(),
   },
@@ -212,6 +215,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   const [formTaxRate, setFormTaxRate] = useState("");
   const [formMinStock, setFormMinStock] = useState("5");
   const [formInitialStock, setFormInitialStock] = useState("0");
+  /** false = rubro sin control de inventario (sin costo de reposición, sin kardex, sin alerta). */
+  const [formTracksInventory, setFormTracksInventory] = useState(true);
   const [formImagePath, setFormImagePath] = useState<string | null>(null);
   const [pendingImageBytes, setPendingImageBytes] = useState<Uint8Array | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
@@ -280,6 +285,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
       } else {
         byCat.UNCATEGORIZED = (byCat.UNCATEGORIZED ?? 0) + 1;
       }
+      // Los rubros sin control de inventario quedan fuera del semáforo.
+      if (item.tracksInventory === false) continue;
       if (item.isLowStock) lowStock += 1;
       if (toDecimal(item.currentStock).lte(0)) outOfStock += 1;
     }
@@ -304,8 +311,13 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
         }
       }
 
-      if (stockFilter === "LOW_STOCK" && !item.isLowStock) return false;
-      if (stockFilter === "OUT_OF_STOCK" && !toDecimal(item.currentStock).lte(0)) return false;
+      if (stockFilter === "LOW_STOCK" && (!item.isLowStock || item.tracksInventory === false)) return false;
+      if (
+        stockFilter === "OUT_OF_STOCK" &&
+        (item.tracksInventory === false || !toDecimal(item.currentStock).lte(0))
+      ) {
+        return false;
+      }
 
       return true;
     });
@@ -344,6 +356,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     let totalSaleUsd = toDecimal("0");
 
     for (const item of organizedItems) {
+      // Un rubro sin control de inventario no forma parte de la valorización.
+      if (item.tracksInventory === false) continue;
       const stockDec = toDecimal(item.currentStock);
       const positiveStock = stockDec.isNegative() ? toDecimal("0") : stockDec;
       totalUnits = totalUnits.plus(positiveStock);
@@ -393,6 +407,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormTaxRate(taxRateToPercent(getDefaultTaxRate(db)));
     setFormMinStock("5");
     setFormInitialStock("0");
+    setFormTracksInventory(true);
     setFormImagePath(null);
     setPendingImageBytes(null);
     setRemoveExistingImage(false);
@@ -414,6 +429,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     setFormTaxRate(taxRateToPercent(item.taxRate));
     setFormMinStock(formatQuantity(item.minStock));
     setFormInitialStock(formatQuantity(item.currentStock));
+    setFormTracksInventory(item.tracksInventory !== false);
     setFormImagePath(item.imagePath);
     setPendingImageBytes(null);
     setRemoveExistingImage(false);
@@ -472,10 +488,14 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
       const rawMinStock = (formMinStock || "5").replace(",", ".");
       const rawInitialStock = (formInitialStock || "0").replace(",", ".");
 
+      // Un rubro sin control de inventario no conserva costo de reposición, umbral ni stock inicial.
+      const tracksInventory = formTracksInventory;
       const priceDec = toDecimal(rawPrice, "Precio");
-      const costDec = toDecimal(rawCost, "Costo");
-      const minStockDec = toDecimal(rawMinStock, "Stock Mínimo");
-      const initialStockDec = toDecimal(rawInitialStock, "Stock Inicial");
+      const costDec = tracksInventory ? toDecimal(rawCost, "Costo") : toDecimal("0");
+      const minStockDec = tracksInventory ? toDecimal(rawMinStock, "Stock Mínimo") : toDecimal("0");
+      const initialStockDec = tracksInventory
+        ? toDecimal(rawInitialStock, "Stock Inicial")
+        : toDecimal("0");
 
       if (priceDec.isNegative() || costDec.isNegative()) {
         throw new Error("El precio y el costo no pueden ser negativos");
@@ -508,6 +528,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               costUsd: costDec.toFixed(4),
               taxRate: taxRateStr,
               minStock: minStockDec.toFixed(4),
+              tracksInventory,
             },
             now,
             terminalId,
@@ -540,6 +561,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               costUsd: costDec.toFixed(4),
               taxRate: taxRateStr,
               minStock: minStockDec.toFixed(4),
+              tracksInventory,
               imagePath: formImagePath,
               terminalId,
             },
@@ -889,12 +911,12 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
               </TouchableOpacity>
       )}
     </View>
-        </View >
+        </View>
 
-  {/* Fila 2: Filtros Rápidos de Stock (Semáforo) + Ordenamiento + Valorización */ }
-  < View style = { styles.controlsAndKpiRow } >
-    {/* Filtro por estado de stock */ }
-    < View style = { styles.filterGroup } >
+  {/* Fila 2: Filtros Rápidos de Stock (Semáforo) + Ordenamiento + Valorización */}
+  <View style={styles.controlsAndKpiRow}>
+    {/* Filtro por estado de stock */}
+    <View style={styles.filterGroup}>
             <Text style={styles.controlGroupLabel}>ESTADO:</Text>
             <TouchableOpacity
               activeOpacity={0.8}
@@ -954,10 +976,10 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 🚫 Agotados ({organizationCounts.outOfStock})
               </Text>
             </TouchableOpacity>
-          </View >
+          </View>
 
-  {/* Selector táctil de ordenamiento */ }
-  < View style = { styles.filterGroup } >
+  {/* Selector táctil de ordenamiento */}
+  <View style={styles.filterGroup}>
     <Text style={styles.controlGroupLabel}>ORDENAR POR:</Text>
 {
   (
@@ -985,10 +1007,10 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
     );
   })
 }
-          </View >
+          </View>
 
-  {/* Resumen de Valorización de la vista actual */ }
-  < View style = { styles.kpiStrip } >
+  {/* Resumen de Valorización de la vista actual */}
+  <View style={styles.kpiStrip}>
             <View style={styles.kpiItem}>
               <Text style={styles.kpiLabel}>MOSTRANDO</Text>
               <Text style={[styles.kpiValue, typography.tabularNumeric]}>
@@ -1009,15 +1031,15 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
                 {formatUsd(inventorySummary.totalSaleUsd)}
               </Text>
             </View>
-          </View >
-        </View >
-      </View >
+          </View>
+        </View>
+      </View>
 
-  {/* Listado de Productos Organizado con Stock Actual */ }
-  < FlatList
-data = { organizedItems }
-keyExtractor = {(item) => item.id}
-renderItem = {({ item }) => {
+  {/* Listado de Productos Organizado con Stock Actual */}
+  <FlatList
+data={organizedItems}
+keyExtractor={(item) => item.id}
+renderItem={({ item }) => {
   const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
   const imageUri = resolveProductImageUri(fileStore, item.imagePath);
 
@@ -1065,39 +1087,53 @@ renderItem = {({ item }) => {
         <Text style={[styles.priceVesText, typography.tabularNumeric]}>
           ≈ {formatVes(priceVes)}
         </Text>
-        <Text style={styles.costText}>Costo: {formatUsd(item.costUsd)}</Text>
+        {item.tracksInventory === false ? (
+          <Text style={styles.noTrackingText}>Costo: no aplica</Text>
+        ) : (
+          <Text style={styles.costText}>Costo: {formatUsd(item.costUsd)}</Text>
+        )}
       </View>
 
       {/* Stock Actual y Badge */}
       <View style={[styles.colStock, isMobile && styles.colStockMobile]}>
-        <View
-          style={[
-            styles.stockBadge,
-            item.isLowStock ? styles.lowStockBadge : styles.normalStockBadge,
-          ]}
-        >
-          <Text
-            style={[
-              styles.stockText,
-              typography.tabularNumeric,
-              item.isLowStock ? styles.lowStockText : styles.normalStockText,
-            ]}
-          >
-            {formatQuantity(item.currentStock, item.unit)}
-          </Text>
-        </View>
-        {item.isLowStock && <Text style={styles.alertText}>Alerta Stock Bajo</Text>}
+        {item.tracksInventory === false ? (
+          <View style={[styles.stockBadge, styles.noTrackingBadge]}>
+            <Text style={styles.noTrackingBadgeText}>Sin inventario</Text>
+          </View>
+        ) : (
+          <>
+            <View
+              style={[
+                styles.stockBadge,
+                item.isLowStock ? styles.lowStockBadge : styles.normalStockBadge,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.stockText,
+                  typography.tabularNumeric,
+                  item.isLowStock ? styles.lowStockText : styles.normalStockText,
+                ]}
+              >
+                {formatQuantity(item.currentStock, item.unit)}
+              </Text>
+            </View>
+            {item.isLowStock && <Text style={styles.alertText}>Alerta Stock Bajo</Text>}
+          </>
+        )}
       </View>
 
       {/* Acciones Táctiles (>= 48px) */}
       <View style={[styles.colActions, isMobile && styles.colActionsMobile]}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => handleOpenKardex(item)}
-          style={[styles.kardexBtn, isMobile && styles.actionBtnMobile]}
-        >
-          <Text style={styles.kardexBtnText}>Ajustar Stock</Text>
-        </TouchableOpacity>
+        {item.tracksInventory !== false && (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => handleOpenKardex(item)}
+            style={[styles.kardexBtn, isMobile && styles.actionBtnMobile]}
+          >
+            <Text style={styles.kardexBtnText}>Ajustar Stock</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           activeOpacity={0.8}
@@ -1118,8 +1154,8 @@ renderItem = {({ item }) => {
     </View>
   );
 }}
-ListEmptyComponent = {
-          < View style = { styles.emptyContainer } >
+ListEmptyComponent={
+          <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>No se encontraron productos en esta vista</Text>
             <Text style={styles.emptySubText}>
               {selectedCategory !== "ALL" || stockFilter !== "ALL" || search.trim()
@@ -1141,11 +1177,11 @@ ListEmptyComponent = {
     </TouchableOpacity>
   )
 }
-          </View >
+          </View>
         }
       />
 
-{/* Modal 1: Crear / Editar Producto */ }
+{/* Modal 1: Crear / Editar Producto */}
 <Modal visible={isProductModalOpen} transparent animationType="fade">
   <View style={styles.modalOverlay}>
     <View style={styles.modalCard}>
@@ -1307,6 +1343,35 @@ ListEmptyComponent = {
           </ScrollView>
         </View>
 
+        {/* Rubro sin control de inventario: sin costo de reposición, sin kardex, sin alertas */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => setFormTracksInventory((prev) => !prev)}
+          style={styles.checkboxRow}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: formTracksInventory }}
+          accessibilityLabel="Controlar inventario de este rubro (kardex, costo y alertas)"
+        >
+          <View
+            style={[
+              styles.checkboxSquare,
+              formTracksInventory && styles.checkboxSquareActive,
+            ]}
+          >
+            {formTracksInventory && <Text style={styles.checkboxMark}>✓</Text>}
+          </View>
+          <Text style={styles.checkboxLabel}>
+            Controlar inventario (kardex, costo de reposición y alertas de stock)
+          </Text>
+        </TouchableOpacity>
+
+        {!formTracksInventory && (
+          <Text style={styles.noTrackingHint}>
+            Sin inventario: no se guarda costo de reposición, las ventas no descuentan stock y
+            este rubro no aparece en alertas ni en la valorización.
+          </Text>
+        )}
+
         <View style={styles.rowInputs}>
           <View style={[styles.inputGroup, { flex: 1 }]}>
             <Text style={styles.inputLabel}>Precio Base USD ($) *</Text>
@@ -1320,17 +1385,19 @@ ListEmptyComponent = {
             />
           </View>
 
-          <View style={[styles.inputGroup, { flex: 1 }]}>
-            <Text style={styles.inputLabel}>Costo Reposición USD ($) *</Text>
-            <TextInput
-              style={[styles.modalInput, typography.tabularNumeric]}
-              placeholder="0.0000"
-              keyboardType="decimal-pad"
-              placeholderTextColor={theme.textMuted}
-              value={formCostUsd}
-              onChangeText={setFormCostUsd}
-            />
-          </View>
+          {formTracksInventory && (
+            <View style={[styles.inputGroup, { flex: 1 }]}>
+              <Text style={styles.inputLabel}>Costo Reposición USD ($) *</Text>
+              <TextInput
+                style={[styles.modalInput, typography.tabularNumeric]}
+                placeholder="0.0000"
+                keyboardType="decimal-pad"
+                placeholderTextColor={theme.textMuted}
+                value={formCostUsd}
+                onChangeText={setFormCostUsd}
+              />
+            </View>
+          )}
 
           <View style={[styles.inputGroup, { flex: 1 }]}>
             <Text style={styles.inputLabel}>IVA (% sugerido)</Text>
@@ -1345,31 +1412,34 @@ ListEmptyComponent = {
             />
           </View>
 
-          <View style={[styles.inputGroup, { flex: 1 }]}>
-            <Text style={styles.inputLabel}>Stock Mínimo ({formUnit})</Text>
-            <TextInput
-              style={[styles.modalInput, typography.tabularNumeric]}
-              placeholder="5"
-              keyboardType="decimal-pad"
-              placeholderTextColor={theme.textMuted}
-              value={formMinStock}
-              onChangeText={setFormMinStock}
-            />
-          </View>
-
-          {!editingProductId && (
+          {formTracksInventory && (
             <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.inputLabel}>Stock Inicial ({formUnit})</Text>
+              <Text style={styles.inputLabel}>Stock Mínimo ({formUnit})</Text>
               <TextInput
                 style={[styles.modalInput, typography.tabularNumeric]}
-                placeholder="0"
+                placeholder="5"
                 keyboardType="decimal-pad"
                 placeholderTextColor={theme.textMuted}
-                value={formInitialStock}
-                onChangeText={setFormInitialStock}
+                value={formMinStock}
+                onChangeText={setFormMinStock}
               />
             </View>
           )}
+
+          {formTracksInventory &&
+            !editingProductId && (
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>Stock Inicial ({formUnit})</Text>
+                <TextInput
+                  style={[styles.modalInput, typography.tabularNumeric]}
+                  placeholder="0"
+                  keyboardType="decimal-pad"
+                  placeholderTextColor={theme.textMuted}
+                  value={formInitialStock}
+                  onChangeText={setFormInitialStock}
+                />
+              </View>
+            )}
         </View>
 
         {/* Selector Táctil de Imagen Local (WebP/JPEG < 80 KB) */}
@@ -1451,7 +1521,7 @@ ListEmptyComponent = {
   </View>
 </Modal>
 
-{/* Modal 2: Ajuste de Kardex (Entradas / Ajustes de Inventario) */ }
+{/* Modal 2: Ajuste de Kardex (Entradas / Ajustes de Inventario) */}
 <Modal visible={isKardexModalOpen} transparent animationType="fade">
   <View style={styles.modalOverlay}>
     <View style={styles.modalCard}>
@@ -1565,7 +1635,7 @@ ListEmptyComponent = {
   </View>
 </Modal>
 
-{/* Modal 3: Confirmación de Eliminación con Validación Estricta ("BORRAR") */ }
+{/* Modal 3: Confirmación de Eliminación con Validación Estricta ("BORRAR") */}
 <Modal visible={deleteTarget !== null} transparent animationType="fade">
   <View style={styles.modalOverlay}>
     <View style={[styles.modalCard, styles.dangerModalCard]}>
@@ -1727,7 +1797,7 @@ ListEmptyComponent = {
     </View>
   </View>
 </Modal>
-    </View >
+    </View>
   );
 };
 
@@ -2237,6 +2307,28 @@ const makeStyles = (c: Palette) =>
     fontSize: typography.sizes.caption,
     color: c.warningText,
     marginTop: 2,
+  },
+  noTrackingText: {
+    fontSize: typography.sizes.caption,
+    color: c.textMuted,
+    marginTop: 2,
+    fontStyle: "italic",
+  },
+  noTrackingBadge: {
+    backgroundColor: c.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  noTrackingBadgeText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: c.textMuted,
+  },
+  noTrackingHint: {
+    fontSize: typography.sizes.caption,
+    color: c.textMuted,
+    marginBottom: spacing.sm,
+    lineHeight: 18,
   },
   colActions: {
     flexDirection: "row",

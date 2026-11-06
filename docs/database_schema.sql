@@ -42,6 +42,28 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
 CREATE INDEX IF NOT EXISTS idx_exchange_rates_date ON exchange_rates(rate_date);
 
 -- -----------------------------------------------------------------------------
+-- 2.1 BITÁCORA DE CORRECCIONES DE TASA (inmutabilidad histórica, auditoría §F3/§F4)
+-- -----------------------------------------------------------------------------
+-- `exchange_rates` guarda el valor OFICIAL vigente del día (UNIQUE rate_date+moneda) y puede
+-- corregirse; esta tabla conserva qué valor reemplazó, cuándo, quién y por qué. Una venta
+-- jamás se re-tasa: `invoices.exchange_rate` queda congelada en la fila de la factura.
+CREATE TABLE IF NOT EXISTS exchange_rate_corrections (
+    id TEXT PRIMARY KEY,                       -- UUIDv7
+    rate_date TEXT NOT NULL,                   -- Día de la tasa afectada ('YYYY-MM-DD')
+    context TEXT NOT NULL,                     -- 'EXCHANGE_RATE' (día) | 'SHIFT' (turno abierto)
+    context_id TEXT,                           -- shift_id cuando context = 'SHIFT'
+    previous_rate TEXT NOT NULL,               -- Valor reemplazado (decimal string, 4dp)
+    new_rate TEXT NOT NULL,                    -- Valor que lo sustituye (decimal string, 4dp)
+    reason TEXT NOT NULL,                      -- Motivo auditado, obligatorio
+    source TEXT NOT NULL,                      -- 'MANUAL' | 'SHIFT_OVERRIDE'
+    terminal_id TEXT,                          -- Caja que originó la corrección
+    created_at INTEGER NOT NULL                -- Timestamp Unix de la corrección
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_corrections_date ON exchange_rate_corrections(rate_date);
+CREATE INDEX IF NOT EXISTS idx_rate_corrections_shift ON exchange_rate_corrections(context_id);
+
+-- -----------------------------------------------------------------------------
 -- 3. CATÁLOGO DE PRODUCTOS E IMÁGENES
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS categories (
@@ -70,6 +92,7 @@ CREATE TABLE IF NOT EXISTS products (
     image_path TEXT,                           -- Ruta relativa al filesystem local (WebP <80KB)
     unit TEXT NOT NULL DEFAULT 'und',          -- Unidad de medida ('und', 'kg', 'g', 'l', 'caja', 'paq')
     min_stock TEXT NOT NULL DEFAULT '5.0000',  -- Umbral para alerta de agotamiento
+    tracks_inventory INTEGER NOT NULL DEFAULT 1, -- 1=Kardex/valorización, 0=Rubro sin inventario (sin costo, sin alerta)
     is_active INTEGER NOT NULL DEFAULT 1,      -- 1=Activo, 0=Deshabilitado
     created_at INTEGER NOT NULL,               -- Timestamp Unix
     updated_at INTEGER NOT NULL                -- Timestamp Unix para reconciliación
@@ -165,6 +188,21 @@ CREATE TABLE IF NOT EXISTS invoices (
 
 CREATE INDEX IF NOT EXISTS idx_invoices_shift ON invoices(shift_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at);
+-- Consecutivo fiscal por caja: un número no puede emitirse dos veces (auditoría §F5).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_terminal_number ON invoices(terminal_id, invoice_number);
+
+-- -----------------------------------------------------------------------------
+-- 6.1 SECUENCIA DE CONSECUTIVOS POR CAJA
+-- -----------------------------------------------------------------------------
+-- `COUNT(*)+1` reutilizaba números si una fila física desaparecía, y MAX(…) tampoco
+-- responde porque borrar la factura más alta libera su número. La secuencia es el
+-- único contador: se incrementa dentro del mismo transaction() de la emisión, así
+-- que una caída no quema ni duplica números.
+CREATE TABLE IF NOT EXISTS invoice_sequences (
+    terminal_id TEXT PRIMARY KEY,              -- Caja dueña del consecutivo
+    last_number INTEGER NOT NULL DEFAULT 0,    -- Último número emitido (nunca retrocede)
+    updated_at INTEGER NOT NULL                -- Timestamp Unix de la última reserva
+);
 
 CREATE TABLE IF NOT EXISTS invoice_items (
     id TEXT PRIMARY KEY,                       -- UUIDv7
@@ -176,6 +214,12 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     unit_price_ves TEXT NOT NULL,              -- Precio unitario congelado en VES
     line_total_ves TEXT NOT NULL,              -- Subtotal línea VES
     tax_rate TEXT NOT NULL,                    -- Alícuota aplicada
+    -- Congelado al cobrar: un documento emitido se copia, no se referencia (AGENTS.md §2.4).
+    -- NULL = línea anterior a la migración; se resuelve contra products como antes.
+    unit_cost_usd TEXT,                        -- Costo de reposición vigente al momento del cobro
+    product_name TEXT,                         -- Descripción comercial al momento del cobro
+    product_sku TEXT,                          -- SKU interno al momento del cobro
+    product_unit TEXT,                         -- Unidad de medida al momento del cobro
     FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
     FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE RESTRICT
 );
@@ -214,9 +258,15 @@ SELECT
     p.price_usd,
     p.cost_usd,
     p.min_stock,
+    p.tracks_inventory,
     p.image_path,
     p.unit,
-    COALESCE(SUM(CAST(REPLACE(sm.quantity_delta, '.', '') AS INTEGER)), 0) AS current_stock_e4
+    -- Los rubros sin control de inventario no arrastran stock: el kardex los ignora.
+    CASE
+        WHEN p.tracks_inventory = 1
+        THEN COALESCE(SUM(CAST(REPLACE(sm.quantity_delta, '.', '') AS INTEGER)), 0)
+        ELSE 0
+    END AS current_stock_e4
 FROM products p
 LEFT JOIN stock_movements sm ON p.id = sm.product_id
 WHERE p.is_active = 1

@@ -3,6 +3,7 @@ import {
   FlatList,
   Image,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -40,8 +41,9 @@ import {
 import type {
   PaymentMethod,
   InvoiceEntity,
+  InvoiceItemEntity,
 } from "../database/repositories/invoice.repository";
-import { getOpenShift } from "../database/repositories/shift.repository";
+import { getOpenShift, setShiftExchangeRate } from "../database/repositories/shift.repository";
 import type { ShiftEntity } from "../database/repositories/shift.repository";
 import {
   useBarcodeScanner,
@@ -51,6 +53,22 @@ import type { KeyEventTargetLike } from "../services/barcode-scanner.service";
 import { listCategories, getProductById } from "../database/repositories/product.repository";
 import type { CategoryEntity } from "../database/repositories/product.repository";
 import { PAYMENT_METHOD_LABELS } from "../database/repositories/balance.repository";
+import {
+  buildReceiptModel,
+  encodeEscPos,
+  getStoredTransport,
+  hasWebBluetooth,
+  isWebSerialAvailable,
+  labelForTransport,
+  printReceiptViaBrowser,
+  printViaWebBluetooth,
+  printViaWebSerial,
+  renderReceiptText,
+  resolveDefaultTransport,
+  shortLabelForTransport,
+  storeTransport,
+} from "../services/receipt-print.service";
+import type { PrintTransport } from "../services/receipt-print.service";
 import {
   createDefaultFileStore,
   resolveProductImageUri,
@@ -69,6 +87,8 @@ export interface PosProductItem {
   currentStock?: string;
   minStock?: string;
   isLowStock?: boolean;
+  /** false = rubro sin control de inventario: no muestra semáforo de stock ni alerta de agotado. */
+  tracksInventory?: boolean;
   unit?: string;
   imagePath?: string | null;
   taxRate?: string;
@@ -169,6 +189,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     try {
       const shift = getOpenShift(db, terminalId);
       setActiveShift(shift ?? null);
+      // La tasa del turno es la única del ticket mientras el turno esté abierto
+      // (auditoría §F3): una corrección del BCV a media jornada no puede re-tasar la caja.
+      if (shift) setExchangeRate(shift.exchangeRateApplied);
     } catch {
       setActiveShift(null);
     }
@@ -213,12 +236,15 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             currentStock: p.currentStock,
             minStock: p.minStock,
             isLowStock: p.isLowStock,
+            tracksInventory: p.tracksInventory,
             unit: p.unit,
             imagePath: p.imagePath,
             taxRate: p.taxRate,
           })),
         );
-        setExchangeRate(result.activeRate);
+        // Con turno abierto la tasa del ticket es la del turno, no la última del día (§F3).
+        const openShift = getOpenShift(db, terminalId);
+        setExchangeRate(openShift ? openShift.exchangeRateApplied : result.activeRate);
         setCatalogError(null);
 
         try {
@@ -235,16 +261,16 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         setCatalogError((err as Error).message || "No se pudo leer el catálogo local.");
       }
     }
-  }, [db, initialExchangeRate, tenantId]);
+  }, [db, initialExchangeRate, tenantId, terminalId]);
 
   useEffect(() => {
     refreshCatalog();
   }, [refreshCatalog]);
 
   const addToCart = useCallback((product: PosProductItem) => {
-    // Verificar si el producto tiene stock <= 0 para advertir
+    // Verificar si el producto tiene stock <= 0 para advertir (solo rubros controlados)
     const stockVal = toDecimal(product.currentStock ?? "100.0000");
-    if (stockVal.lte(0)) {
+    if (product.tracksInventory !== false && stockVal.lte(0)) {
       showNotice(`"${product.name}" no tiene stock registrado. Se agregó al ticket y el inventario quedará en negativo.`);
     }
 
@@ -284,7 +310,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         try {
           const found = findProductByBarcode(db, scannedBarcode);
           if (found) {
-            // Buscar producto en catálogo en memoria para heredar currentStock y unit
+            // Buscar producto en catálogo en memoria para heredar currentStock, unit y bandera de inventario
             const catItem = catalog.find((p) => p.id === found.productId);
             addToCart({
               id: found.productId,
@@ -293,6 +319,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               priceUsd: found.priceUsd,
               currentStock: catItem?.currentStock,
               minStock: catItem?.minStock,
+              tracksInventory: catItem?.tracksInventory,
               unit: catItem?.unit,
               taxRate: catItem?.taxRate,
             });
@@ -336,7 +363,15 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   // shortcut: un renombre cambia el nombre en recibos viejos; migrar invoice_items.product_name
   // si el comprobante debe congelar el nombre del momento de la venta.
   const receiptItemName = useCallback(
-    (productId: string): string => {
+    (
+      productId: string,
+      frozen?: Pick<InvoiceItemEntity, "productName" | "productSku" | "productUnit"> | undefined,
+    ): string => {
+      // El nombre congelado en la línea de factura manda: renombrar el rubro después
+      // no puede reescribir un ticket ya emitido (auditoría §F2).
+      const snapshotName = frozen?.productName?.trim();
+      if (snapshotName) return snapshotName;
+
       const current = catalog.find((p) => p.id === productId);
       if (current) return current.name;
       if (db) {
@@ -364,6 +399,8 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   const { width: windowWidth, isMobile } = useBreakpoint();
   const metrics = useMetrics();
   const isWideCheckout = metrics.twoPaneCheckout;
+  // El comprobante usa el mismo umbral: con alto de sobra, acciones al lado; si no, barra fija abajo.
+  const isWideReceipt = metrics.twoPaneCheckout;
   // Móvil: un solo panel visible a la vez (catálogo / ticket / ventas)
   const [mobilePane, setMobilePane] = useState<"catalog" | "ticket" | "history">("catalog");
   // Columnas según el ancho real del panel de catálogo (no el de la ventana):
@@ -488,18 +525,42 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         throw new Error("El motivo del ajuste de tasa es obligatorio para la auditoría.");
       }
 
+      let appliedRate = formatted;
+
       if (db) {
         const todayIso = new Date().toISOString().split("T")[0]!;
+        // 1. Corregir el valor OFICIAL del día (deja rastro en exchange_rate_corrections).
         registerManualRate(db, {
           rateDate: todayIso,
           rate: formatted,
           reason: cleanReason,
           allowUpdate: true,
+          terminalId,
         });
+
+        // 2. Reapuntar la tasa del turno SOLO si aún no tiene ventas (§F3). Las ventas ya
+        //    emitidas conservan su tasa congelada; con ventas registradas hay que cerrar Z.
+        if (activeShift) {
+          try {
+            const updated = setShiftExchangeRate(db, {
+              shiftId: activeShift.id,
+              rate: formatted,
+              reason: cleanReason,
+              terminalId,
+            });
+            appliedRate = updated.exchangeRateApplied;
+            setActiveShift(updated);
+          } catch (err) {
+            appliedRate = activeShift.exchangeRateApplied;
+            showNotice(
+              `${(err as Error).message} La tasa corregida regirá desde el próximo turno.`,
+            );
+          }
+        }
       }
 
-      setExchangeRate(formatted);
-      onRateChange?.(formatted);
+      setExchangeRate(appliedRate);
+      onRateChange?.(appliedRate);
       setIsRateModalOpen(false);
       setNewRateInput("");
       setRateReasonInput("");
@@ -778,12 +839,26 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         refreshCatalog();
       }
 
-      setLastCreatedInvoice(createdInvoice);
-      setLastInvoiceSuccess(
-        createdInvoice
-          ? `¡Venta ${createdInvoice.invoiceNumber} cobrada con éxito!`
-          : "¡Venta cobrada con éxito!",
-      );
+      if (createdInvoice) {
+        // La confirmación del cobro ES el comprobante: se abre de inmediato con el
+        // botón de impresión en pantalla (sin el auto-cierre de 2,5 s que devolvía
+        // a la caja y obligaba a rebuscar la venta en la pestaña Ventas).
+        // El ticket se vacía aquí, antes de cerrar el cobro, para impedir un segundo cobro.
+        if (successTimerRef.current) clearTimeout(successTimerRef.current);
+        setTicketItems([]);
+        setSelectedReceipt(createdInvoice);
+        setIsCheckoutModalOpen(false);
+        setLastInvoiceSuccess(null);
+        setLastCreatedInvoice(null);
+        setIsSubmitting(false);
+        submittingRef.current = false;
+        return;
+      }
+
+      // Raro: la factura quedó persistida pero falló su relectura. Se avisa sin
+      // comprobante y la pantalla de cobro se cierra sola tras dejar el mensaje.
+      setLastCreatedInvoice(null);
+      setLastInvoiceSuccess("¡Venta cobrada con éxito!");
       if (successTimerRef.current) clearTimeout(successTimerRef.current);
       successTimerRef.current = setTimeout(() => {
         setIsCheckoutModalOpen(false);
@@ -826,6 +901,71 @@ export const PosScreen: React.FC<PosScreenProps> = ({
     setIsCheckoutModalOpen(false);
     setIsSubmitting(false);
     submittingRef.current = false;
+  };
+
+  // Impresión del comprobante en la Xprinter XP-58IIHT (58 mm, 32 columnas ESC/POS).
+  // Tres transportes: "serial" = USB o Bluetooth SPP emparejado (COM virtual visto por
+  // Web Serial); "bluetooth" = BLE GATT directo vía Web Bluetooth; "dialog" = driver de
+  // texto del SO con el diálogo del navegador. La preferencia se recuerda entre sesiones.
+  const [printBusy, setPrintBusy] = useState(false);
+  const [printFeedback, setPrintFeedback] = useState<string | null>(null);
+  const [printTransport, setPrintTransport] = useState<PrintTransport>(() =>
+    Platform.OS === "web"
+      ? getStoredTransport() ??
+        resolveDefaultTransport(isWebSerialAvailable(), hasWebBluetooth())
+      : "dialog",
+  );
+
+  const availableTransports = useMemo(() => {
+    if (Platform.OS !== "web") return [] as PrintTransport[];
+    const list: PrintTransport[] = [];
+    if (isWebSerialAvailable()) list.push("serial");
+    if (hasWebBluetooth()) list.push("bluetooth");
+    list.push("dialog");
+    return list;
+  }, []);
+
+  useEffect(() => {
+    setPrintFeedback(null);
+  }, [selectedReceipt?.id]);
+
+  const handleSelectTransport = (t: PrintTransport) => {
+    setPrintTransport(t);
+    storeTransport(t);
+    setPrintFeedback(`Transporte activo: ${labelForTransport(t)}`);
+  };
+
+  const handlePrintReceipt = async () => {
+    if (!selectedReceipt) return;
+    const invoice = selectedReceipt;
+    setPrintBusy(true);
+    setPrintFeedback(null);
+    try {
+      const model = buildReceiptModel(invoice, { resolveItemName: receiptItemName });
+      if (printTransport === "serial") {
+        await printViaWebSerial(encodeEscPos(model));
+        setPrintFeedback(`Ticket ${invoice.invoiceNumber} enviado por USB/Serie`);
+      } else if (printTransport === "bluetooth") {
+        await printViaWebBluetooth(encodeEscPos(model));
+        setPrintFeedback(`Ticket ${invoice.invoiceNumber} enviado por Bluetooth`);
+      } else {
+        printReceiptViaBrowser(renderReceiptText(model));
+        setPrintFeedback("Diálogo de impresión abierto: elija la XP-58IIHT (58 mm)");
+      }
+    } catch (err) {
+      const message = (err as Error)?.message ?? String(err);
+      // Chrome reporta la omisión del selector de puerto/dispositivo con textos
+      // distintos según el transporte; todos significan "el operador canceló".
+      setPrintFeedback(
+        /cancel|no port selected|no device selected|user cancelled|not found|already\b.*open|no device/i.test(
+          message,
+        )
+          ? "Selección de impresora cancelada"
+          : `No se pudo imprimir: ${message}`,
+      );
+    } finally {
+      setPrintBusy(false);
+    }
   };
 
   const handleConfirmVoid = () => {
@@ -885,6 +1025,114 @@ export const PosScreen: React.FC<PosScreenProps> = ({
       </Text>
     </TouchableOpacity>
   );
+
+  // Panel de acciones del comprobante, FUERA del scroll: en landscape forma un riel
+  // lateral (receiptRail) y en vertical/móvil una barra inferior fija; así imprimir,
+  // anular y cerrar quedan siempre visibles sin deslizar, como en el cobro.
+  const voidReceiptButton =
+    selectedReceipt && selectedReceipt.status !== "VOID" ? (
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => {
+          setVoidReasonInput("");
+          setVoidError(null);
+          setIsVoidConfirmOpen(true);
+        }}
+        testID="btn-open-void-modal"
+        style={[styles.receiptVoidBtn, !isWideReceipt && styles.receiptActionRowBtn]}
+        accessibilityRole="button"
+        accessibilityLabel="Anular venta (devolución)"
+      >
+        <Text style={styles.receiptVoidBtnText} numberOfLines={1}>
+          {isWideReceipt ? "🔴 ANULAR VENTA (DEVOLUCIÓN)" : "🔴 ANULAR"}
+        </Text>
+      </TouchableOpacity>
+    ) : null;
+
+  const closeReceiptButton = (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={() => setSelectedReceipt(null)}
+      style={[styles.receiptCloseBtn, !isWideReceipt && styles.receiptActionRowBtn]}
+      accessibilityRole="button"
+      accessibilityLabel="Cerrar comprobante"
+    >
+      <Text style={styles.receiptCloseBtnText} numberOfLines={1}>
+        {isWideReceipt ? "Cerrar Comprobante" : "Cerrar"}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  const receiptActions = selectedReceipt ? (
+    <View style={isWideReceipt ? styles.receiptRail : styles.receiptActionBar}>
+      {Platform.OS === "web" ? (
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handlePrintReceipt}
+          disabled={printBusy}
+          testID="btn-print-receipt"
+          style={[styles.receiptPrintBtn, printBusy && styles.receiptPrintBtnBusy]}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: printBusy }}
+          accessibilityLabel={`Imprimir comprobante ${selectedReceipt.invoiceNumber} en la Xprinter XP-58IIHT`}
+        >
+          <Text style={styles.receiptPrintBtnText}>
+            {printBusy
+              ? "IMPRIMIENDO…"
+              : `🖨 IMPRIMIR · ${shortLabelForTransport(printTransport)}`}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+      {availableTransports.length > 1 ? (
+        /* USB/Serie (también BT emparejado como COM), Bluetooth BLE directo o diálogo del SO. */
+        <View
+          style={[styles.printTransportRow, isWideReceipt && styles.printTransportRowRail]}
+          accessibilityRole="radiogroup"
+        >
+          {availableTransports.map((t) => {
+            const isActive = printTransport === t;
+            return (
+              <TouchableOpacity
+                key={t}
+                activeOpacity={0.8}
+                onPress={() => handleSelectTransport(t)}
+                style={[styles.printTransportChip, isActive && styles.printTransportChipActive]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={`Transporte de impresion: ${labelForTransport(t)}`}
+              >
+                <Text
+                  style={[
+                    styles.printTransportChipText,
+                    isActive && styles.printTransportChipTextActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {t === "serial" ? "🔌" : t === "bluetooth" ? "📶" : "🖥"} {labelForTransport(t)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+      {printFeedback ? (
+        <Text style={styles.receiptPrintFeedback} numberOfLines={2}>
+          {printFeedback}
+        </Text>
+      ) : null}
+      {isWideReceipt ? (
+        <>
+          {voidReceiptButton}
+          {closeReceiptButton}
+        </>
+      ) : (
+        <View style={styles.receiptActionRow}>
+          {voidReceiptButton}
+          {closeReceiptButton}
+        </View>
+      )}
+    </View>
+  ) : null;
 
   return (
     <View style={styles.container}>
@@ -1115,9 +1363,13 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           contentContainerStyle={styles.catalogGrid}
           renderItem={({ item }) => {
             const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
+            const tracksInventory = item.tracksInventory !== false;
             const stockDecimal = toDecimal(item.currentStock ?? "0.0000");
-            const isOutOfStock = stockDecimal.lte(0);
-            const isLowStock = item.isLowStock || (stockDecimal.lte(toDecimal(item.minStock ?? "0.0000")) && !isOutOfStock);
+            const isOutOfStock = tracksInventory && stockDecimal.lte(0);
+            const isLowStock =
+              tracksInventory &&
+              (item.isLowStock ||
+                (stockDecimal.lte(toDecimal(item.minStock ?? "0.0000")) && !isOutOfStock));
             const imageUri = resolveProductImageUri(fileStore, item.imagePath ?? null);
 
             return (
@@ -1127,9 +1379,11 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 style={[styles.productCard, isOutOfStock && styles.productCardOutStock]}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  isOutOfStock
-                    ? `${item.name}, ${formatUsd(item.priceUsd)}, agotado. Agregar al ticket`
-                    : `${item.name}, ${formatUsd(item.priceUsd)}, stock ${formatFixed4(item.currentStock ?? "0")} ${item.unit ?? "und"}. Agregar al ticket`
+                  !tracksInventory
+                    ? `${item.name}, ${formatUsd(item.priceUsd)}, sin control de inventario. Agregar al ticket`
+                    : isOutOfStock
+                      ? `${item.name}, ${formatUsd(item.priceUsd)}, agotado. Agregar al ticket`
+                      : `${item.name}, ${formatUsd(item.priceUsd)}, stock ${formatFixed4(item.currentStock ?? "0")} ${item.unit ?? "und"}. Agregar al ticket`
                 }
               >
                 {/* Cabecera de la tarjeta: Imagen + SKU + Badge de Stock */}
@@ -1150,7 +1404,13 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     </View>
 
                     {/* Badge de Stock */}
-                    {isOutOfStock ? (
+                    {!tracksInventory ? (
+                      <View style={[styles.stockBadge, styles.stockBadgeNoTracking]}>
+                        <Text style={styles.stockBadgeTextNoTracking} numberOfLines={1}>
+                          ◇ Sin inventario
+                        </Text>
+                      </View>
+                    ) : isOutOfStock ? (
                       <View style={[styles.stockBadge, styles.stockBadgeOut]}>
                         <Text style={styles.stockBadgeTextOut} numberOfLines={1}>
                           ● Agotado (0)
@@ -1944,125 +2204,99 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, styles.receiptCard]}>
             {selectedReceipt ? (
-              <ScrollView style={styles.receiptScroll} contentContainerStyle={styles.receiptContent}>
-                {/* Cabecera del Recibo Térmico */}
-                <View style={styles.receiptHeader}>
-                  <Text style={styles.receiptBrand}>BISYNC POS</Text>
-                  <Text style={styles.receiptSubBrand}>Comprobante de venta</Text>
-                  <Text style={styles.receiptTerminal}>
-                    Terminal: {selectedReceipt.terminalId} • Turno #{selectedReceipt.shiftId.slice(-4).toUpperCase()}
-                  </Text>
-                  <Text style={styles.receiptInvoiceNum}>{selectedReceipt.invoiceNumber}</Text>
-                  <Text style={styles.receiptDate}>
-                    {new Date(selectedReceipt.createdAt).toLocaleString()}
-                  </Text>
-                </View>
-
-                {/* Badge de Estado */}
-                <View style={[styles.receiptStatusBadge, selectedReceipt.status === "VOID" ? styles.receiptBadgeVoid : styles.receiptBadgeOk]}>
-                  <Text style={styles.receiptStatusText}>
-                    {selectedReceipt.status === "VOID" ? "⚠️ VENTA ANULADA (DEVOLUCIÓN)" : "✅ VENTA COBRADA"}
-                  </Text>
-                  {selectedReceipt.status === "VOID" && selectedReceipt.voidReason ? (
-                    <Text style={styles.receiptVoidReason}>Motivo: {selectedReceipt.voidReason}</Text>
-                  ) : null}
-                </View>
-
-                <View style={styles.receiptDivider} />
-
-                {/* Detalle de Productos */}
-                <View style={styles.receiptItemsTable}>
-                  <View style={styles.receiptTableHeader}>
-                    <Text style={[styles.receiptTh, { flex: 3 }]}>Producto</Text>
-                    <Text style={[styles.receiptTh, { flex: 1, textAlign: "center" }]}>Cant.</Text>
-                    <Text style={[styles.receiptTh, { flex: 2, textAlign: "right" }]}>Precio</Text>
-                    <Text style={[styles.receiptTh, { flex: 2, textAlign: "right" }]}>Total</Text>
+              <View style={[styles.receiptLayout, !isWideReceipt && styles.receiptLayoutStacked]}>
+                <ScrollView style={styles.receiptScroll} contentContainerStyle={styles.receiptContent}>
+                  {/* Cabecera del Recibo Térmico */}
+                  <View style={styles.receiptHeader}>
+                    <Text style={styles.receiptBrand}>BISYNC POS</Text>
+                    <Text style={styles.receiptSubBrand}>Comprobante de venta</Text>
+                    <Text style={styles.receiptTerminal}>
+                      Terminal: {selectedReceipt.terminalId} • Turno #{selectedReceipt.shiftId.slice(-4).toUpperCase()}
+                    </Text>
+                    <Text style={styles.receiptInvoiceNum}>{selectedReceipt.invoiceNumber}</Text>
+                    <Text style={styles.receiptDate}>
+                      {new Date(selectedReceipt.createdAt).toLocaleString()}
+                    </Text>
                   </View>
-                  {selectedReceipt.items.map((it) => (
-                    <View key={it.id} style={styles.receiptItemRow}>
-                      <Text style={[styles.receiptItemName, { flex: 3 }]} numberOfLines={1}>
-                        {receiptItemName(it.productId)}
-                      </Text>
-                      <Text style={[styles.receiptItemQty, { flex: 1, textAlign: "center" }, typography.tabularNumeric]}>
-                        {formatFixed4(it.quantity)}
-                      </Text>
-                      <Text style={[styles.receiptItemPrice, { flex: 2, textAlign: "right" }, typography.tabularNumeric]}>
-                        {formatUsd(it.unitPriceUsd)}
-                      </Text>
-                      <Text style={[styles.receiptItemTotal, { flex: 2, textAlign: "right" }, typography.tabularNumeric]}>
-                        {formatUsd(it.lineTotalUsd)}
+
+                  {/* Badge de Estado */}
+                  <View style={[styles.receiptStatusBadge, selectedReceipt.status === "VOID" ? styles.receiptBadgeVoid : styles.receiptBadgeOk]}>
+                    <Text style={styles.receiptStatusText}>
+                      {selectedReceipt.status === "VOID" ? "⚠️ VENTA ANULADA (DEVOLUCIÓN)" : "✅ VENTA COBRADA"}
+                    </Text>
+                    {selectedReceipt.status === "VOID" && selectedReceipt.voidReason ? (
+                      <Text style={styles.receiptVoidReason}>Motivo: {selectedReceipt.voidReason}</Text>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.receiptDivider} />
+
+                  {/* Detalle de Productos */}
+                  <View style={styles.receiptItemsTable}>
+                    <View style={styles.receiptTableHeader}>
+                      <Text style={[styles.receiptTh, { flex: 3 }]}>Producto</Text>
+                      <Text style={[styles.receiptTh, { flex: 1, textAlign: "center" }]}>Cant.</Text>
+                      <Text style={[styles.receiptTh, { flex: 2, textAlign: "right" }]}>Precio</Text>
+                      <Text style={[styles.receiptTh, { flex: 2, textAlign: "right" }]}>Total</Text>
+                    </View>
+                    {selectedReceipt.items.map((it) => (
+                      <View key={it.id} style={styles.receiptItemRow}>
+                        <Text style={[styles.receiptItemName, { flex: 3 }]} numberOfLines={1}>
+                          {receiptItemName(it.productId, it)}
+                        </Text>
+                        <Text style={[styles.receiptItemQty, { flex: 1, textAlign: "center" }, typography.tabularNumeric]}>
+                          {formatFixed4(it.quantity)}
+                        </Text>
+                        <Text style={[styles.receiptItemPrice, { flex: 2, textAlign: "right" }, typography.tabularNumeric]}>
+                          {formatUsd(it.unitPriceUsd)}
+                        </Text>
+                        <Text style={[styles.receiptItemTotal, { flex: 2, textAlign: "right" }, typography.tabularNumeric]}>
+                          {formatUsd(it.lineTotalUsd)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <View style={styles.receiptDivider} />
+
+                  {/* Totales Bimoneda */}
+                  <View style={styles.receiptTotalsBox}>
+                    <View style={styles.receiptTotalRow}>
+                      <Text style={styles.receiptTotalLabel}>Subtotal:</Text>
+                      <Text style={[styles.receiptTotalVal, typography.tabularNumeric]}>
+                        {formatUsd(selectedReceipt.subtotalUsd)} ({formatVes(selectedReceipt.subtotalVes)})
                       </Text>
                     </View>
-                  ))}
-                </View>
-
-                <View style={styles.receiptDivider} />
-
-                {/* Totales Bimoneda */}
-                <View style={styles.receiptTotalsBox}>
-                  <View style={styles.receiptTotalRow}>
-                    <Text style={styles.receiptTotalLabel}>Subtotal:</Text>
-                    <Text style={[styles.receiptTotalVal, typography.tabularNumeric]}>
-                      {formatUsd(selectedReceipt.subtotalUsd)} ({formatVes(selectedReceipt.subtotalVes)})
-                    </Text>
-                  </View>
-                  <View style={styles.receiptTotalRow}>
-                    <Text style={styles.receiptTotalLabel}>IVA:</Text>
-                    <Text style={[styles.receiptTotalVal, typography.tabularNumeric]}>
-                      {formatUsd(selectedReceipt.taxUsd)} ({formatVes(selectedReceipt.taxVes)})
-                    </Text>
-                  </View>
-                  <View style={[styles.receiptTotalRow, styles.receiptTotalRowMain]}>
-                    <Text style={styles.receiptGrandTotalLabel}>TOTAL LEGAL:</Text>
-                    <View style={styles.receiptGrandTotalValues}>
-                      <Text style={[styles.receiptGrandTotalUsd, typography.tabularNumeric]}>
-                        {formatUsd(selectedReceipt.totalUsd)}
+                    <View style={styles.receiptTotalRow}>
+                      <Text style={styles.receiptTotalLabel}>IVA:</Text>
+                      <Text style={[styles.receiptTotalVal, typography.tabularNumeric]}>
+                        {formatUsd(selectedReceipt.taxUsd)} ({formatVes(selectedReceipt.taxVes)})
                       </Text>
-                      <Text style={[styles.receiptGrandTotalVes, typography.tabularNumeric]}>
-                        ≈ {formatVes(selectedReceipt.totalVes)}
+                    </View>
+                    <View style={[styles.receiptTotalRow, styles.receiptTotalRowMain]}>
+                      <Text style={styles.receiptGrandTotalLabel}>TOTAL LEGAL:</Text>
+                      <View style={styles.receiptGrandTotalValues}>
+                        <Text style={[styles.receiptGrandTotalUsd, typography.tabularNumeric]}>
+                          {formatUsd(selectedReceipt.totalUsd)}
+                        </Text>
+                        <Text style={[styles.receiptGrandTotalVes, typography.tabularNumeric]}>
+                          ≈ {formatVes(selectedReceipt.totalVes)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.receiptRateNotice}>
+                      <Text style={styles.receiptRateNoticeText}>
+                        Tasa congelada: {formatVes(selectedReceipt.exchangeRate)} / USD
+                      </Text>
+                      <Text style={styles.receiptRateNoticeText}>
+                        Método de pago: {PAYMENT_METHOD_LABELS[selectedReceipt.paymentMethod] ?? selectedReceipt.paymentMethod}
                       </Text>
                     </View>
                   </View>
-                  <View style={styles.receiptRateNotice}>
-                    <Text style={styles.receiptRateNoticeText}>
-                      Tasa congelada: {formatVes(selectedReceipt.exchangeRate)} / USD
-                    </Text>
-                    <Text style={styles.receiptRateNoticeText}>
-                      Método de pago: {PAYMENT_METHOD_LABELS[selectedReceipt.paymentMethod] ?? selectedReceipt.paymentMethod}
-                    </Text>
-                  </View>
-                </View>
 
-                {/* Acciones: Anular Venta o Cerrar Recibo */}
-                <View style={styles.receiptActions}>
-                  {selectedReceipt.status !== "VOID" ? (
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        setVoidReasonInput("");
-                        setVoidError(null);
-                        setIsVoidConfirmOpen(true);
-                      }}
-                      style={styles.receiptVoidBtn}
-                      testID="btn-open-void-modal"
-                      accessibilityRole="button"
-                      accessibilityLabel="Anular venta (devolución)"
-                    >
-                      <Text style={styles.receiptVoidBtnText}>🔴 ANULAR VENTA (DEVOLUCIÓN)</Text>
-                    </TouchableOpacity>
-                  ) : null}
-
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => setSelectedReceipt(null)}
-                    style={styles.receiptCloseBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Cerrar comprobante"
-                  >
-                    <Text style={styles.receiptCloseBtnText}>Cerrar Comprobante</Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
+                </ScrollView>
+                {receiptActions}
+              </View>
             ) : null}
           </View>
         </View>
@@ -2430,6 +2664,16 @@ const makeStyles = (c: Palette, m: Metrics) =>
     fontSize: 12,
     fontWeight: typography.weights.bold,
     color: c.errorText,
+  },
+  stockBadgeNoTracking: {
+    backgroundColor: c.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  stockBadgeTextNoTracking: {
+    fontSize: 12,
+    fontWeight: typography.weights.semibold,
+    color: c.textMuted,
   },
   productName: {
     fontSize: typography.sizes.body,
@@ -3140,11 +3384,46 @@ const makeStyles = (c: Palette, m: Metrics) =>
     paddingHorizontal: spacing.lg,
   },
   receiptCard: {
-    maxWidth: 580,
+    width: "100%",
+    maxWidth: 980, // más ancho para que el riel de acciones viva al lado del ticket
     maxHeight: "92%",
     padding: 0,
     backgroundColor: c.surfaceContainerLow,
     overflow: "hidden",
+  },
+  receiptLayout: {
+    flex: 1,
+    flexDirection: "row",
+    minHeight: 0,
+  },
+  receiptLayoutStacked: {
+    flexDirection: "column",
+  },
+  receiptRail: {
+    // Acciones del comprobante en columna lateral: nunca fuera del viewport
+    width: m.receiptRail,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+    borderLeftWidth: 1,
+    borderLeftColor: c.border,
+    backgroundColor: c.surfaceContainer,
+    justifyContent: "flex-start",
+  },
+  receiptActionBar: {
+    // Versión vertical (móvil/ventana baja): barra fija bajo el scroll
+    padding: spacing.md,
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: c.border,
+    backgroundColor: c.surfaceContainer,
+  },
+  receiptActionRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  receiptActionRowBtn: {
+    flex: 1,
   },
   checkoutScreen: {
     // Pantalla completa de cobro: todo cabe en el lienzo 1280×800 sin scroll
@@ -3441,10 +3720,6 @@ const makeStyles = (c: Palette, m: Metrics) =>
     fontSize: typography.sizes.caption,
     color: c.textMuted,
   },
-  receiptActions: {
-    marginTop: spacing.lg,
-    gap: spacing.sm,
-  },
   receiptVoidBtn: {
     height: spacing.touchTargetMin,
     backgroundColor: c.errorSoft,
@@ -3453,6 +3728,59 @@ const makeStyles = (c: Palette, m: Metrics) =>
     borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
+  },
+  receiptPrintBtn: {
+    height: spacing.touchTargetHero, // 64px: acción primaria del comprobante
+    backgroundColor: c.primary,
+    borderRadius: spacing.radiusMd,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  receiptPrintBtnBusy: {
+    opacity: 0.6,
+  },
+  receiptPrintBtnText: {
+    fontSize: typography.sizes.subText,
+    fontWeight: typography.weights.extraBold,
+    color: c.onPrimary,
+    letterSpacing: 0.5,
+  },
+  receiptPrintFeedback: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: c.textSecondary,
+    textAlign: "center",
+  },
+  printTransportRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  printTransportRowRail: {
+    flexDirection: "column",
+  },
+  printTransportChip: {
+    flex: 1,
+    minHeight: spacing.touchTargetMin,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: spacing.radiusMd,
+    borderWidth: 1,
+    borderColor: c.border,
+    backgroundColor: c.surfaceContainerHigh,
+    paddingHorizontal: spacing.xs,
+  },
+  printTransportChipActive: {
+    borderColor: c.primaryGlow,
+    backgroundColor: c.primarySoft,
+  },
+  printTransportChipText: {
+    fontSize: typography.sizes.caption,
+    fontWeight: typography.weights.semibold,
+    color: c.textSecondary,
+  },
+  printTransportChipTextActive: {
+    color: c.primaryGlow,
+    fontWeight: typography.weights.bold,
   },
   receiptVoidBtnText: {
     fontSize: typography.sizes.caption,

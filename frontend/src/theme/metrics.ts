@@ -40,6 +40,8 @@ export interface Metrics {
   heroTouch: number;
   /** Ancho de la columna del numpad en el cobro a dos columnas. */
   checkoutRight: number;
+  /** Riel lateral de acciones del comprobante (imprimir/anular/cerrar). */
+  receiptRail: number;
   /** Ancho mínimo de una ficha del catálogo; define cuántas columnas caben. */
   catalogCard: number;
   /** Cobro a dos columnas solo si el tier lo permite y hay alto suficiente (≥560 px). */
@@ -77,6 +79,7 @@ export function computeMetrics(width: number, height: number): Metrics {
   // admite, para que CONFIRMAR COBRO nunca quede fuera de pantalla.
   const heroTouch = clamp(Math.round(64 * Math.min(1, fitH)), 48, 64);
   const checkoutRight = clamp(8 * Math.round((width * 0.28) / 8), 224, 360);
+  const receiptRail = clamp(8 * Math.round((width * 0.3) / 8), 240, 320);
   const catalogCard = clamp(Math.round(190 * Math.max(scale, 0.8)), 144, 190);
   const twoPaneCheckout = tier !== "movil" && height >= 560;
 
@@ -87,6 +90,7 @@ export function computeMetrics(width: number, height: number): Metrics {
     Math.round(fontScale * 20),
     heroTouch,
     checkoutRight,
+    receiptRail,
     catalogCard,
     twoPaneCheckout ? "2p" : "1p",
   ].join("|");
@@ -99,6 +103,7 @@ export function computeMetrics(width: number, height: number): Metrics {
     fontScale,
     heroTouch,
     checkoutRight,
+    receiptRail,
     catalogCard,
     twoPaneCheckout,
     bucket,

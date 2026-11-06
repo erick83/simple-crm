@@ -60,3 +60,59 @@ export function createTestDb(): SqlDriver {
   return driver;
 }
 
+export interface LegacyDbHandle {
+  /** Ejecuta DDL/DML suelto sobre la base heredada. */
+  run(sql: string, params?: (string | number | null)[]): void;
+}
+
+/**
+ * Base de datos con un DDL anterior a las migraciones actuales, para probar que una caja
+ * ya instalada migra sin perder sus ventas. `driver` es el SqlDriver que recibe
+ * `migrateDatabase`.
+ */
+export function openLegacyDb(legacyDdl: string): { driver: SqlDriver; handle: LegacyDbHandle } {
+  try {
+    const db = new Database(":memory:");
+    db.exec(legacyDdl);
+    return {
+      driver: betterSqliteDriver(db),
+      handle: { run: (sql, params = []) => void db.prepare(sql).run(...params) },
+    };
+  } catch {
+    // Mismo fallback de createInMemoryDriver: node:sqlite nativo cuando better-sqlite3
+    // fue compilado para otro NODE_MODULE_VERSION.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { DatabaseSync } = require("node:sqlite") as {
+      DatabaseSync: new (path: string) => {
+        exec(sql: string): void;
+        prepare(sql: string): {
+          run(...params: (string | number | null)[]): unknown;
+          all(...params: (string | number | null)[]): Record<string, unknown>[];
+        };
+      };
+    };
+    const db = new DatabaseSync(":memory:");
+    db.exec(legacyDdl);
+    return {
+      driver: {
+        exec: (sql) => void db.exec(sql),
+        run: (sql, params = []) => void db.prepare(sql).run(...params),
+        all: <T>(sql: string, params: (string | number | null)[] = []) =>
+          db.prepare(sql).all(...params).map((row) => ({ ...row })) as T[],
+        transaction: <T>(fn: () => T): T => {
+          db.exec("BEGIN");
+          try {
+            const res = fn();
+            db.exec("COMMIT");
+            return res;
+          } catch (txErr) {
+            db.exec("ROLLBACK");
+            throw txErr;
+          }
+        },
+      },
+      handle: { run: (sql, params = []) => void db.prepare(sql).run(...params) },
+    };
+  }
+}
+

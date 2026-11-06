@@ -2,6 +2,7 @@ import type { SqlDriver } from "../connection";
 import { uuidv7 } from "../../utils/uuid7";
 import { toDecimal, formatFixed4, Decimal } from "../../utils/decimal";
 import { parseSplitBreakdown } from "./invoice.repository";
+import { recordRateCorrection } from "./exchange.repository";
 
 export interface ShiftEntity {
   id: string;
@@ -177,6 +178,70 @@ function mapShiftRow(row: {
     differenceVes: row.difference_ves,
     status: row.status,
   };
+}
+
+/**
+ * Corrige la tasa de un turno ABIERTO que todavía no tiene ventas (auditoría §F3).
+ * Con ventas emitidas se rechaza: esas facturas ya congelaron su tasa en
+ * `invoices.exchange_rate`, y lo correcto es cerrar el turno (Z) y abrir otro con la
+ * tasa corregida. Toda corrección exige motivo y queda en `exchange_rate_corrections`.
+ */
+export function setShiftExchangeRate(
+  db: SqlDriver,
+  args: { shiftId: string; rate: string; reason: string; terminalId?: string },
+  now: number = Date.now(),
+): ShiftEntity {
+  const reason = args.reason.trim();
+  if (!reason) {
+    throw new Error("El motivo de la corrección de tasa es obligatorio para la auditoría.");
+  }
+
+  const newRate = toDecimal(args.rate, "rate");
+  if (newRate.lte(0)) throw new Error("La tasa de cambio debe ser mayor a cero");
+
+  const shift = getShiftById(db, args.shiftId);
+  if (!shift) throw new Error(`Turno no encontrado: ${args.shiftId}`);
+  if (shift.status !== "OPEN") {
+    throw new Error(`El turno ${shift.id} está cerrado: su tasa es definitiva.`);
+  }
+
+  const [anySale] = db.all<{ id: string }>(
+    "SELECT id FROM invoices WHERE shift_id = ? AND (status IS NULL OR status != 'VOID') LIMIT 1",
+    [args.shiftId],
+  );
+  if (anySale) {
+    throw new Error(
+      "El turno ya tiene ventas con su tasa congelada. Cierra el turno (Z) y abre uno nuevo con la tasa corregida.",
+    );
+  }
+
+  const previous = toDecimal(shift.exchangeRateApplied, "exchangeRateApplied").toFixed(4);
+  const formatted = newRate.toFixed(4);
+  if (previous === formatted) {
+    throw new Error("La tasa indicada ya es la tasa vigente del turno.");
+  }
+
+  db.run("UPDATE cash_shifts SET exchange_rate_applied = ? WHERE id = ?", [
+    formatted,
+    args.shiftId,
+  ]);
+
+  recordRateCorrection(
+    db,
+    {
+      rateDate: new Date(shift.openedAt).toISOString().split("T")[0]!,
+      context: "SHIFT",
+      contextId: args.shiftId,
+      previousRate: previous,
+      newRate: formatted,
+      reason,
+      source: "SHIFT_OVERRIDE",
+      terminalId: args.terminalId ?? shift.terminalId,
+    },
+    now,
+  );
+
+  return getShiftById(db, args.shiftId)!;
 }
 
 /**
