@@ -162,7 +162,10 @@ const AppShell: React.FC<AppProps> = ({
         tenantId={tenantId}
         currentHwid={hwid}
         onActivated={() => {
-          refreshLicenseState();
+          if (db) {
+            const evaluated = LicenseValidatorService.evaluateLicense(db, hwid);
+            setLicenseState(evaluated);
+          }
         }}
       />
     );
