@@ -545,6 +545,10 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           unit_price_ves,
           line_total_ves,
           tax_rate,
+          unit_cost_usd,
+          product_name,
+          product_sku,
+          product_unit,
         ] = params;
         store.invoice_items.push({
           id: id ?? null,
@@ -556,6 +560,11 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           unit_price_ves: unit_price_ves ?? "0.0000",
           line_total_ves: line_total_ves ?? "0.0000",
           tax_rate: tax_rate ?? "0.1600",
+          // Congelado al cobrar: costo e identidad del producto (auditoría §F1/§F2).
+          unit_cost_usd: unit_cost_usd ?? null,
+          product_name: product_name ?? null,
+          product_sku: product_sku ?? null,
+          product_unit: product_unit ?? null,
         });
         return;
       }
@@ -798,6 +807,11 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
               sku: prod?.sku ?? "SKU",
               name: prod?.name ?? "Producto",
               cost_usd: prod?.cost_usd ?? "0.0000",
+              tracks_inventory: Number(prod?.tracks_inventory ?? 1),
+              // Snapshot congelado de la línea (auditoría §F1/§F2).
+              unit_cost_usd: ii.unit_cost_usd ?? null,
+              product_name: ii.product_name ?? null,
+              product_sku: ii.product_sku ?? null,
               quantity: ii.quantity,
               line_total_usd: ii.line_total_usd,
               line_total_ves: ii.line_total_ves,

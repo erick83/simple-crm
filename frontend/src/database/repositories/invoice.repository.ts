@@ -14,6 +14,13 @@ export interface InvoiceItemInput {
   lineTotalVes?: string;
   taxRate?: string;
   productName?: string;
+  /**
+   * Costo de reposición a congelar en la línea. Si se omite se toma `products.cost_usd`
+   * del momento del cobro; nunca se recalcula después (auditoría §F1).
+   */
+  unitCostUsd?: string;
+  productSku?: string;
+  productUnit?: string;
   isExempt?: boolean;
 }
 
@@ -119,6 +126,12 @@ export interface InvoiceItemEntity {
   unitPriceVes: string;
   lineTotalVes: string;
   taxRate: string;
+  /** Costo de reposición congelado al cobrar. `null` = línea anterior a la migración. */
+  unitCostUsd: string | null;
+  /** Nombre/SKU/unidad del producto al cobrar. `null` = línea anterior a la migración. */
+  productName: string | null;
+  productSku: string | null;
+  productUnit: string | null;
 }
 
 export interface InvoiceEntity {
@@ -282,7 +295,28 @@ export function createInvoice(
       ],
     );
 
-    // 4. Persistir Detalle de Items y Deltas Conmutativos de Inventario
+    // 4. Persistir Detalle de Items y Deltas Conmutativos de Inventario.
+    //    El costo de reposición y la identidad del producto se COPIAN en la línea: un documento
+    //    emitido no se resuelve contra `products` (auditoría §F1/§F2).
+    const productCache = new Map<
+      string,
+      { name: string; sku: string; unit: string; costUsd: string } | null
+    >();
+    const readProduct = (productId: string) => {
+      if (productCache.has(productId)) return productCache.get(productId) ?? null;
+      const [row] = db.all<{ name: string; sku: string; unit?: string; cost_usd: string }>(
+        "SELECT name, sku, unit, cost_usd FROM products WHERE id = ?",
+        [productId],
+      );
+      const value = row
+        ? { name: row.name, sku: row.sku, unit: row.unit ?? "und", costUsd: row.cost_usd }
+        : null;
+      productCache.set(productId, value);
+      return value;
+    };
+
+    const frozenItems: Record<string, unknown>[] = [];
+
     for (const item of input.items) {
       const itemId = uuidv7(now);
       const q = toDecimal(item.quantity, "item.quantity");
@@ -291,23 +325,48 @@ export function createInvoice(
       const unitVes = item.unitPriceVes ? toDecimal(item.unitPriceVes) : convertUsdToVes(unitUsd, rate);
       const lineVes = item.lineTotalVes ? toDecimal(item.lineTotalVes) : convertUsdToVes(lineUsd, rate);
 
+      const product = readProduct(item.productId);
+      const rawCost = item.unitCostUsd ?? product?.costUsd ?? null;
+      const taxRateStr = formatFixed4(item.taxRate ?? "0.1600");
+      const snapshot = {
+        id: itemId,
+        productId: item.productId,
+        quantity: formatFixed4(q),
+        unitPriceUsd: formatFixed4(unitUsd),
+        lineTotalUsd: formatFixed4(lineUsd),
+        unitPriceVes: formatFixed4(unitVes),
+        lineTotalVes: formatFixed4(lineVes),
+        taxRate: taxRateStr,
+        unitCostUsd: rawCost === null ? null : formatFixed4(rawCost),
+        productName: (item.productName?.trim() || product?.name || "").trim() || null,
+        productSku: product?.sku?.trim() || null,
+        productUnit: item.productUnit ?? product?.unit ?? null,
+      };
+
       db.run(
         `INSERT INTO invoice_items (
           id, invoice_id, product_id, quantity,
-          unit_price_usd, line_total_usd, unit_price_ves, line_total_ves, tax_rate
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          unit_price_usd, line_total_usd, unit_price_ves, line_total_ves, tax_rate,
+          unit_cost_usd, product_name, product_sku, product_unit
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          itemId,
+          snapshot.id,
           invoiceId,
-          item.productId,
-          formatFixed4(q),
-          formatFixed4(unitUsd),
-          formatFixed4(lineUsd),
-          formatFixed4(unitVes),
-          formatFixed4(lineVes),
-          formatFixed4(item.taxRate ?? "0.1600"),
+          snapshot.productId,
+          snapshot.quantity,
+          snapshot.unitPriceUsd,
+          snapshot.lineTotalUsd,
+          snapshot.unitPriceVes,
+          snapshot.lineTotalVes,
+          snapshot.taxRate,
+          snapshot.unitCostUsd,
+          snapshot.productName,
+          snapshot.productSku,
+          snapshot.productUnit,
         ],
       );
+
+      frozenItems.push(snapshot);
 
       // Descuento conmutativo del inventario (Kardex delta negativo con 4 decimales exactos).
       // Los rubros sin control de inventario no generan kardex: la venta se factura igual.
@@ -352,7 +411,7 @@ export function createInvoice(
           paymentBreakdown: derivedPaymentBreakdown,
           status: "COMPLETED",
           createdAt: now,
-          items: input.items,
+          items: frozenItems,
         },
       },
       now,
@@ -398,6 +457,10 @@ export function getInvoiceById(db: SqlDriver, invoiceId: string): InvoiceEntity 
     unit_price_ves: string;
     line_total_ves: string;
     tax_rate: string;
+    unit_cost_usd: string | null;
+    product_name: string | null;
+    product_sku: string | null;
+    product_unit: string | null;
   }>("SELECT * FROM invoice_items WHERE invoice_id = ?", [invoiceId]);
 
   return {
@@ -428,6 +491,10 @@ export function getInvoiceById(db: SqlDriver, invoiceId: string): InvoiceEntity 
       unitPriceVes: it.unit_price_ves,
       lineTotalVes: it.line_total_ves,
       taxRate: it.tax_rate,
+      unitCostUsd: it.unit_cost_usd ?? null,
+      productName: it.product_name ?? null,
+      productSku: it.product_sku ?? null,
+      productUnit: it.product_unit ?? null,
     })),
   };
 }

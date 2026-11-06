@@ -41,6 +41,7 @@ import {
 import type {
   PaymentMethod,
   InvoiceEntity,
+  InvoiceItemEntity,
 } from "../database/repositories/invoice.repository";
 import { getOpenShift } from "../database/repositories/shift.repository";
 import type { ShiftEntity } from "../database/repositories/shift.repository";
@@ -357,7 +358,15 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   // shortcut: un renombre cambia el nombre en recibos viejos; migrar invoice_items.product_name
   // si el comprobante debe congelar el nombre del momento de la venta.
   const receiptItemName = useCallback(
-    (productId: string): string => {
+    (
+      productId: string,
+      frozen?: Pick<InvoiceItemEntity, "productName" | "productSku" | "productUnit"> | undefined,
+    ): string => {
+      // El nombre congelado en la línea de factura manda: renombrar el rubro después
+      // no puede reescribir un ticket ya emitido (auditoría §F2).
+      const snapshotName = frozen?.productName?.trim();
+      if (snapshotName) return snapshotName;
+
       const current = catalog.find((p) => p.id === productId);
       if (current) return current.name;
       if (db) {
@@ -2204,7 +2213,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     {selectedReceipt.items.map((it) => (
                       <View key={it.id} style={styles.receiptItemRow}>
                         <Text style={[styles.receiptItemName, { flex: 3 }]} numberOfLines={1}>
-                          {receiptItemName(it.productId)}
+                          {receiptItemName(it.productId, it)}
                         </Text>
                         <Text style={[styles.receiptItemQty, { flex: 1, textAlign: "center" }, typography.tabularNumeric]}>
                           {formatFixed4(it.quantity)}

@@ -88,5 +88,22 @@ export function migrateDatabase(driver: SqlDriver, customSchemaSql?: string): vo
   } catch {
     // Ignorar si ya existe
   }
+
+  // Congelado de costo e identidad del producto en la línea de factura (auditoría §F1/§F2).
+  // Columns NULL-ables: NULL marca las líneas anteriores a la migración, que se resuelven
+  // contra `products`; las nuevas emitidas nunca quedan NULL.
+  const lineSnapshotColumns: [string, string][] = [
+    ["unit_cost_usd", "TEXT"],
+    ["product_name", "TEXT"],
+    ["product_sku", "TEXT"],
+    ["product_unit", "TEXT"],
+  ];
+  for (const [column, type] of lineSnapshotColumns) {
+    try {
+      driver.run(`ALTER TABLE invoice_items ADD COLUMN ${column} ${type}`);
+    } catch {
+      // Ignorar si ya existe
+    }
+  }
 }
 

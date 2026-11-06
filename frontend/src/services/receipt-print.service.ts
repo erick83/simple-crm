@@ -13,7 +13,7 @@
  * varían por firmware y no imprimir acentos garantiza cero caracteres basura.
  */
 import { PAYMENT_METHOD_LABELS } from "../database/repositories/balance.repository";
-import type { InvoiceEntity } from "../database/repositories/invoice.repository";
+import type { InvoiceEntity, InvoiceItemEntity } from "../database/repositories/invoice.repository";
 import { parseSplitBreakdown } from "../database/repositories/invoice.repository";
 import { formatUsd, formatVes, toDecimal } from "../utils/decimal";
 
@@ -32,7 +32,15 @@ export interface ReceiptLine {
 
 export interface ReceiptPrintContext {
   branchName?: string;
-  resolveItemName: (productId: string) => string;
+  /**
+   * Resuelve el nombre a imprimir. El segundo argumento es la línea congelada de la factura:
+   * si trae `productName`, ese es el texto del documento y no se pregunta por `products`
+   * (renombrar un rubro no puede reescribir un ticket ya emitido, auditoría §F2).
+   */
+  resolveItemName: (
+    productId: string,
+    item?: Pick<InvoiceItemEntity, "productName" | "productSku" | "productUnit">,
+  ) => string;
 }
 
 // ---------- utilidades de composición 32 columnas ----------
@@ -109,7 +117,9 @@ export function buildReceiptModel(
 
   out.push(line(fitRow("Producto", "Total"), { bold: true }));
   for (const it of invoice.items) {
-    const name = ascii(ctx.resolveItemName(it.productId));
+    // El nombre congelado en la línea es el texto del documento; el resolutor solo cubre
+    // las filas anteriores a la migración (auditoría §F2).
+    const name = ascii(it.productName?.trim() || ctx.resolveItemName(it.productId, it));
     for (const part of wrap(name, RECEIPT_COLS)) out.push(line(part));
     const qty = toDecimal(it.quantity).toFixed(4);
     out.push(line(fitRow(`  ${qty} x ${formatUsd(it.unitPriceUsd)}`, formatUsd(it.lineTotalUsd))));

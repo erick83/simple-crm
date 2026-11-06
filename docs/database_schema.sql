@@ -177,6 +177,12 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     unit_price_ves TEXT NOT NULL,              -- Precio unitario congelado en VES
     line_total_ves TEXT NOT NULL,              -- Subtotal línea VES
     tax_rate TEXT NOT NULL,                    -- Alícuota aplicada
+    -- Congelado al cobrar: un documento emitido se copia, no se referencia (AGENTS.md §2.4).
+    -- NULL = línea anterior a la migración; se resuelve contra products como antes.
+    unit_cost_usd TEXT,                        -- Costo de reposición vigente al momento del cobro
+    product_name TEXT,                         -- Descripción comercial al momento del cobro
+    product_sku TEXT,                          -- SKU interno al momento del cobro
+    product_unit TEXT,                         -- Unidad de medida al momento del cobro
     FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
     FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE RESTRICT
 );

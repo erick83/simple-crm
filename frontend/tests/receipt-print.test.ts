@@ -48,6 +48,11 @@ const makeInvoice = (overrides: Partial<InvoiceEntity> = {}): InvoiceEntity => (
       unitPriceVes: "54.7500",
       lineTotalVes: "54.7500",
       taxRate: "0.1600",
+      // Línea sin snapshot (heredada): el nombre se resuelve con `resolveItemName`.
+      unitCostUsd: null,
+      productName: null,
+      productSku: null,
+      productUnit: null,
     },
   ],
   ...overrides,

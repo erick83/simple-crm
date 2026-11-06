@@ -18,18 +18,37 @@ export interface TopProductSale {
   quantitySold: string;
   totalUsd: string;
   totalVes: string;
+  /** false = no tiene costo de reposición cargado (rubro sin inventario o costo 0.0000). */
+  hasCost: boolean;
 }
 
 export interface PeriodicBalanceReport {
   periodFrom: number;
   periodTo: number;
   totalInvoices: number;
+  /** Facturación total cobrada (incluye IVA recaudado). */
   totalRevenueUsd: string;
   totalRevenueVes: string;
   totalTaxUsd: string;
   totalTaxVes: string;
+  /**
+   * Venta neta de IVA sobre la que se calcula el margen (suma de `invoice_items.line_total_*`).
+   * Invariante: costedSales + uncostedSales === netSales.
+   */
+  netSalesUsd: string;
+  netSalesVes: string;
+  /** Venta cuyo producto tiene costo de reposición cargado (única base válida del margen). */
+  costedSalesUsd: string;
+  costedSalesVes: string;
+  /** Venta sin costo cargado: rubros sin control de inventario y productos con costo 0.0000. */
+  uncostedSalesUsd: string;
+  uncostedSalesVes: string;
+  /** Participación de `costedSales` sobre `netSales` en porcentaje (2 decimales). */
+  costCoveragePercent: string;
   totalCogsUsd: string;
+  /** `costedSalesUsd - totalCogsUsd`; nunca incluye venta sin costo. */
   totalGrossMarginUsd: string;
+  /** Margen sobre `costedSalesUsd` (no sobre la facturación total). */
   grossMarginPercent: string;
   paymentBreakdown: PaymentMethodBreakdown[];
   topProducts: TopProductSale[];
@@ -154,26 +173,48 @@ export function generatePeriodicBalance(
     }
   }
 
-  // 2. Calcular Costo de Mercancía Vendida (COGS) y Margen Bruto
+  // 2. Separar la venta neta en dos canastas (¿hay costo de reposición cargado?) y calcular COGS.
+  //    El margen bruto solo puede construirse sobre `costedSales`: declarar como utilidad una
+  //    venta cuyo costo no se registró sería un dato falso, no un dato incompleto.
   let totalCogsUsd = new Decimal("0");
+  let netSalesUsd = new Decimal("0");
+  let netSalesVes = new Decimal("0");
+  let costedSalesUsd = new Decimal("0");
+  let costedSalesVes = new Decimal("0");
+  let uncostedSalesUsd = new Decimal("0");
+  let uncostedSalesVes = new Decimal("0");
+
   const productSalesMap = new Map<
     string,
-    { sku: string; name: string; quantity: Decimal; totalUsd: Decimal; totalVes: Decimal }
+    {
+      sku: string;
+      name: string;
+      quantity: Decimal;
+      totalUsd: Decimal;
+      totalVes: Decimal;
+      hasCost: boolean;
+    }
   >();
 
   if (invoiceIds.length > 0) {
-    // Consulta de items con el costo de reposición de producto en SQLite
+    // Consulta de items con el costo de reposición y la bandera de inventario del producto
     const placeholders = invoiceIds.map(() => "?").join(",");
     const items = db.all<{
       product_id: string;
       sku: string;
       name: string;
+      product_name: string | null;
+      product_sku: string | null;
       cost_usd: string;
+      unit_cost_usd: string | null;
+      tracks_inventory?: number;
       quantity: string;
       line_total_usd: string;
       line_total_ves: string;
     }>(
-      `SELECT ii.product_id, p.sku, p.name, p.cost_usd, ii.quantity, ii.line_total_usd, ii.line_total_ves
+      `SELECT ii.product_id, p.sku, p.name, p.cost_usd, p.tracks_inventory,
+              ii.product_name, ii.product_sku, ii.unit_cost_usd,
+              ii.quantity, ii.line_total_usd, ii.line_total_ves
        FROM invoice_items ii
        JOIN products p ON p.id = ii.product_id
        WHERE ii.invoice_id IN (${placeholders})`,
@@ -182,33 +223,57 @@ export function generatePeriodicBalance(
 
     for (const item of items) {
       const q = toDecimal(item.quantity);
-      const unitCost = toDecimal(item.cost_usd);
-      const lineCogs = q.times(unitCost);
-      totalCogsUsd = totalCogsUsd.plus(lineCogs);
-
       const lineUsd = toDecimal(item.line_total_usd);
       const lineVes = toDecimal(item.line_total_ves);
+
+      netSalesUsd = netSalesUsd.plus(lineUsd);
+      netSalesVes = netSalesVes.plus(lineVes);
+
+      // Costo CONGELADO en la línea (§F1); `products.cost_usd` vivo solo como fallback para
+      // las filas anteriores a la migración. Editar el costo de un producto no reescribe
+      // el margen de facturas ya emitidas.
+      const unitCost = toDecimal(item.unit_cost_usd ?? item.cost_usd);
+      const identityName = (item.product_name ?? item.name).trim() || item.name;
+      const identitySku = (item.product_sku ?? item.sku).trim() || item.sku;
+
+      // Rubros sin control de inventario, o controlados a los que aún no se les carga costo.
+      const hasCost = (item.tracks_inventory ?? 1) === 1 && unitCost.gt(0);
+
+      if (hasCost) {
+        totalCogsUsd = totalCogsUsd.plus(q.times(unitCost));
+        costedSalesUsd = costedSalesUsd.plus(lineUsd);
+        costedSalesVes = costedSalesVes.plus(lineVes);
+      } else {
+        uncostedSalesUsd = uncostedSalesUsd.plus(lineUsd);
+        uncostedSalesVes = uncostedSalesVes.plus(lineVes);
+      }
 
       const prev = productSalesMap.get(item.product_id);
       if (prev) {
         prev.quantity = prev.quantity.plus(q);
         prev.totalUsd = prev.totalUsd.plus(lineUsd);
         prev.totalVes = prev.totalVes.plus(lineVes);
+        prev.hasCost = prev.hasCost && hasCost;
       } else {
         productSalesMap.set(item.product_id, {
-          sku: item.sku,
-          name: item.name,
+          sku: identitySku,
+          name: identityName,
           quantity: q,
           totalUsd: lineUsd,
           totalVes: lineVes,
+          hasCost,
         });
       }
     }
   }
 
-  const grossMarginUsd = totalRevUsd.minus(totalCogsUsd);
-  const marginPercent = totalRevUsd.gt(0)
-    ? grossMarginUsd.div(totalRevUsd).times(100).toFixed(2)
+  // Margen solo sobre la venta con costo, y sobre venta neta (el IVA recaudado no es ingreso).
+  const grossMarginUsd = costedSalesUsd.minus(totalCogsUsd);
+  const marginPercent = costedSalesUsd.gt(0)
+    ? grossMarginUsd.div(costedSalesUsd).times(100).toFixed(2)
+    : "0.00";
+  const costCoveragePercent = netSalesUsd.gt(0)
+    ? costedSalesUsd.div(netSalesUsd).times(100).toFixed(2)
     : "0.00";
 
   // 3. Estructurar Desglose de Métodos de Pago
@@ -233,6 +298,7 @@ export function generatePeriodicBalance(
       quantitySold: data.quantity.toFixed(4),
       totalUsd: data.totalUsd.toFixed(4),
       totalVes: data.totalVes.toFixed(4),
+      hasCost: data.hasCost,
     }))
     .sort((a, b) => (toDecimal(b.totalUsd).gt(toDecimal(a.totalUsd)) ? 1 : -1))
     .slice(0, 10);
@@ -245,6 +311,13 @@ export function generatePeriodicBalance(
     totalRevenueVes: totalRevVes.toFixed(4),
     totalTaxUsd: totalTaxUsd.toFixed(4),
     totalTaxVes: totalTaxVes.toFixed(4),
+    netSalesUsd: netSalesUsd.toFixed(4),
+    netSalesVes: netSalesVes.toFixed(4),
+    costedSalesUsd: costedSalesUsd.toFixed(4),
+    costedSalesVes: costedSalesVes.toFixed(4),
+    uncostedSalesUsd: uncostedSalesUsd.toFixed(4),
+    uncostedSalesVes: uncostedSalesVes.toFixed(4),
+    costCoveragePercent,
     totalCogsUsd: totalCogsUsd.toFixed(4),
     totalGrossMarginUsd: grossMarginUsd.toFixed(4),
     grossMarginPercent: marginPercent,

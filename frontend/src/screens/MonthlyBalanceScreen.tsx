@@ -58,9 +58,16 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
         totalRevenueVes: "175948.2500",
         totalTaxUsd: "664.8966",
         totalTaxVes: "24268.7240",
-        totalCogsUsd: "3370.3000",
-        totalGrossMarginUsd: "1450.2000",
-        grossMarginPercent: "30.08",
+        netSalesUsd: "4155.6034",
+        netSalesVes: "151679.5260",
+        costedSalesUsd: "3715.6034",
+        costedSalesVes: "135579.5260",
+        uncostedSalesUsd: "440.0000",
+        uncostedSalesVes: "16100.0000",
+        costCoveragePercent: "89.41",
+        totalCogsUsd: "2900.0000",
+        totalGrossMarginUsd: "815.6034",
+        grossMarginPercent: "21.95",
         paymentBreakdown: [
           { method: "CASH_USD", label: "Efectivo USD ($)", totalUsd: "2150.0000", totalVes: "0.0000", count: 110 },
           { method: "CASH_VES", label: "Efectivo VES (Bs.)", totalUsd: "920.5000", totalVes: "33598.2500", count: 52 },
@@ -68,9 +75,9 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
           { method: "CARD_VES", label: "Tarjeta de Débito (Punto Bs.)", totalUsd: "600.0000", totalVes: "21900.0000", count: 22 },
         ],
         topProducts: [
-          { productId: "1", sku: "HAR-01", name: "Harina PAN 1kg", quantitySold: "420.0000", totalUsd: "525.0000", totalVes: "19162.5000" },
-          { productId: "2", sku: "ARR-02", name: "Arroz Primor 1kg", quantitySold: "310.0000", totalUsd: "465.0000", totalVes: "16972.5000" },
-          { productId: "3", sku: "ACE-03", name: "Aceite Mazeite 1L", quantitySold: "115.0000", totalUsd: "437.0000", totalVes: "15950.5000" },
+          { productId: "1", sku: "HAR-01", name: "Harina PAN 1kg", quantitySold: "420.0000", totalUsd: "525.0000", totalVes: "19162.5000", hasCost: true },
+          { productId: "2", sku: "ARR-02", name: "Arroz Primor 1kg", quantitySold: "310.0000", totalUsd: "465.0000", totalVes: "16972.5000", hasCost: true },
+          { productId: "3", sku: "ACE-03", name: "Aceite Mazeite 1L", quantitySold: "115.0000", totalUsd: "437.0000", totalVes: "15950.5000", hasCost: false },
         ],
       });
       return;
@@ -242,7 +249,17 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
                 {formatUsd(report.totalGrossMarginUsd)}
               </Text>
               <Text style={[styles.cardSub, styles.marginValue]}>
-                {report.grossMarginPercent}% de rentabilidad
+                {report.grossMarginPercent}% sobre venta con costo (costo: {formatUsd(report.totalCogsUsd)})
+              </Text>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>Venta sin costo cargado</Text>
+              <Text style={[styles.cardValue, typography.tabularNumeric]}>
+                {formatUsd(report.uncostedSalesUsd)}
+              </Text>
+              <Text style={styles.cardSub}>
+                {formatVes(report.uncostedSalesVes)} · excluida del margen · cobertura {report.costCoveragePercent}%
               </Text>
             </View>
           </View>
@@ -290,6 +307,7 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
                   <Text style={[styles.tdSub, { flex: 1 }]}>{p.sku}</Text>
                   <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>
                     {p.name}
+                    {p.hasCost ? null : <Text style={styles.noCostTag}>  · sin costo cargado</Text>}
                   </Text>
                   <Text style={[styles.td, styles.textRight, typography.tabularNumeric, { flex: 1.2 }]}>
                     {p.quantitySold}
@@ -302,6 +320,12 @@ export const MonthlyBalanceScreen: React.FC<MonthlyBalanceScreenProps> = ({ db }
                   </Text>
                 </View>
               ))}
+
+              <Text style={styles.tableFootnote}>
+                El margen bruto se calcula solo sobre la venta con costo de reposición cargado y
+                sobre venta neta (sin IVA). Los rubros sin control de inventario aparecen como
+                &quot;sin costo cargado&quot;.
+              </Text>
             </View>
           ) : null}
         </>
@@ -707,6 +731,17 @@ const makeStyles = (c: Palette) =>
   },
   marginValue: {
     color: c.heroText,
+  },
+  noCostTag: {
+    fontSize: typography.sizes.caption,
+    color: c.warningText,
+    fontStyle: "italic",
+  },
+  tableFootnote: {
+    fontSize: typography.sizes.caption,
+    color: c.textMuted,
+    marginTop: spacing.md,
+    lineHeight: 18,
   },
   deltaPositive: {
     color: c.warningText,
