@@ -9,13 +9,19 @@ export interface NewProduct {
   name: string;
   /** Decimal en string; nunca `number`. */
   priceUsd: string;
-  costUsd: string;
+  /** Decimal en string; nunca `number`. Obligatorio si `tracksInventory` es true. */
+  costUsd?: string;
   barcode?: string;
   categoryId?: string;
   taxRate?: string;
   minStock?: string;
   /** Unidad de medida (ej. 'und', 'kg', 'g', 'l', 'caja', 'paq'). Por defecto 'und'. */
   unit?: string;
+  /**
+   * false = rubro sin control de inventario: no guarda costo de reposición, no genera
+   * kardex, no se valoriza y no produce alertas. Por defecto true.
+   */
+  tracksInventory?: boolean;
 }
 
 export interface UpdateProductInput {
@@ -30,6 +36,7 @@ export interface UpdateProductInput {
   minStock?: string;
   unit?: string;
   imagePath?: string | null;
+  tracksInventory?: boolean;
   terminalId?: string;
 }
 
@@ -38,8 +45,10 @@ export interface StockRow {
   sku: string;
   name: string;
   unit: string;
-  /** Decimal exacto con 4 decimales (cantidades). */
+  /** Decimal exacto con 4 decimales (cantidades). Siempre 0.0000 si no controla inventario. */
   currentStock: string;
+  /** false = rubro sin control de inventario (kardex inactivo). */
+  tracksInventory: boolean;
 }
 
 export interface ProductEntity {
@@ -55,6 +64,7 @@ export interface ProductEntity {
   imagePath: string | null;
   unit?: string;
   minStock: string;
+  tracksInventory: boolean;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;
@@ -82,6 +92,8 @@ export interface InventoryItemWithStock {
   minStock: string;
   currentStock: string;
   isLowStock: boolean;
+  /** false = rubro sin control de inventario (no kardex, no valorización, no alertas). */
+  tracksInventory: boolean;
   isActive: boolean;
   updatedAt: number;
 }
@@ -103,9 +115,15 @@ export function insertProduct(
   terminalId: string = "C01",
 ): string {
   const price = toDecimal(p.priceUsd, "priceUsd");
-  const cost = toDecimal(p.costUsd, "costUsd");
-  if (price.isNegative() || cost.isNegative()) {
-    throw new Error("Precio/costo no pueden ser negativos");
+  if (price.isNegative()) {
+    throw new Error("Precio no puede ser negativo");
+  }
+
+  const tracksInventory = p.tracksInventory ?? true;
+  // Un rubro sin control de inventario no conserva costo de reposición: se normaliza a 0.0000.
+  const cost = tracksInventory ? toDecimal(p.costUsd || "0", "costUsd") : new Decimal("0");
+  if (cost.isNegative()) {
+    throw new Error("Costo no puede ser negativo");
   }
 
   const cleanSku = p.sku.trim();
@@ -129,12 +147,14 @@ export function insertProduct(
   const priceStr = price.toFixed(4);
   const costStr = cost.toFixed(4);
   const taxRateStr = toDecimal(p.taxRate ?? "0.16", "taxRate").toFixed(4);
-  const minStockStr = toDecimal(p.minStock ?? "5", "minStock").toFixed(4);
+  const minStockStr = tracksInventory
+    ? toDecimal(p.minStock ?? "5", "minStock").toFixed(4)
+    : new Decimal("0").toFixed(4);
   const unit = (p.unit ?? "und").trim() || "und";
 
   db.run(
-    `INSERT INTO products (id, tenant_id, category_id, barcode, sku, name, price_usd, cost_usd, tax_rate, unit, min_stock, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO products (id, tenant_id, category_id, barcode, sku, name, price_usd, cost_usd, tax_rate, unit, min_stock, tracks_inventory, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       p.tenantId,
@@ -147,6 +167,7 @@ export function insertProduct(
       taxRateStr,
       unit,
       minStockStr,
+      tracksInventory ? 1 : 0,
       now,
       now,
     ],
@@ -171,6 +192,7 @@ export function insertProduct(
         taxRate: taxRateStr,
         unit,
         minStock: minStockStr,
+        tracksInventory,
         imagePath: null,
         isActive: true,
         createdAt: now,
@@ -201,6 +223,7 @@ export function updateProduct(
     image_path: string | null;
     unit?: string;
     min_stock: string;
+    tracks_inventory?: number;
     is_active: number;
     created_at: number;
     updated_at: number;
@@ -243,20 +266,29 @@ export function updateProduct(
       ? toDecimal(input.priceUsd, "priceUsd").toFixed(4)
       : existing.price_usd;
 
-  const nextCost =
+  const nextTracks =
+    input.tracksInventory !== undefined
+      ? input.tracksInventory
+      : (existing.tracks_inventory ?? 1) === 1;
+
+  const nextCostInput =
     input.costUsd !== undefined
-      ? toDecimal(input.costUsd, "costUsd").toFixed(4)
+      ? toDecimal(input.costUsd || "0", "costUsd").toFixed(4)
       : existing.cost_usd;
+
+  const nextMinStockInput =
+    input.minStock !== undefined
+      ? toDecimal(input.minStock, "minStock").toFixed(4)
+      : existing.min_stock;
+
+  // Un rubro sin control de inventario no conserva costo de reposición ni umbral de alerta.
+  const nextCost = nextTracks ? nextCostInput : "0.0000";
+  const nextMinStock = nextTracks ? nextMinStockInput : "0.0000";
 
   const nextTax =
     input.taxRate !== undefined
       ? toDecimal(input.taxRate, "taxRate").toFixed(4)
       : existing.tax_rate;
-
-  const nextMinStock =
-    input.minStock !== undefined
-      ? toDecimal(input.minStock, "minStock").toFixed(4)
-      : existing.min_stock;
 
   const nextUnit =
     input.unit !== undefined
@@ -271,7 +303,7 @@ export function updateProduct(
   db.run(
     `UPDATE products SET
        name = ?, sku = ?, barcode = ?, category_id = ?, price_usd = ?, cost_usd = ?,
-       tax_rate = ?, unit = ?, min_stock = ?, image_path = ?, updated_at = ?
+       tax_rate = ?, unit = ?, min_stock = ?, tracks_inventory = ?, image_path = ?, updated_at = ?
      WHERE id = ?`,
     [
       nextName,
@@ -283,6 +315,7 @@ export function updateProduct(
       nextTax,
       nextUnit,
       nextMinStock,
+      nextTracks ? 1 : 0,
       nextImagePath,
       now,
       input.id,
@@ -308,6 +341,7 @@ export function updateProduct(
         taxRate: nextTax,
         unit: nextUnit,
         minStock: nextMinStock,
+        tracksInventory: nextTracks,
         imagePath: nextImagePath,
         isActive: existing.is_active === 1,
         createdAt: existing.created_at,
@@ -330,6 +364,7 @@ export function updateProduct(
     unit: nextUnit,
     imagePath: nextImagePath,
     minStock: nextMinStock,
+    tracksInventory: nextTracks,
     isActive: existing.is_active === 1,
     createdAt: existing.created_at,
     updatedAt: now,
@@ -392,6 +427,7 @@ export function getProductById(db: SqlDriver, id: string): ProductEntity | undef
     image_path: string | null;
     unit?: string;
     min_stock: string;
+    tracks_inventory?: number;
     is_active: number;
     created_at: number;
     updated_at: number;
@@ -411,6 +447,7 @@ export function getProductById(db: SqlDriver, id: string): ProductEntity | undef
     imagePath: r.image_path,
     unit: r.unit ?? "und",
     minStock: r.min_stock,
+    tracksInventory: (r.tracks_inventory ?? 1) === 1,
     isActive: r.is_active === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -439,6 +476,7 @@ export function getProductByBarcode(
     image_path: string | null;
     unit?: string;
     min_stock: string;
+    tracks_inventory?: number;
     is_active: number;
     created_at: number;
     updated_at: number;
@@ -458,6 +496,7 @@ export function getProductByBarcode(
     imagePath: r.image_path,
     unit: r.unit ?? "und",
     minStock: r.min_stock,
+    tracksInventory: (r.tracks_inventory ?? 1) === 1,
     isActive: r.is_active === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -486,6 +525,7 @@ export function getProductBySku(
     image_path: string | null;
     unit?: string;
     min_stock: string;
+    tracks_inventory?: number;
     is_active: number;
     created_at: number;
     updated_at: number;
@@ -505,6 +545,7 @@ export function getProductBySku(
     imagePath: r.image_path,
     unit: r.unit ?? "und",
     minStock: r.min_stock,
+    tracksInventory: (r.tracks_inventory ?? 1) === 1,
     isActive: r.is_active === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -607,6 +648,17 @@ export function addStockMovement(
   const rawDelta = args.delta ?? args.quantityDelta;
   const rawType = args.type ?? args.movementType ?? "ADJUSTMENT";
   const terminalId = args.terminalId ?? "TERM-01";
+  // Los ajustes manuales (RESTOCK/ADJUSTMENT) solo aplican a rubros controlados.
+  // SALE/RETURN los decide el emisor de factura según su kardex histórico, así que
+  // una bandera cambiada a mitad de historia nunca deja una anulación sin efecto.
+  if (
+    (rawType === "RESTOCK" || rawType === "ADJUSTMENT") &&
+    !productTracksInventory(db, args.productId)
+  ) {
+    throw new Error(
+      "Este rubro está marcado sin control de inventario y no puede registrar kardex.",
+    );
+  }
   const delta = toDecimal(rawDelta ?? "0", "delta");
   const id = uuidv7(now);
   const deltaStr = delta.toFixed(4);
@@ -642,8 +694,15 @@ export function addStockMovement(
 
 /** Lee stock vigente desde la vista `v_product_current_stock`. */
 export function getCurrentStock(db: SqlDriver, productId: string): StockRow | undefined {
-  const [row] = db.all<{ product_id: string; sku: string; name: string; unit?: string; current_stock_e4: number }>(
-    "SELECT product_id, sku, name, unit, current_stock_e4 FROM v_product_current_stock WHERE product_id = ?",
+  const [row] = db.all<{
+    product_id: string;
+    sku: string;
+    name: string;
+    unit?: string;
+    tracks_inventory?: number;
+    current_stock_e4: number;
+  }>(
+    "SELECT product_id, sku, name, unit, tracks_inventory, current_stock_e4 FROM v_product_current_stock WHERE product_id = ?",
     [productId],
   );
   if (!row) return undefined;
@@ -653,7 +712,21 @@ export function getCurrentStock(db: SqlDriver, productId: string): StockRow | un
     name: row.name,
     unit: row.unit ?? "und",
     currentStock: new Decimal(row.current_stock_e4).div(10000).toFixed(4),
+    tracksInventory: (row.tracks_inventory ?? 1) === 1,
   };
+}
+
+/**
+ * ¿El producto controla inventario? `true` cuando la columna aún no existe (bases legadas)
+ * y para IDs desconocidos, de modo que el kardex siga funcionando por defecto.
+ */
+export function productTracksInventory(db: SqlDriver, productId: string): boolean {
+  const [row] = db.all<{ tracks_inventory?: number }>(
+    "SELECT tracks_inventory FROM products WHERE id = ?",
+    [productId],
+  );
+  if (!row) return true;
+  return (row.tracks_inventory ?? 1) === 1;
 }
 
 /** Obtiene todos los productos activos */
@@ -672,6 +745,7 @@ export function getAllActiveProducts(db: SqlDriver): ProductEntity[] {
       image_path: string | null;
       unit?: string;
       min_stock: string;
+      tracks_inventory?: number;
       is_active: number;
       created_at: number;
       updated_at: number;
@@ -689,6 +763,7 @@ export function getAllActiveProducts(db: SqlDriver): ProductEntity[] {
       imagePath: r.image_path,
       unit: r.unit ?? "und",
       minStock: r.min_stock,
+      tracksInventory: (r.tracks_inventory ?? 1) === 1,
       isActive: r.is_active === 1,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
@@ -705,8 +780,13 @@ export function listInventoryWithStock(
     SELECT
       p.id, p.tenant_id, p.sku, p.barcode, p.name, p.category_id,
       c.name AS category_name, p.price_usd, p.cost_usd, p.tax_rate,
-      p.image_path, p.unit, p.min_stock, p.is_active, p.updated_at,
-      COALESCE(SUM(CAST(REPLACE(sm.quantity_delta, '.', '') AS INTEGER)), 0) AS current_stock_e4
+      p.image_path, p.unit, p.min_stock, p.tracks_inventory, p.is_active, p.updated_at,
+      -- Los rubros sin control de inventario no arrastran stock: quedan fuera del kardex.
+      CASE
+        WHEN p.tracks_inventory = 1
+        THEN COALESCE(SUM(CAST(REPLACE(sm.quantity_delta, '.', '') AS INTEGER)), 0)
+        ELSE 0
+      END AS current_stock_e4
     FROM products p
     LEFT JOIN categories c ON p.category_id = c.id
     LEFT JOIN stock_movements sm ON p.id = sm.product_id
@@ -739,6 +819,7 @@ export function listInventoryWithStock(
     image_path: string | null;
     unit?: string;
     min_stock: string;
+    tracks_inventory?: number;
     is_active: number;
     updated_at: number;
     current_stock_e4: number;
@@ -756,9 +837,12 @@ export function listInventoryWithStock(
   }
 
   return rows.map((r) => {
+    const tracksInventory = (r.tracks_inventory ?? 1) === 1;
     const currentStock = new Decimal(r.current_stock_e4).div(10000).toFixed(4);
     const minStock = formatFixed4(r.min_stock);
-    const isLowStock = new Decimal(currentStock).lte(new Decimal(minStock));
+    // Un rubro sin control de inventario nunca dispara el semáforo de stock.
+    const isLowStock =
+      tracksInventory && new Decimal(currentStock).lte(new Decimal(minStock));
     return {
       id: r.id,
       tenantId: r.tenant_id,
@@ -775,6 +859,7 @@ export function listInventoryWithStock(
       minStock,
       currentStock,
       isLowStock,
+      tracksInventory,
       isActive: r.is_active === 1,
       updatedAt: r.updated_at,
     };

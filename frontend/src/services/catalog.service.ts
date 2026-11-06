@@ -22,6 +22,8 @@ export interface BimonetaryProduct {
   minStock: string;
   currentStock: string;
   isLowStock: boolean;
+  /** false = rubro sin control de inventario (no kardex, no valorización, no alertas). */
+  tracksInventory: boolean;
   unit: string;
   imagePath: string | null;
   categoryId: string | null;
@@ -44,10 +46,13 @@ export function computeBimonetaryProducts(
   return products.map((p) => {
     const priceVes = convertUsdToVes(p.priceUsd, rate).toFixed(4);
     const currentStock = "currentStock" in p ? p.currentStock : "0.0000";
+    const tracksInventory = "tracksInventory" in p ? p.tracksInventory : true;
+    // Un rubro sin control de inventario nunca dispara el semáforo del catálogo.
     const isLowStock =
-      "isLowStock" in p
+      tracksInventory &&
+      ("isLowStock" in p
         ? p.isLowStock
-        : new Decimal(currentStock).lte(toDecimal(p.minStock ?? "0"));
+        : new Decimal(currentStock).lte(toDecimal(p.minStock ?? "0")));
     const categoryName = "categoryName" in p ? p.categoryName : null;
     const taxRate = formatFixed4(p.taxRate ?? "0.1600");
 
@@ -65,6 +70,7 @@ export function computeBimonetaryProducts(
       minStock: formatFixed4(p.minStock),
       currentStock: formatFixed4(currentStock),
       isLowStock,
+      tracksInventory,
       unit: p.unit ?? "und",
       imagePath: p.imagePath,
       categoryId: p.categoryId,

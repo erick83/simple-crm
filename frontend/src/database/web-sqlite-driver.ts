@@ -56,7 +56,10 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
     return store.products
       .filter((p) => Number(p.is_active) === 1)
       .map((p) => {
-        const movements = store.stock_movements.filter((sm) => sm.product_id === p.id);
+        const tracksInventory = Number(p.tracks_inventory ?? 1);
+        const movements = tracksInventory === 1
+          ? store.stock_movements.filter((sm) => sm.product_id === p.id)
+          : [];
         const sumE4 = movements.reduce((acc, sm) => acc + toScaledIntE4(sm.quantity_delta), 0);
         return {
           product_id: p.id ?? null,
@@ -68,6 +71,7 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           cost_usd: p.cost_usd ?? null,
           unit: p.unit ?? "und",
           min_stock: p.min_stock ?? null,
+          tracks_inventory: tracksInventory,
           image_path: p.image_path ?? null,
           current_stock_e4: sumE4,
         };
@@ -84,8 +88,81 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
 
       // 1. INSERT INTO products
       if (/^INSERT INTO products/i.test(norm)) {
-        if (norm.includes("image_path, min_stock, is_active")) {
+        if (norm.includes("min_stock, tracks_inventory, is_active")) {
           // Desde P2P sync
+          const [
+            id,
+            tenant_id,
+            category_id,
+            barcode,
+            sku,
+            name,
+            price_usd,
+            cost_usd,
+            tax_rate,
+            image_path,
+            min_stock,
+            tracks_inventory,
+            is_active,
+            created_at,
+            updated_at,
+          ] = params;
+          store.products.push({
+            id: id ?? null,
+            tenant_id: tenant_id ?? "TENANT-001",
+            category_id: category_id ?? null,
+            barcode: barcode ?? null,
+            sku: sku ?? "",
+            name: name ?? "",
+            price_usd: price_usd ?? "0.0000",
+            cost_usd: cost_usd ?? "0.0000",
+            tax_rate: tax_rate ?? "0.1600",
+            unit: "und",
+            image_path: image_path ?? null,
+            min_stock: min_stock ?? "5.0000",
+            tracks_inventory: tracks_inventory ?? 1,
+            is_active: is_active ?? 1,
+            created_at: created_at ?? Date.now(),
+            updated_at: updated_at ?? Date.now(),
+          });
+        } else if (norm.includes("tax_rate, unit, min_stock, tracks_inventory")) {
+          // Desde insertProduct con unit
+          const [
+            id,
+            tenant_id,
+            category_id,
+            barcode,
+            sku,
+            name,
+            price_usd,
+            cost_usd,
+            tax_rate,
+            unit,
+            min_stock,
+            tracks_inventory,
+            created_at,
+            updated_at,
+          ] = params;
+          store.products.push({
+            id: id ?? null,
+            tenant_id: tenant_id ?? "TENANT-001",
+            category_id: category_id ?? null,
+            barcode: barcode ?? null,
+            sku: sku ?? "",
+            name: name ?? "",
+            price_usd: price_usd ?? "0.0000",
+            cost_usd: cost_usd ?? "0.0000",
+            tax_rate: tax_rate ?? "0.1600",
+            unit: unit ?? "und",
+            image_path: null,
+            min_stock: min_stock ?? "5.0000",
+            tracks_inventory: tracks_inventory ?? 1,
+            is_active: 1,
+            created_at: created_at ?? Date.now(),
+            updated_at: updated_at ?? Date.now(),
+          });
+        } else if (norm.includes("image_path, min_stock, is_active")) {
+          // Desde P2P sync legado (sin bandera de inventario)
           const [
             id,
             tenant_id,
@@ -115,41 +192,8 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
             unit: "und",
             image_path: image_path ?? null,
             min_stock: min_stock ?? "5.0000",
+            tracks_inventory: 1,
             is_active: is_active ?? 1,
-            created_at: created_at ?? Date.now(),
-            updated_at: updated_at ?? Date.now(),
-          });
-        } else if (norm.includes("tax_rate, unit, min_stock")) {
-          // Desde insertProduct con unit
-          const [
-            id,
-            tenant_id,
-            category_id,
-            barcode,
-            sku,
-            name,
-            price_usd,
-            cost_usd,
-            tax_rate,
-            unit,
-            min_stock,
-            created_at,
-            updated_at,
-          ] = params;
-          store.products.push({
-            id: id ?? null,
-            tenant_id: tenant_id ?? "TENANT-001",
-            category_id: category_id ?? null,
-            barcode: barcode ?? null,
-            sku: sku ?? "",
-            name: name ?? "",
-            price_usd: price_usd ?? "0.0000",
-            cost_usd: cost_usd ?? "0.0000",
-            tax_rate: tax_rate ?? "0.1600",
-            unit: unit ?? "und",
-            image_path: null,
-            min_stock: min_stock ?? "5.0000",
-            is_active: 1,
             created_at: created_at ?? Date.now(),
             updated_at: updated_at ?? Date.now(),
           });
@@ -182,6 +226,7 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
             unit: "und",
             image_path: null,
             min_stock: min_stock ?? "5.0000",
+            tracks_inventory: 1,
             is_active: 1,
             created_at: created_at ?? Date.now(),
             updated_at: updated_at ?? Date.now(),
@@ -239,7 +284,38 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           return;
         }
         if (/name = \?, sku = \?, barcode = \?/i.test(norm)) {
-          if (norm.includes("tax_rate = ?, unit = ?, min_stock = ?")) {
+          if (norm.includes("tax_rate = ?, unit = ?, min_stock = ?, tracks_inventory = ?")) {
+            const [
+              name,
+              sku,
+              barcode,
+              category_id,
+              price_usd,
+              cost_usd,
+              tax_rate,
+              unit,
+              min_stock,
+              tracks_inventory,
+              image_path,
+              updated_at,
+              id,
+            ] = params;
+            const row = store.products.find((p) => p.id === id);
+            if (row) {
+              row.name = name ?? row.name ?? "";
+              row.sku = sku ?? row.sku ?? "";
+              row.barcode = barcode ?? null;
+              row.category_id = category_id ?? null;
+              row.price_usd = price_usd ?? row.price_usd ?? "0.0000";
+              row.cost_usd = cost_usd ?? row.cost_usd ?? "0.0000";
+              row.tax_rate = tax_rate ?? row.tax_rate ?? "0.1600";
+              row.unit = unit ?? row.unit ?? "und";
+              row.min_stock = min_stock ?? row.min_stock ?? "5.0000";
+              row.tracks_inventory = tracks_inventory ?? 1;
+              row.image_path = image_path ?? null;
+              row.updated_at = updated_at ?? Date.now();
+            }
+          } else if (norm.includes("tax_rate = ?, unit = ?, min_stock = ?")) {
             const [
               name,
               sku,
@@ -542,7 +618,10 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
           })
           .map((p) => {
             const cat = store.categories.find((c) => c.id === p.category_id);
-            const movements = store.stock_movements.filter((sm) => sm.product_id === p.id);
+            const tracksInventory = Number(p.tracks_inventory ?? 1);
+            const movements = tracksInventory === 1
+              ? store.stock_movements.filter((sm) => sm.product_id === p.id)
+              : [];
             const sumE4 = movements.reduce((acc, sm) => acc + toScaledIntE4(sm.quantity_delta), 0);
             return {
               id: p.id,
@@ -558,6 +637,7 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
               image_path: p.image_path,
               unit: p.unit ?? "und",
               min_stock: p.min_stock,
+              tracks_inventory: tracksInventory,
               is_active: p.is_active,
               updated_at: p.updated_at,
               current_stock_e4: sumE4,
@@ -634,6 +714,17 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
 
       // 5. Kardex (stock_movements)
       if (norm.includes("FROM stock_movements")) {
+        // Anulación: ¿descontó realmente stock este ítem en esta factura?
+        if (norm.includes("WHERE product_id = ? AND reference_id = ?")) {
+          const movementTypeMatch = norm.match(/movement_type = '([A-Z]+)'/i);
+          const filtered = store.stock_movements.filter(
+            (sm) =>
+              sm.product_id === params[0] &&
+              sm.reference_id === params[1] &&
+              (!movementTypeMatch || sm.movement_type === movementTypeMatch[1]),
+          );
+          return (norm.includes("LIMIT 1") ? filtered.slice(0, 1) : filtered) as unknown as T[];
+        }
         if (norm.includes("WHERE product_id = ?")) {
           const [productId, limit] = params;
           const filtered = store.stock_movements

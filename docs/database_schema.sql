@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS products (
     image_path TEXT,                           -- Ruta relativa al filesystem local (WebP <80KB)
     unit TEXT NOT NULL DEFAULT 'und',          -- Unidad de medida ('und', 'kg', 'g', 'l', 'caja', 'paq')
     min_stock TEXT NOT NULL DEFAULT '5.0000',  -- Umbral para alerta de agotamiento
+    tracks_inventory INTEGER NOT NULL DEFAULT 1, -- 1=Kardex/valorización, 0=Rubro sin inventario (sin costo, sin alerta)
     is_active INTEGER NOT NULL DEFAULT 1,      -- 1=Activo, 0=Deshabilitado
     created_at INTEGER NOT NULL,               -- Timestamp Unix
     updated_at INTEGER NOT NULL                -- Timestamp Unix para reconciliación
@@ -214,9 +215,15 @@ SELECT
     p.price_usd,
     p.cost_usd,
     p.min_stock,
+    p.tracks_inventory,
     p.image_path,
     p.unit,
-    COALESCE(SUM(CAST(REPLACE(sm.quantity_delta, '.', '') AS INTEGER)), 0) AS current_stock_e4
+    -- Los rubros sin control de inventario no arrastran stock: el kardex los ignora.
+    CASE
+        WHEN p.tracks_inventory = 1
+        THEN COALESCE(SUM(CAST(REPLACE(sm.quantity_delta, '.', '') AS INTEGER)), 0)
+        ELSE 0
+    END AS current_stock_e4
 FROM products p
 LEFT JOIN stock_movements sm ON p.id = sm.product_id
 WHERE p.is_active = 1

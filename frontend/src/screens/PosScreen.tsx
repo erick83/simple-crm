@@ -86,6 +86,8 @@ export interface PosProductItem {
   currentStock?: string;
   minStock?: string;
   isLowStock?: boolean;
+  /** false = rubro sin control de inventario: no muestra semáforo de stock ni alerta de agotado. */
+  tracksInventory?: boolean;
   unit?: string;
   imagePath?: string | null;
   taxRate?: string;
@@ -230,6 +232,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
             currentStock: p.currentStock,
             minStock: p.minStock,
             isLowStock: p.isLowStock,
+            tracksInventory: p.tracksInventory,
             unit: p.unit,
             imagePath: p.imagePath,
             taxRate: p.taxRate,
@@ -259,9 +262,9 @@ export const PosScreen: React.FC<PosScreenProps> = ({
   }, [refreshCatalog]);
 
   const addToCart = useCallback((product: PosProductItem) => {
-    // Verificar si el producto tiene stock <= 0 para advertir
+    // Verificar si el producto tiene stock <= 0 para advertir (solo rubros controlados)
     const stockVal = toDecimal(product.currentStock ?? "100.0000");
-    if (stockVal.lte(0)) {
+    if (product.tracksInventory !== false && stockVal.lte(0)) {
       showNotice(`"${product.name}" no tiene stock registrado. Se agregó al ticket y el inventario quedará en negativo.`);
     }
 
@@ -301,7 +304,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
         try {
           const found = findProductByBarcode(db, scannedBarcode);
           if (found) {
-            // Buscar producto en catálogo en memoria para heredar currentStock y unit
+            // Buscar producto en catálogo en memoria para heredar currentStock, unit y bandera de inventario
             const catItem = catalog.find((p) => p.id === found.productId);
             addToCart({
               id: found.productId,
@@ -310,6 +313,7 @@ export const PosScreen: React.FC<PosScreenProps> = ({
               priceUsd: found.priceUsd,
               currentStock: catItem?.currentStock,
               minStock: catItem?.minStock,
+              tracksInventory: catItem?.tracksInventory,
               unit: catItem?.unit,
               taxRate: catItem?.taxRate,
             });
@@ -1321,9 +1325,13 @@ export const PosScreen: React.FC<PosScreenProps> = ({
           contentContainerStyle={styles.catalogGrid}
           renderItem={({ item }) => {
             const priceVes = convertUsdToVes(item.priceUsd, exchangeRate).toFixed(4);
+            const tracksInventory = item.tracksInventory !== false;
             const stockDecimal = toDecimal(item.currentStock ?? "0.0000");
-            const isOutOfStock = stockDecimal.lte(0);
-            const isLowStock = item.isLowStock || (stockDecimal.lte(toDecimal(item.minStock ?? "0.0000")) && !isOutOfStock);
+            const isOutOfStock = tracksInventory && stockDecimal.lte(0);
+            const isLowStock =
+              tracksInventory &&
+              (item.isLowStock ||
+                (stockDecimal.lte(toDecimal(item.minStock ?? "0.0000")) && !isOutOfStock));
             const imageUri = resolveProductImageUri(fileStore, item.imagePath ?? null);
 
             return (
@@ -1333,9 +1341,11 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                 style={[styles.productCard, isOutOfStock && styles.productCardOutStock]}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  isOutOfStock
-                    ? `${item.name}, ${formatUsd(item.priceUsd)}, agotado. Agregar al ticket`
-                    : `${item.name}, ${formatUsd(item.priceUsd)}, stock ${formatFixed4(item.currentStock ?? "0")} ${item.unit ?? "und"}. Agregar al ticket`
+                  !tracksInventory
+                    ? `${item.name}, ${formatUsd(item.priceUsd)}, sin control de inventario. Agregar al ticket`
+                    : isOutOfStock
+                      ? `${item.name}, ${formatUsd(item.priceUsd)}, agotado. Agregar al ticket`
+                      : `${item.name}, ${formatUsd(item.priceUsd)}, stock ${formatFixed4(item.currentStock ?? "0")} ${item.unit ?? "und"}. Agregar al ticket`
                 }
               >
                 {/* Cabecera de la tarjeta: Imagen + SKU + Badge de Stock */}
@@ -1356,7 +1366,13 @@ export const PosScreen: React.FC<PosScreenProps> = ({
                     </View>
 
                     {/* Badge de Stock */}
-                    {isOutOfStock ? (
+                    {!tracksInventory ? (
+                      <View style={[styles.stockBadge, styles.stockBadgeNoTracking]}>
+                        <Text style={styles.stockBadgeTextNoTracking} numberOfLines={1}>
+                          ◇ Sin inventario
+                        </Text>
+                      </View>
+                    ) : isOutOfStock ? (
                       <View style={[styles.stockBadge, styles.stockBadgeOut]}>
                         <Text style={styles.stockBadgeTextOut} numberOfLines={1}>
                           ● Agotado (0)
@@ -2610,6 +2626,16 @@ const makeStyles = (c: Palette, m: Metrics) =>
     fontSize: 12,
     fontWeight: typography.weights.bold,
     color: c.errorText,
+  },
+  stockBadgeNoTracking: {
+    backgroundColor: c.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  stockBadgeTextNoTracking: {
+    fontSize: 12,
+    fontWeight: typography.weights.semibold,
+    color: c.textMuted,
   },
   productName: {
     fontSize: typography.sizes.body,

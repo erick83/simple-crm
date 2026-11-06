@@ -27,6 +27,8 @@ export interface P2pStockData {
   costUsd: string;
   minStock: string;
   currentStock: string;
+  /** false = rubro sin control de inventario. Opcional por compatibilidad con peers antiguos. */
+  tracksInventory?: boolean;
   imagePath: string | null;
 }
 
@@ -147,9 +149,10 @@ export class P2pHttpServer {
       price_usd: string;
       cost_usd: string;
       min_stock: string;
+      tracks_inventory?: number;
       image_path: string | null;
     }>(
-      `SELECT id, sku, barcode, name, price_usd, cost_usd, min_stock, image_path
+      `SELECT id, sku, barcode, name, price_usd, cost_usd, min_stock, tracks_inventory, image_path
        FROM products
        WHERE tenant_id = ? AND ${whereClause} AND is_active = 1`,
       [this.tenantId, param],
@@ -177,6 +180,7 @@ export class P2pHttpServer {
         costUsd: prod.cost_usd,
         minStock: prod.min_stock,
         currentStock,
+        tracksInventory: (prod.tracks_inventory ?? 1) === 1,
         imagePath: prod.image_path,
       },
     };
@@ -258,13 +262,16 @@ export class P2pHttpServer {
             const tax = new Decimal(String(p.taxRate ?? p.tax_rate ?? "0.1600")).toFixed(4);
             const minStock = new Decimal(String(p.minStock ?? p.min_stock ?? "5.0000")).toFixed(4);
             const imagePath = (p.imagePath ?? p.image_path ?? null) as string | null;
+            // Peers antiguos no envían la bandera: se asume inventario controlado (1).
+            const tracksRaw = p.tracksInventory ?? p.tracks_inventory ?? 1;
+            const tracks = tracksRaw === false || Number(tracksRaw) === 0 ? 0 : 1;
 
             if (!existing) {
               this.config.db.run(
                 `INSERT INTO products (
                    id, tenant_id, category_id, barcode, sku, name, price_usd, cost_usd,
-                   tax_rate, image_path, min_stock, is_active, created_at, updated_at
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                   tax_rate, image_path, min_stock, tracks_inventory, is_active, created_at, updated_at
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   item.entityId,
                   this.tenantId,
@@ -277,6 +284,7 @@ export class P2pHttpServer {
                   tax,
                   imagePath,
                   minStock,
+                  tracks,
                   p.isActive !== undefined ? (p.isActive ? 1 : 0) : ((p.is_active as number) ?? 1),
                   Number(p.createdAt ?? p.created_at ?? item.createdAt),
                   incomingUpdatedAt,
@@ -286,7 +294,7 @@ export class P2pHttpServer {
               this.config.db.run(
                 `UPDATE products SET
                    category_id = ?, barcode = ?, sku = ?, name = ?, price_usd = ?, cost_usd = ?,
-                   tax_rate = ?, image_path = ?, min_stock = ?, is_active = ?, updated_at = ?
+                   tax_rate = ?, image_path = ?, min_stock = ?, tracks_inventory = ?, is_active = ?, updated_at = ?
                  WHERE id = ?`,
                 [
                   (p.categoryId ?? p.category_id ?? null) as string | null,
@@ -298,6 +306,7 @@ export class P2pHttpServer {
                   tax,
                   imagePath,
                   minStock,
+                  tracks,
                   p.isActive !== undefined ? (p.isActive ? 1 : 0) : ((p.is_active as number) ?? 1),
                   incomingUpdatedAt,
                   item.entityId,

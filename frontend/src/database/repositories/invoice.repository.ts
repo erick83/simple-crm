@@ -1,7 +1,7 @@
 import type { SqlDriver } from "../connection";
 import { uuidv7 } from "../../utils/uuid7";
 import { toDecimal, formatFixed4, Decimal, convertUsdToVes } from "../../utils/decimal";
-import { addStockMovement, getCurrentStock } from "./product.repository";
+import { addStockMovement, getCurrentStock, productTracksInventory } from "./product.repository";
 import { LicenseValidatorService } from "../../services/license-validator.service";
 import { P2pSyncService } from "../../services/p2p-sync.service";
 
@@ -309,20 +309,23 @@ export function createInvoice(
         ],
       );
 
-      // Descuento conmutativo del inventario (Kardex delta negativo con 4 decimales exactos)
-      const delta = q.isNegative() ? q.toFixed(4) : q.neg().toFixed(4);
+      // Descuento conmutativo del inventario (Kardex delta negativo con 4 decimales exactos).
+      // Los rubros sin control de inventario no generan kardex: la venta se factura igual.
+      if (productTracksInventory(db, item.productId)) {
+        const delta = q.isNegative() ? q.toFixed(4) : q.neg().toFixed(4);
 
-      addStockMovement(
-        db,
-        {
-          productId: item.productId,
-          terminalId: input.terminalId,
-          delta,
-          type: "SALE",
-          referenceId: invoiceId,
-        },
-        now,
-      );
+        addStockMovement(
+          db,
+          {
+            productId: item.productId,
+            terminalId: input.terminalId,
+            delta,
+            type: "SALE",
+            referenceId: invoiceId,
+          },
+          now,
+        );
+      }
     }
 
     // 5. Encolar evento INVOICE en outbox para replicación P2P
@@ -476,9 +479,20 @@ export function voidInvoice(
       [now, cleanReason, invoice.id],
     );
 
-    // 2. Restituir inventario por deltas conmutativos con signo positivo ('RETURN')
+    // 2. Restituir inventario por deltas conmutativos con signo positivo ('RETURN').
+    //    Solo se devuelve lo que realmente descontó stock en su momento: los rubros sin
+    //    control de inventario nunca generaron 'SALE' y así el kardex sigue siendo conmutativo.
     for (const item of invoice.items) {
       const q = toDecimal(item.quantity);
+
+      const [saleMovement] = db.all<{ id: string }>(
+        `SELECT id FROM stock_movements
+         WHERE product_id = ? AND reference_id = ? AND movement_type = 'SALE'
+         LIMIT 1`,
+        [item.productId, invoice.id],
+      );
+      if (!saleMovement) continue;
+
       const returnDelta = q.abs().toFixed(4); // Siempre positivo para reingreso
 
       addStockMovement(
