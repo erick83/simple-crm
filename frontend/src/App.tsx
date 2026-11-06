@@ -107,7 +107,7 @@ const AppShell: React.FC<AppProps> = ({
   useEffect(() => {
     refreshPendingCount();
     refreshActiveShift();
-  }, [currentTab, refreshPendingCount, refreshActiveShift]);
+  }, [currentTab, currentOperator, refreshPendingCount, refreshActiveShift]);
 
   const handleLockTerminal = useCallback(() => {
     if (db && currentOperator) {
@@ -134,6 +134,8 @@ const AppShell: React.FC<AppProps> = ({
         tenantId={tenantId}
         onUnlock={(operator) => {
           setCurrentOperator(operator);
+          refreshActiveShift();
+          refreshPendingCount();
           if (operator.role === "CASHIER") {
             try {
               const shift = db ? getOpenShift(db, terminalId) : null;
@@ -286,49 +288,50 @@ const AppShell: React.FC<AppProps> = ({
 
             <View style={styles.sidebarFooter}>
               <View style={[styles.operatorBox, isTablet && styles.operatorBoxRail]}>
-                {isTablet ? null : (
-                  <View style={styles.operatorInfo}>
-                    <Text style={styles.operatorRole}>
-                      {currentOperator.role === "ADMIN" ? "👑 Admin" : "👤 Cajero"}
-                    </Text>
-                    <Text style={styles.operatorName} numberOfLines={1}>
-                      {currentOperator.name}
-                    </Text>
-                  </View>
-                )}
+                <View style={styles.operatorTopRow}>
+                  {isTablet ? null : (
+                    <View style={styles.operatorInfo}>
+                      <Text style={styles.operatorRole}>
+                        {currentOperator.role === "ADMIN" ? "👑 Admin" : "👤 Cajero"}
+                      </Text>
+                      <Text style={styles.operatorName} numberOfLines={1}>
+                        {currentOperator.name}
+                      </Text>
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    style={styles.lockBtn}
+                    onPress={handleLockTerminal}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Bloquear terminal y cambiar operador"
+                  >
+                    <Text style={styles.lockBtnText}>🔒</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Estado unificado del Turno de Caja */}
                 <TouchableOpacity
-                  style={styles.lockBtn}
-                  onPress={handleLockTerminal}
+                  style={[styles.shiftBadgeRow, isTablet && styles.shiftBadgeRowRail]}
                   activeOpacity={0.8}
+                  onPress={() => setCurrentTab("shifts")}
                   accessibilityRole="button"
-                  accessibilityLabel="Bloquear terminal y cambiar operador"
+                  accessibilityLabel={`Estado de turno: ${activeShift ? "Turno activo #" + activeShift.id.slice(-4).toUpperCase() : "Caja cerrada"}`}
                 >
-                  <Text style={styles.lockBtnText}>🔒</Text>
+                  <View
+                    style={[styles.shiftDot, !activeShift && styles.shiftDotInactive]}
+                  />
+                  {isTablet ? null : (
+                    <Text style={styles.shiftBadgeText} numberOfLines={1}>
+                      {activeShift
+                        ? `Caja Abierta · #${activeShift.id.slice(-4).toUpperCase()}`
+                        : "Caja Cerrada · Abrir"}
+                    </Text>
+                  )}
                 </TouchableOpacity>
               </View>
 
               <ThemeToggle compact={isTablet} />
-              <TouchableOpacity
-                style={[styles.shiftFooter, isTablet && styles.shiftFooterRail]}
-                activeOpacity={0.8}
-                onPress={() => setCurrentTab("shifts")}
-                accessibilityRole="button"
-                accessibilityLabel={`Gestionar turno, ${shiftLabel}`}
-              >
-                <View
-                  style={[styles.shiftDot, !activeShift && styles.shiftDotInactive]}
-                />
-                {isTablet ? null : (
-                  <View style={styles.shiftTexts}>
-                    <Text style={styles.shiftCashier} numberOfLines={1}>
-                      {activeShift ? activeShift.cashierName : `Terminal: ${terminalId}`}
-                    </Text>
-                    <Text style={styles.shiftNumber} numberOfLines={1}>
-                      {shiftLabel}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -474,20 +477,21 @@ const makeStyles = (c: Palette) =>
     borderTopColor: c.border,
   },
   operatorBox: {
+    backgroundColor: c.surfaceContainer,
+    borderRadius: spacing.radiusMd,
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: c.border,
+    gap: spacing.xs,
+  },
+  operatorBoxRail: {
+    padding: spacing.xs,
+    alignItems: "center",
+  },
+  operatorTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: c.surfaceContainer,
-    borderRadius: spacing.radiusMd,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  operatorBoxRail: {
-    justifyContent: "center",
-    paddingHorizontal: 0,
-    paddingVertical: spacing.xs,
   },
   operatorInfo: {
     flex: 1,
@@ -501,7 +505,7 @@ const makeStyles = (c: Palette) =>
   },
   operatorName: {
     fontSize: typography.sizes.caption,
-    fontWeight: typography.weights.semibold,
+    fontWeight: typography.weights.bold,
     color: c.textPrimary,
   },
   lockBtn: {
@@ -515,6 +519,36 @@ const makeStyles = (c: Palette) =>
   lockBtnText: {
     fontSize: 16,
   },
+  shiftBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: c.border,
+    marginTop: 2,
+  },
+  shiftBadgeRowRail: {
+    borderTopWidth: 0,
+    paddingTop: 0,
+    marginTop: 4,
+    justifyContent: "center",
+  },
+  shiftBadgeText: {
+    fontSize: 11,
+    fontWeight: typography.weights.medium,
+    color: c.textSecondary,
+    flex: 1,
+  },
+  shiftDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: c.hero,
+  },
+  shiftDotInactive: {
+    backgroundColor: c.warning,
+  },
   bottomLockBtn: {
     width: spacing.touchTargetMin,
     height: spacing.touchTargetMin,
@@ -525,45 +559,6 @@ const makeStyles = (c: Palette) =>
   },
   bottomLockIcon: {
     fontSize: 20,
-  },
-  shiftFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: c.surfaceContainer,
-    padding: spacing.md,
-    borderRadius: spacing.radiusMd,
-    gap: spacing.sm,
-    minHeight: spacing.touchTargetMin,
-  },
-  shiftFooterRail: {
-    width: spacing.touchTargetMin,
-    height: spacing.touchTargetMin,
-    alignSelf: "center",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 0,
-    borderRadius: spacing.radiusFull,
-  },
-  shiftDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: c.hero,
-  },
-  shiftDotInactive: {
-    backgroundColor: c.warning,
-  },
-  shiftTexts: {
-    flex: 1,
-  },
-  shiftCashier: {
-    fontSize: typography.sizes.subText,
-    fontWeight: typography.weights.bold,
-    color: c.textPrimary,
-  },
-  shiftNumber: {
-    fontSize: typography.sizes.caption,
-    color: c.textSecondary,
   },
   mainArea: {
     flex: 1,

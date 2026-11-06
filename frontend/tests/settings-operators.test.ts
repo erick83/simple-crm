@@ -7,6 +7,7 @@ import {
   toggleOperatorActive,
   canDeleteOperator,
   deleteOperator,
+  updateOperatorPin,
   listAuditLogs,
   logOperatorAction,
 } from "../src/database/repositories/operator.repository";
@@ -198,6 +199,27 @@ describe("Gestión de Operadores y Auditoría en Configuración", () => {
       expect(invoiceLogs[0]?.operatorName).toBe(cashier.name);
       expect(invoiceLogs[0]?.entityId).toBe(invoiceId);
       expect(invoiceLogs[0]?.details).toContain('"totalUsd":"11.6000"');
+    });
+
+    it("permite actualizar el PIN de un operador y registra la auditoría OPERATOR_UPDATE", () => {
+      const ops = listOperators(db);
+      const cashier = ops.find((o) => o.role === "CASHIER")!;
+
+      updateOperatorPin(db, cashier.id, "9999");
+
+      logOperatorAction(db, {
+        operatorId: "admin-root",
+        operatorName: "Administrador",
+        action: "OPERATOR_UPDATE",
+        entityType: "OPERATOR",
+        entityId: cashier.id,
+        details: { field: "pin", targetName: cashier.name },
+      });
+
+      const updateLogs = listAuditLogs(db, { action: "OPERATOR_UPDATE" });
+      expect(updateLogs.length).toBe(1);
+      expect(updateLogs[0]?.entityId).toBe(cashier.id);
+      expect(updateLogs[0]?.details).toContain('"field":"pin"');
     });
   });
 });

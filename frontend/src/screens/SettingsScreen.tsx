@@ -17,6 +17,7 @@ import {
   toggleOperatorActive,
   canDeleteOperator,
   deleteOperator,
+  updateOperatorPin,
   logOperatorAction,
 } from "../database/repositories/operator.repository";
 import type {
@@ -54,6 +55,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [newPin, setNewPin] = useState("");
   const [opError, setOpError] = useState<string | null>(null);
   const [opSuccess, setOpSuccess] = useState<string | null>(null);
+  const [editingPinOperatorId, setEditingPinOperatorId] = useState<string | null>(null);
+  const [pinEditValue, setPinEditValue] = useState("");
 
   const refreshOperators = useCallback(() => {
     if (!db) return;
@@ -63,6 +66,35 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       // ignore
     }
   }, [db]);
+
+  const handleSavePin = (operatorId: string, operatorName: string) => {
+    if (!db) return;
+    try {
+      setOpError(null);
+      setOpSuccess(null);
+      updateOperatorPin(db, operatorId, pinEditValue);
+
+      try {
+        logOperatorAction(db, {
+          operatorId: currentOperator?.id ?? "op-admin",
+          operatorName: currentOperator?.name ?? "Admin",
+          action: "OPERATOR_UPDATE",
+          entityType: "OPERATOR",
+          entityId: operatorId,
+          details: { field: "pin", targetName: operatorName },
+        });
+      } catch {
+        // ignore
+      }
+
+      setOpSuccess(`PIN de "${operatorName}" actualizado con éxito.`);
+      setEditingPinOperatorId(null);
+      setPinEditValue("");
+      refreshOperators();
+    } catch (err) {
+      setOpError((err as Error).message);
+    }
+  };
 
   const handleSaveTax = () => {
     setMessage(null);
@@ -272,72 +304,121 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             const checkDelete = db ? canDeleteOperator(db, op.id) : { canDelete: false };
             return (
               <View key={op.id} style={styles.operatorRow}>
-                <View style={styles.operatorMeta}>
-                  <Text style={styles.operatorNameText}>{op.name}</Text>
-                  <View style={styles.badgeRow}>
-                    <View
-                      style={[
-                        styles.badge,
-                        op.role === "ADMIN" ? styles.badgeAdmin : styles.badgeCashier,
-                      ]}
-                    >
-                      <Text style={styles.badgeText}>
-                        {op.role === "ADMIN" ? "ADMIN" : "CAJERO"}
-                      </Text>
+                <View style={styles.operatorRowMain}>
+                  <View style={styles.operatorMeta}>
+                    <Text style={styles.operatorNameText}>{op.name}</Text>
+                    <View style={styles.badgeRow}>
+                      <View
+                        style={[
+                          styles.badge,
+                          op.role === "ADMIN" ? styles.badgeAdmin : styles.badgeCashier,
+                        ]}
+                      >
+                        <Text style={styles.badgeText}>
+                          {op.role === "ADMIN" ? "ADMIN" : "CAJERO"}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.badge,
+                          op.isActive ? styles.badgeActive : styles.badgeBlocked,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.badgeText,
+                            op.isActive ? styles.badgeTextActive : styles.badgeTextBlocked,
+                          ]}
+                        >
+                          {op.isActive ? "ACTIVO" : "BLOQUEADO"}
+                        </Text>
+                      </View>
                     </View>
-                    <View
+                  </View>
+
+                  <View style={styles.operatorActions}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.changePinActionBtn]}
+                      onPress={() => {
+                        setEditingPinOperatorId(editingPinOperatorId === op.id ? null : op.id);
+                        setPinEditValue("");
+                        setOpError(null);
+                        setOpSuccess(null);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.actionBtnText, styles.changePinActionText]}>
+                        Cambiar PIN
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
                       style={[
-                        styles.badge,
-                        op.isActive ? styles.badgeActive : styles.badgeBlocked,
+                        styles.actionBtn,
+                        op.isActive ? styles.blockActionBtn : styles.unblockActionBtn,
                       ]}
+                      onPress={() => handleToggleActive(op.id, op.isActive)}
+                      activeOpacity={0.8}
                     >
                       <Text
                         style={[
-                          styles.badgeText,
-                          op.isActive ? styles.badgeTextActive : styles.badgeTextBlocked,
+                          styles.actionBtnText,
+                          op.isActive ? styles.blockActionText : styles.unblockActionText,
                         ]}
                       >
-                        {op.isActive ? "ACTIVO" : "BLOQUEADO"}
+                        {op.isActive ? "Bloquear" : "Desbloquear"}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
+
+                    {checkDelete.canDelete ? (
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.deleteActionBtn]}
+                        onPress={() => handleDeleteOperator(op.id)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.actionBtnText, styles.deleteActionText]}>
+                          Eliminar
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.historyChip}>
+                        <Text style={styles.historyChipText}>Con historial</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
 
-                <View style={styles.operatorActions}>
-                  <TouchableOpacity
-                    style={[
-                      styles.actionBtn,
-                      op.isActive ? styles.blockActionBtn : styles.unblockActionBtn,
-                    ]}
-                    onPress={() => handleToggleActive(op.id, op.isActive)}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.actionBtnText,
-                        op.isActive ? styles.blockActionText : styles.unblockActionText,
-                      ]}
-                    >
-                      {op.isActive ? "Bloquear" : "Desbloquear"}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {checkDelete.canDelete ? (
+                {editingPinOperatorId === op.id ? (
+                  <View style={styles.pinEditContainer}>
+                    <TextInput
+                      style={styles.pinEditInput}
+                      placeholder="Nuevo PIN (4 dígitos)"
+                      placeholderTextColor={theme.textMuted}
+                      keyboardType="numeric"
+                      maxLength={4}
+                      secureTextEntry
+                      value={pinEditValue}
+                      onChangeText={setPinEditValue}
+                    />
                     <TouchableOpacity
-                      style={[styles.actionBtn, styles.deleteActionBtn]}
-                      onPress={() => handleDeleteOperator(op.id)}
+                      style={styles.pinSaveBtn}
+                      onPress={() => handleSavePin(op.id, op.name)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.pinSaveBtnText}>Guardar PIN</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.pinCancelBtn}
+                      onPress={() => {
+                        setEditingPinOperatorId(null);
+                        setPinEditValue("");
+                      }}
                       activeOpacity={0.8}
                     >
-                      <Text style={[styles.actionBtnText, styles.deleteActionText]}>
-                        Eliminar
-                      </Text>
+                      <Text style={styles.pinCancelBtnText}>Cancelar</Text>
                     </TouchableOpacity>
-                  ) : (
-                    <View style={styles.historyChip}>
-                      <Text style={styles.historyChipText}>Con historial</Text>
-                    </View>
-                  )}
-                </View>
+                  </View>
+                ) : null}
               </View>
             );
           })}
@@ -484,15 +565,21 @@ const makeStyles = (c: Palette) =>
       marginTop: spacing.xs,
     },
     operatorRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
+      flexDirection: "column",
+      alignItems: "stretch",
       padding: spacing.md,
       backgroundColor: c.surfaceContainer,
       borderRadius: spacing.radiusMd,
       borderWidth: 1,
       borderColor: c.border,
+      gap: spacing.sm,
+    },
+    operatorRowMain: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
       gap: spacing.md,
+      flexWrap: "wrap",
     },
     operatorMeta: {
       gap: 4,
@@ -562,11 +649,64 @@ const makeStyles = (c: Palette) =>
     unblockActionText: {
       color: c.heroText,
     },
+    changePinActionBtn: {
+      backgroundColor: c.primarySoft,
+    },
+    changePinActionText: {
+      color: c.primary,
+    },
     deleteActionBtn: {
       backgroundColor: c.errorSoft,
     },
     deleteActionText: {
       color: c.errorText,
+    },
+    pinEditContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      marginTop: spacing.xs,
+      paddingTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: c.border,
+      flexWrap: "wrap",
+    },
+    pinEditInput: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: spacing.radiusSm,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      color: c.textPrimary,
+      backgroundColor: c.surfaceContainerLow,
+      minWidth: 160,
+      height: 40,
+      fontSize: typography.sizes.body,
+    },
+    pinSaveBtn: {
+      minHeight: 40,
+      paddingHorizontal: spacing.md,
+      borderRadius: spacing.radiusSm,
+      backgroundColor: c.primary,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    pinSaveBtnText: {
+      color: "#FFFFFF",
+      fontSize: typography.sizes.caption,
+      fontWeight: typography.weights.bold,
+    },
+    pinCancelBtn: {
+      minHeight: 40,
+      paddingHorizontal: spacing.sm,
+      borderRadius: spacing.radiusSm,
+      backgroundColor: c.surfaceContainerHigh,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    pinCancelBtnText: {
+      color: c.textSecondary,
+      fontSize: typography.sizes.caption,
     },
     historyChip: {
       paddingHorizontal: spacing.sm,

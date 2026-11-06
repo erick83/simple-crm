@@ -12,6 +12,7 @@ import {
   listAuditLogs,
   canDeleteOperator,
   deleteOperator,
+  updateOperatorPin,
 } from "../src/database/repositories/operator.repository";
 
 describe("web-sqlite-driver with operators", () => {
@@ -98,5 +99,20 @@ describe("web-sqlite-driver with operators", () => {
 
     deleteOperator(db, temp.id);
     expect(verifyOperatorPin(db, "7777")).toBeNull();
+  });
+
+  it("permite actualizar el PIN de un operador en el web driver y verificar el nuevo PIN", () => {
+    const db = createWebDesktopSqliteDriver();
+    seedInitialPosData(db);
+
+    const admin = verifyOperatorPin(db, "1234")!;
+    expect(admin).not.toBeNull();
+
+    updateOperatorPin(db, admin.id, "9876");
+
+    expect(verifyOperatorPin(db, "1234")).toBeNull();
+    const updated = verifyOperatorPin(db, "9876");
+    expect(updated).not.toBeNull();
+    expect(updated?.id).toBe(admin.id);
   });
 });

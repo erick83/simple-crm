@@ -232,6 +232,36 @@ export function toggleOperatorActive(
 }
 
 /**
+ * Actualiza el PIN de 4 dígitos de un operador existente tras validar unicidad y formato.
+ */
+export function updateOperatorPin(
+  db: SqlDriver,
+  operatorId: string,
+  newPin: string,
+): void {
+  const cleanPin = newPin.trim();
+  if (!/^\d{4}$/.test(cleanPin)) {
+    throw new Error("El nuevo PIN debe ser exactamente de 4 dígitos numéricos");
+  }
+
+  const operator = getOperatorById(db, operatorId);
+  if (!operator) {
+    throw new Error(`Operador no encontrado: ${operatorId}`);
+  }
+
+  const hash = hashOperatorPin(cleanPin);
+  const existing = db.all<{ id: string }>(
+    "SELECT id FROM operators WHERE pin_hash = ? AND is_active = 1 AND id != ? LIMIT 1",
+    [hash, operatorId],
+  );
+  if (existing.length > 0) {
+    throw new Error("El nuevo PIN ya está en uso por otro operador activo");
+  }
+
+  db.run("UPDATE operators SET pin_hash = ? WHERE id = ?", [hash, operatorId]);
+}
+
+/**
  * Determina si un operador puede ser eliminado físicamente de la base de datos
  * o si posee registros asociados que exigen bloqueo en su lugar.
  */

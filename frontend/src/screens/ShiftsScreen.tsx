@@ -57,11 +57,21 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   const [activeShift, setActiveShift] = useState<ShiftEntity | null>(null);
 
   // Apertura de turno
-  const [newCashier, setNewCashier] = useState(initialCashierName ?? "Erick");
+  const [newCashier, setNewCashier] = useState(
+    () => currentOperator?.name ?? initialCashierName ?? "",
+  );
   const [newInitialUsd, setNewInitialUsd] = useState("50.0000");
   const [newInitialVes, setNewInitialVes] = useState("1825.0000");
   const [newExchangeRate, setNewExchangeRate] = useState(defaultExchangeRate);
   const [openError, setOpenError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (currentOperator?.name) {
+      setNewCashier(currentOperator.name);
+    } else if (initialCashierName) {
+      setNewCashier(initialCashierName);
+    }
+  }, [currentOperator?.name, initialCashierName]);
 
   // Cierre Z
   const [declaredUsd, setDeclaredUsd] = useState("");

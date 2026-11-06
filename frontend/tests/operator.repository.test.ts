@@ -9,6 +9,7 @@ import {
   toggleOperatorActive,
   canDeleteOperator,
   deleteOperator,
+  updateOperatorPin,
   logOperatorAction,
   listAuditLogs,
   hashOperatorPin,
@@ -155,6 +156,39 @@ describe("operator.repository", () => {
       const check = canDeleteOperator(db, tempOp.id);
       expect(check.canDelete).toBe(false);
       expect(check.reason).toContain("eventos de auditoría registrados");
+    });
+  });
+
+  describe("Actualización de PIN (updateOperatorPin)", () => {
+    it("permite cambiar el PIN a un operador y verificarlo con el nuevo valor", () => {
+      const cashier = verifyOperatorPin(db, "0000")!;
+      expect(cashier).not.toBeNull();
+
+      updateOperatorPin(db, cashier.id, "4321");
+
+      // El PIN viejo ya no funciona
+      expect(verifyOperatorPin(db, "0000")).toBeNull();
+
+      // El nuevo PIN desbloquea la cuenta
+      const updated = verifyOperatorPin(db, "4321");
+      expect(updated).not.toBeNull();
+      expect(updated?.id).toBe(cashier.id);
+      expect(updated?.name).toBe("Cajero 1");
+    });
+
+    it("rechaza PIN que no tenga exactamente 4 dígitos", () => {
+      const cashier = verifyOperatorPin(db, "0000")!;
+      expect(() => updateOperatorPin(db, cashier.id, "123")).toThrow("exactamente de 4 dígitos");
+      expect(() => updateOperatorPin(db, cashier.id, "12345")).toThrow("exactamente de 4 dígitos");
+      expect(() => updateOperatorPin(db, cashier.id, "abcd")).toThrow("exactamente de 4 dígitos");
+    });
+
+    it("rechaza un PIN que ya esté en uso por otro operador activo", () => {
+      const cashier = verifyOperatorPin(db, "0000")!;
+      // Intenta usar 1234 (que es del Admin)
+      expect(() => updateOperatorPin(db, cashier.id, "1234")).toThrow(
+        "ya está en uso por otro operador activo",
+      );
     });
   });
 

@@ -718,6 +718,15 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         return;
       }
 
+      if (/^UPDATE operators SET pin_hash = \? WHERE id = \?/i.test(norm)) {
+        const [pin_hash, id] = params;
+        const op = store.operators.find((o) => o.id === id);
+        if (op) {
+          op.pin_hash = pin_hash ?? "";
+        }
+        return;
+      }
+
       if (/^DELETE FROM operators WHERE id = \?/i.test(norm)) {
         const [id] = params;
         store.operators = store.operators.filter((o) => o.id !== id);
@@ -1069,6 +1078,10 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         } else if (norm.includes("is_active = 0")) {
           list = list.filter((o) => Number(o.is_active) === 0);
         }
+        if (norm.includes("id != ?")) {
+          const excludedId = params.length > 1 ? params[1] : params[0];
+          list = list.filter((o) => o.id !== excludedId);
+        }
         if (norm.includes("WHERE id = ?")) {
           const id = params[0];
           list = list.filter((o) => o.id === id);
@@ -1241,21 +1254,6 @@ export function seedInitialPosData(
         now + 50 + index,
       );
     });
-  }
-
-  // 3. Semilla de turno abierto por defecto para permitir cobros inmediatos
-  if (!getOpenShift(db, terminalId)) {
-    openShift(
-      db,
-      {
-        terminalId,
-        cashierName: "Erick (C01)",
-        exchangeRateApplied: "36.5000",
-        initialCashUsd: "50.0000",
-        initialCashVes: "1825.0000",
-      },
-      now + 100,
-    );
   }
 }
 
