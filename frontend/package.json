@@ -9,17 +9,12 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "dev": "expo start",
     "android": "expo start --android",
-    "android:dev": "expo start --android",
     "web": "expo start --web",
-    "web:dev": "expo start --web",
     "web:build": "expo export --platform web",
-    "web:build:prod": "expo export --platform web",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
-    "desktop:build:prod": "tauri build",
-    "desktop:build:dev": "tauri build --debug",
+    "desktop:build:debug": "tauri build --debug",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "gen:schema": "node scripts/gen-schema.mjs"
