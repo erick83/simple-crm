@@ -171,7 +171,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   }, [db, hwid, emailInput]);
 
-  const handleActivateTrial = () => {
+  const handleActivateTrial = async () => {
     setLicMessage(null);
     setLicError(false);
     if (!db) {
@@ -199,10 +199,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     });
     setGeneratedRequest(req);
     const filename = `bisync-license-request-${terminalId}.json`;
-    LicenseValidatorService.downloadJsonFile(filename, JSON.stringify(req, null, 2));
+    await LicenseValidatorService.downloadJsonFile(filename, JSON.stringify(req, null, 2));
     setLicError(false);
     setLicMessage(
-      `¡Periodo de prueba de 15 días activado! Se descargó automáticamente el archivo ${filename}.`,
+      `¡Periodo de prueba de 15 días activado! Se guardó el archivo ${filename}.`,
     );
     refreshLicense();
   };
@@ -229,12 +229,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     });
   };
 
-  const handleDownloadRequest = () => {
+  const handleDownloadRequest = async () => {
     const req = getOrBuildRequest();
     const filename = `bisync-license-request-${terminalId}.json`;
-    LicenseValidatorService.downloadJsonFile(filename, JSON.stringify(req, null, 2));
+    await LicenseValidatorService.downloadJsonFile(filename, JSON.stringify(req, null, 2));
     setLicError(false);
-    setLicMessage(`✓ Archivo ${filename} descargado en la carpeta de Descargas.`);
+    setLicMessage(`✓ Archivo ${filename} guardado correctamente.`);
   };
 
   const handleCopyRequest = async () => {
@@ -430,7 +430,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [backupIsError, setBackupIsError] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  const handleCreateBackup = () => {
+  const handleCreateBackup = async () => {
     if (!db) return;
     try {
       const backup = BackupService.createBackup(db, {
@@ -438,11 +438,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         terminalId,
         createdBy: currentOperator?.name ?? "Administrador",
       });
-      BackupService.downloadBackupFile(backup);
-      setBackupMessage(
-        `Copia de seguridad descargada exitosamente (${backup.totalRecords} registros incluidos).`,
-      );
-      setBackupIsError(false);
+      const res = await BackupService.downloadBackupFile(backup);
+      if (res.success) {
+        setBackupMessage(
+          `Copia de seguridad guardada exitosamente (${backup.totalRecords} registros incluidos).`,
+        );
+        setBackupIsError(false);
+      }
     } catch (err) {
       setBackupMessage(
         `Error al crear copia: ${err instanceof Error ? err.message : String(err)}`,

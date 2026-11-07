@@ -122,7 +122,7 @@ export const ActivationScreen: React.FC<ActivationScreenProps> = ({
     }
   };
 
-  const handleActivateTrial = () => {
+  const handleActivateTrial = async () => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
@@ -154,9 +154,9 @@ export const ActivationScreen: React.FC<ActivationScreenProps> = ({
     setGeneratedRequest(req);
     setTrialActivated(true);
 
-    // Descargar automáticamente el archivo .json para el usuario
+    // Guardar el archivo .json en la ubicación seleccionada por el usuario
     const fileName = `bisync-license-request-${terminalId}.json`;
-    LicenseValidatorService.downloadJsonFile(fileName, JSON.stringify(req, null, 2));
+    await LicenseValidatorService.downloadJsonFile(fileName, JSON.stringify(req, null, 2));
   };
 
   const handleInstallLicense = () => {
@@ -253,13 +253,15 @@ export const ActivationScreen: React.FC<ActivationScreenProps> = ({
                 <TouchableOpacity
                   style={styles.actionButtonSecondary}
                   activeOpacity={0.85}
-                  onPress={() => {
-                    LicenseValidatorService.downloadJsonFile(
+                  onPress={async () => {
+                    const ok = await LicenseValidatorService.downloadJsonFile(
                       `bisync-license-request-${terminalId}.json`,
                       JSON.stringify(generatedRequest, null, 2),
                     );
-                    setDownloadFeedback(true);
-                    setTimeout(() => setDownloadFeedback(false), 3000);
+                    if (ok) {
+                      setDownloadFeedback(true);
+                      setTimeout(() => setDownloadFeedback(false), 3000);
+                    }
                   }}
                   accessibilityRole="button"
                   accessibilityLabel="Volver a descargar archivo json"

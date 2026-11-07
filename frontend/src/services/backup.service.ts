@@ -1,4 +1,5 @@
 import type { SqlDriver, SqlValue } from "../database/connection";
+import { saveFileWithNativeDialog } from "../utils/file-saver";
 
 export interface BackupMetadata {
   format: "bisync_pos_backup_v1";
@@ -72,26 +73,20 @@ export class BackupService {
   }
 
   /**
-   * Descarga la copia de seguridad como archivo .json en el entorno de escritorio / web.
+   * Descarga la copia de seguridad como archivo .json abriendo la ventana de diálogo
+   * nativa en escritorio o descargándolo en el navegador.
    */
-  static downloadBackupFile(backup: BackupMetadata, filename?: string): void {
+  static async downloadBackupFile(
+    backup: BackupMetadata,
+    filename?: string,
+  ): Promise<{ success: boolean; filePath?: string }> {
     const name =
       filename ??
       `bisync-pos-backup-${new Date().toISOString().slice(0, 10)}-${Date.now()}.json`;
 
     const json = JSON.stringify(backup, null, 2);
-
-    if (typeof document !== "undefined") {
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
-    }
+    const res = await saveFileWithNativeDialog(name, json);
+    return res;
   }
 
   /**
