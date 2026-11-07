@@ -17,7 +17,9 @@
     "desktop:build:debug": "tauri build --debug",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "gen:schema": "node scripts/gen-schema.mjs"
+    "gen:schema": "node scripts/gen-schema.mjs",
+    "version:set": "node scripts/sync-version.mjs",
+    "version": "node scripts/sync-version.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",

@@ -39,6 +39,7 @@ import {
 } from "../services/license-validator.service";
 import { BackupService } from "../services/backup.service";
 import { getAppEnvironment } from "../utils/env";
+import { APP_VERSION } from "../version";
 
 export interface SettingsScreenProps {
   db?: SqlDriver;
@@ -1006,7 +1007,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <Text style={styles.sectionTitle}>Copias de Seguridad y Persistencia</Text>
           <View style={styles.envBadge}>
             <Text style={styles.envBadgeText}>
-              MODO: {currentEnv.toUpperCase()}
+              MODO: {currentEnv.toUpperCase()} • v{APP_VERSION}
             </Text>
           </View>
         </View>
