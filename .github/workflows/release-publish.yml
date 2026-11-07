@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [closed]
     branches: [master, main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,7 +12,9 @@ permissions:
 jobs:
   publish:
     name: "Crear Tag, Compilar y Publicar Release"
-    if: github.event.pull_request.merged == true && (github.event.pull_request.head.ref == 'release-candidate' || startsWith(github.event.pull_request.title, 'chore(release):'))
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true && (github.event.pull_request.head.ref == 'release-candidate' || startsWith(github.event.pull_request.title, 'chore(release):')))
     runs-on: windows-latest
     steps:
       - name: Checkout master
@@ -47,8 +50,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a ${{ steps.get_version.outputs.tag }} -m "Release ${{ steps.get_version.outputs.tag }}"
-          git push origin ${{ steps.get_version.outputs.tag }}
+          $tag = "${{ steps.get_version.outputs.tag }}"
+          if (-not (git tag -l $tag)) {
+            git tag -a $tag -m "Release $tag"
+            git push origin $tag
+          } else {
+            Write-Host "Tag $tag ya existe en git."
+          }
 
       - name: Compilar Instalador de Escritorio (Tauri Windows)
         working-directory: frontend
@@ -59,7 +67,7 @@ jobs:
         with:
           tag_name: ${{ steps.get_version.outputs.tag }}
           name: "Bisync POS ${{ steps.get_version.outputs.tag }}"
-          body: ${{ github.event.pull_request.body }}
+          body: ${{ github.event.pull_request.body || 'Release oficial compilada automáticamente.' }}
           files: |
             frontend/src-tauri/target/release/bundle/nsis/*-setup.exe
             frontend/src-tauri/target/release/bundle/msi/*.msi

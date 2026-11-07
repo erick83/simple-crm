@@ -73,7 +73,7 @@ jobs:
           NEW_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('frontend/package.json','utf8')).version)")
           echo "new_version=$NEW_VER" >> $GITHUB_OUTPUT
           git add -A
-          git commit -m "chore(release): preparar v${NEW_VER} [skip ci]" || echo "Sin cambios para commitear"
+          git commit -m "chore(release): preparar v${NEW_VER}" || echo "Sin cambios para commitear"
           git push origin release-candidate
 
       - name: Crear o actualizar PR de chore(release)
