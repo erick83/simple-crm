@@ -1,0 +1,119 @@
+name: "Release Planner (Release Candidate PR)"
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master, main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  plan:
+    name: "Planificar Próxima Versión (chore release PR)"
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref != 'release-candidate' && !startsWith(github.event.pull_request.title, 'chore(release):')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Extraer etiqueta de versión o aplicar fallback
+        id: parse_label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const labels = (pr.labels || []).map(l => l.name);
+            const valid = ['release:major', 'release:minor', 'release:patch', 'skip-release'];
+            const found = labels.find(l => valid.includes(l));
+
+            if (found === 'skip-release') {
+              core.setOutput('skip', 'true');
+              core.setOutput('label', 'skip-release');
+              return;
+            }
+
+            // Si no tiene etiqueta, fallback automático a patch (Opción 2)
+            const resolvedLabel = found || 'release:patch';
+            core.info(`Etiqueta resuelta para PR #${pr.number}: ${resolvedLabel}`);
+            core.setOutput('skip', 'false');
+            core.setOutput('label', resolvedLabel);
+
+      - name: Configurar Git y rama release-candidate
+        if: steps.parse_label.outputs.skip == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin release-candidate:release-candidate || git branch release-candidate
+          git checkout release-candidate
+          git merge master --no-edit
+
+      - name: Ejecutar planificador de versión y changelog
+        if: steps.parse_label.outputs.skip == 'false'
+        run: |
+          node frontend/scripts/plan-release.mjs \
+            --label "${{ steps.parse_label.outputs.label }}" \
+            --title "${{ github.event.pull_request.title }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --author "${{ github.event.pull_request.user.login }}" \
+            --url "${{ github.event.pull_request.html_url }}"
+
+      - name: Hacer commit y push a release-candidate
+        if: steps.parse_label.outputs.skip == 'false'
+        id: commit_push
+        run: |
+          NEW_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('frontend/package.json','utf8')).version)")
+          echo "new_version=$NEW_VER" >> $GITHUB_OUTPUT
+          git add -A
+          git commit -m "chore(release): preparar v${NEW_VER} [skip ci]" || echo "Sin cambios para commitear"
+          git push origin release-candidate
+
+      - name: Crear o actualizar PR de chore(release)
+        if: steps.parse_label.outputs.skip == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const newVersion = "${{ steps.commit_push.outputs.new_version }}";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Buscar si ya existe un PR abierto de release-candidate hacia master/main
+            const { data: openPRs } = await github.rest.pulls.list({
+              owner,
+              repo,
+              head: `${owner}:release-candidate`,
+              state: 'open',
+            });
+
+            const title = `chore(release): v${newVersion}`;
+            const body = `## 📦 Próxima Versión: v${newVersion}\n\nEste Pull Request acumula los cambios aprobados recientemente.\nAl fusionar este PR en **master**, se creará el Git Tag oficial y se compilarán los instaladores para los comercios.\n\n### 📝 Cambios incluidos:\nRevise el archivo [CHANGELOG.md](https://github.com/${owner}/${repo}/blob/release-candidate/CHANGELOG.md) para ver la lista completa de cambios.`;
+
+            if (openPRs.length > 0) {
+              const pr = openPRs[0];
+              await github.rest.pulls.update({
+                owner,
+                repo,
+                pull_number: pr.number,
+                title,
+                body,
+              });
+              core.info(`PR de release existente #${pr.number} actualizado a: ${title}`);
+            } else {
+              const created = await github.rest.pulls.create({
+                owner,
+                repo,
+                title,
+                head: 'release-candidate',
+                base: context.payload.pull_request.base.ref || 'master',
+                body,
+              });
+              core.info(`Nuevo PR de release creado: #${created.data.number} - ${title}`);
+            }
