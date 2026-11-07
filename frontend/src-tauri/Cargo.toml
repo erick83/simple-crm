@@ -1,6 +1,6 @@
 [package]
 name = "bisync-pos-desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "Bisync POS P2P Local-First para Windows"
 authors = ["Bisync"]
 edition = "2021"
