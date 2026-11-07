@@ -680,7 +680,7 @@ const makeStyles = (c: Palette) =>
   headerLicBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusSm,
     backgroundColor: c.surfaceContainerHigh,
   },
   headerLicBadgeActive: {

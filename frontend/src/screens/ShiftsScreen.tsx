@@ -1079,7 +1079,7 @@ const makeStyles = (c: Palette) =>
                             statusBadge: {
                               paddingHorizontal: spacing.md,
                             paddingVertical: spacing.xs,
-                            borderRadius: spacing.radiusFull,
+                            borderRadius: spacing.radiusSm,
   },
                             openBadge: {
                               backgroundColor: c.heroSoft,

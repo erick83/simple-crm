@@ -1891,7 +1891,7 @@ const makeStyles = (c: Palette) =>
     height: spacing.touchTargetMin, // 48px
     backgroundColor: c.errorSoft,
     paddingHorizontal: spacing.md,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
@@ -1912,7 +1912,7 @@ const makeStyles = (c: Palette) =>
     height: spacing.touchTargetMin, // 48px
     backgroundColor: c.surfaceContainer,
     paddingHorizontal: spacing.md,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
@@ -1935,7 +1935,7 @@ const makeStyles = (c: Palette) =>
     height: spacing.touchTargetMin, // 48px
     backgroundColor: c.surfaceContainerHigh,
     paddingHorizontal: spacing.md,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
@@ -2017,7 +2017,7 @@ const makeStyles = (c: Palette) =>
     minHeight: spacing.touchTargetMin,
     backgroundColor: c.surfaceContainer,
     paddingHorizontal: spacing.md,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
@@ -2056,7 +2056,7 @@ const makeStyles = (c: Palette) =>
     minHeight: spacing.touchTargetMin,
     backgroundColor: c.surfaceContainer,
     paddingHorizontal: spacing.md,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
@@ -2119,7 +2119,7 @@ const makeStyles = (c: Palette) =>
     backgroundColor: c.surfaceContainerHighest,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusSm,
   },
   rowCategoryTagText: {
     fontSize: 12,
@@ -2152,7 +2152,7 @@ const makeStyles = (c: Palette) =>
     height: spacing.touchTargetMin, // 48px
     backgroundColor: c.surfaceContainerHigh,
     paddingHorizontal: spacing.md,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
@@ -2286,7 +2286,7 @@ const makeStyles = (c: Palette) =>
   stockBadge: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusSm,
   },
   normalStockBadge: {
     backgroundColor: c.surfaceContainer,
@@ -2582,7 +2582,7 @@ const makeStyles = (c: Palette) =>
     height: spacing.touchTargetMin, // 48px
     backgroundColor: c.errorSoft,
     paddingHorizontal: spacing.md,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,

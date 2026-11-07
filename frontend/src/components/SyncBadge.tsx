@@ -109,7 +109,7 @@ const makeStyles = (c: Palette) =>
     backgroundColor: c.surfaceContainerLow,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     borderWidth: 1,
     gap: spacing.xs,
   },
