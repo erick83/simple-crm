@@ -504,7 +504,7 @@ const makeStyles = (c: Palette) =>
       backgroundColor: c.warningSoft,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xs,
-      borderRadius: spacing.radiusFull,
+      borderRadius: spacing.radiusSm,
       marginBottom: spacing.xs,
     },
     pillBadgeText: {
@@ -745,7 +745,7 @@ const makeStyles = (c: Palette) =>
       backgroundColor: c.heroSoft,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xs,
-      borderRadius: spacing.radiusFull,
+      borderRadius: spacing.radiusSm,
     },
     activatedBadgeText: {
       fontSize: 11,

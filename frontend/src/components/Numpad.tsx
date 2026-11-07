@@ -97,11 +97,16 @@ const makeStyles = (c: Palette) =>
     width: spacing.touchTargetHero, // 64px
     height: spacing.touchTargetHero, // 64px
     backgroundColor: c.surfaceContainerHigh,
-    borderRadius: spacing.radiusMd,
+    borderRadius: spacing.radiusLg,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
     borderColor: c.border,
+    shadowColor: c.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 1,
   },
   actionKey: {
     backgroundColor: c.surfaceContainerHighest,
@@ -117,13 +122,18 @@ const makeStyles = (c: Palette) =>
   },
   clearWideKey: {
     flex: 1,
-    height: 48,
+    height: spacing.touchTargetMin,
     backgroundColor: c.surfaceContainerHighest,
-    borderRadius: spacing.radiusMd,
+    borderRadius: spacing.radiusLg,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
     borderColor: c.border,
+    shadowColor: c.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
   },
   clearWideText: {
     fontSize: typography.sizes.caption,

@@ -2569,7 +2569,7 @@ const makeStyles = (c: Palette, m: Metrics) =>
     minHeight: spacing.touchTargetMin,
     paddingHorizontal: spacing.md,
     backgroundColor: c.surfaceContainerLow,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     borderWidth: 1,
     borderColor: c.border,
     justifyContent: "center",
@@ -2594,7 +2594,7 @@ const makeStyles = (c: Palette, m: Metrics) =>
     height: spacing.touchTargetMin, // 48px mínimo táctil
     backgroundColor: c.surfaceContainerLow,
     paddingHorizontal: spacing.md,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     borderWidth: 1,
     borderColor: c.primaryGlow,
     gap: spacing.xs,
@@ -2627,6 +2627,11 @@ const makeStyles = (c: Palette, m: Metrics) =>
     borderWidth: 1,
     borderColor: c.border,
     justifyContent: "space-between",
+    shadowColor: c.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 1,
   },
   productCardOutStock: {
     opacity: 0.75,
@@ -3084,7 +3089,7 @@ const makeStyles = (c: Palette, m: Metrics) =>
   deleteLineBtn: {
     width: spacing.touchTargetMin,
     height: spacing.touchTargetMin,
-    borderRadius: spacing.radiusFull,
+    borderRadius: spacing.radiusMd,
     backgroundColor: c.errorSoft,
     justifyContent: "center",
     alignItems: "center",
