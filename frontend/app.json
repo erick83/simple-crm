@@ -2,14 +2,14 @@
   "expo": {
     "name": "Bisync POS",
     "slug": "bisync-pos",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "landscape",
     "newArchEnabled": true,
     "userInterfaceStyle": "dark",
     "backgroundColor": "#061426",
     "android": {
       "package": "com.bisync.pos",
-      "versionCode": 100
+      "versionCode": 101
     },
     "web": {
       "bundler": "metro"
