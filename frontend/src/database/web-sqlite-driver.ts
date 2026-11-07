@@ -128,6 +128,17 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
     run(sql: string, params: SqlValue[] = []): void {
       const norm = sql.replace(/\s+/g, " ").trim();
 
+      // Vaciado total de tabla sin WHERE (DELETE FROM <table>)
+      const deleteMatch = norm.match(/^DELETE FROM (\w+)$/i);
+      if (deleteMatch) {
+        const table = deleteMatch[1] as keyof RelationalStore;
+        if (table in store) {
+          store[table] = [];
+          persistStoreToStorage(store);
+          return;
+        }
+      }
+
       // 1. INSERT INTO products
       if (/^INSERT INTO products/i.test(norm)) {
         if (norm.includes("min_stock, tracks_inventory, is_active")) {
@@ -920,10 +931,54 @@ export function createWebDesktopSqliteDriver(): SqlDriver {
         persistStoreToStorage(store);
         return;
       }
+
+      // Inserción o reemplazo dinámico genérico para restauración de copias de seguridad (INSERT OR REPLACE INTO <table> ...)
+      const insertMatch = norm.match(/^INSERT (?:OR REPLACE )?INTO (\w+)\s*\((.*?)\)\s*VALUES/i);
+      if (insertMatch) {
+        const table = insertMatch[1] as keyof RelationalStore;
+        const rawCols = insertMatch[2];
+        if (rawCols && table in store) {
+          const cols = rawCols.split(",").map((c) => c.trim());
+          const row: Record<string, SqlValue> = {};
+          cols.forEach((col, idx) => {
+            row[col] = params[idx] ?? null;
+          });
+          const idVal = row.id ?? row.key ?? row.hwid ?? row.terminal_id;
+          if (idVal !== undefined && idVal !== null) {
+            const keyName =
+              row.id !== undefined
+                ? "id"
+                : row.key !== undefined
+                  ? "key"
+                  : row.hwid !== undefined
+                    ? "hwid"
+                    : "terminal_id";
+            const existingIdx = store[table].findIndex((item) => item[keyName] === idVal);
+            if (existingIdx >= 0) {
+              store[table][existingIdx] = row;
+            } else {
+              store[table].push(row);
+            }
+          } else {
+            store[table].push(row);
+          }
+          persistStoreToStorage(store);
+          return;
+        }
+      }
     },
 
     all<T = Record<string, SqlValue>>(sql: string, params: SqlValue[] = []): T[] {
       const norm = sql.replace(/\s+/g, " ").trim();
+
+      // Lectura completa sin filtros para copias de seguridad (SELECT * FROM <table>)
+      const selectAllMatch = norm.match(/^SELECT \* FROM (\w+)$/i);
+      if (selectAllMatch) {
+        const table = selectAllMatch[1] as keyof RelationalStore;
+        if (table in store) {
+          return cloneStore(store)[table] as unknown as T[];
+        }
+      }
 
       // 1. Consulta enriquecida listInventoryWithStock (JOIN categories + stock_movements)
       if (norm.includes("FROM products p") && norm.includes("LEFT JOIN stock_movements sm")) {

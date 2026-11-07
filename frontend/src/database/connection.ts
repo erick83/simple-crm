@@ -1,5 +1,7 @@
 import { NativeModules, Platform } from "react-native";
 import { createWebDesktopSqliteDriver, seedInitialPosData } from "./web-sqlite-driver";
+import { ensureBaseSchema } from "./migrations";
+import { shouldRunMigrations } from "../utils/env";
 
 export type SqlValue = string | number | null;
 
@@ -74,28 +76,42 @@ export function createOpSqliteDriver(dbName = "bisync_pos.db"): SqlDriver {
  * - Expo Go / Windows Desktop (Tauri) / Web: createWebDesktopSqliteDriver con semilla inicial
  */
 export function createDefaultSqlDriver(
-  opts: { dbName?: string; tenantId?: string; terminalId?: string; seedIfEmpty?: boolean } = {},
+  opts: {
+    dbName?: string;
+    tenantId?: string;
+    terminalId?: string;
+    seedIfEmpty?: boolean;
+    runMigrations?: boolean;
+  } = {},
 ): SqlDriver {
   let driver: SqlDriver;
-    if (!isOpSqliteNativeAvailable()) {
+  if (!isOpSqliteNativeAvailable()) {
+    driver = createWebDesktopSqliteDriver();
+  } else {
+    try {
+      driver = createOpSqliteDriver(opts.dbName);
+    } catch {
       driver = createWebDesktopSqliteDriver();
-    } else {
-      try {
-        driver = createOpSqliteDriver(opts.dbName);
-      } catch {
-        driver = createWebDesktopSqliteDriver();
-      }
     }
+  }
 
+  const allowMigrations =
+    opts.runMigrations !== undefined ? opts.runMigrations : shouldRunMigrations();
+
+  if (allowMigrations) {
     if (opts.seedIfEmpty !== false) {
       seedInitialPosData(driver, {
         tenantId: opts.tenantId,
         terminalId: opts.terminalId,
       });
     }
-
-    return driver;
+  } else {
+    // Entorno de producción: asegura el esquema DDL oficial sin sembrar datos demo ni correr migraciones dev
+    ensureBaseSchema(driver);
   }
+
+  return driver;
+}
 
   let sharedDefaultDriver: SqlDriver | null = null;
 

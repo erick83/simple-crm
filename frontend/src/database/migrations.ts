@@ -3,6 +3,30 @@ import { SCHEMA_SQL } from "./schema.generated";
 import { hashOperatorPin } from "./repositories/operator.repository";
 
 /**
+ * Asegura la existencia del esquema base DDL oficial de forma limpia e idempotente.
+ * Se utiliza en entornos de producción para no alterar bases de datos existentes con
+ * migraciones experimentales de desarrollo.
+ */
+export function ensureBaseSchema(driver: SqlDriver, customSchemaSql?: string): void {
+  const sql = customSchemaSql ?? SCHEMA_SQL;
+  driver.exec(sql);
+
+  // Asegura operador administrador inicial si la tabla existe y está vacía
+  try {
+    const rows = driver.all<{ count: number }>("SELECT COUNT(*) as count FROM operators");
+    if ((rows[0]?.count ?? 0) === 0) {
+      const now = Date.now();
+      driver.run(
+        "INSERT INTO operators (id, name, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ["01940000-0000-7000-8000-000000000001", "Administrador", "ADMIN", hashOperatorPin("1234"), 1, now],
+      );
+    }
+  } catch {
+    // Si la tabla no estuviera disponible, continuar
+  }
+}
+
+/**
  * Inicializa y migra la base de datos local SQLite ejecutando el esquema DDL oficial.
  * Garantiza idempotencia mediante sentencias CREATE IF NOT EXISTS.
  */
