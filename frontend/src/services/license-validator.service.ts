@@ -1,6 +1,7 @@
 import type { SqlDriver } from "../database/connection";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { uuidv7 } from "../utils/uuid7";
+import { saveFileWithNativeDialog } from "../utils/file-saver";
 
 const SHA256_K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -565,26 +566,12 @@ export class LicenseValidatorService {
   }
 
   /**
-   * Descarga directamente un archivo JSON en el navegador o entorno web (carpeta Descargas).
+   * Descarga o guarda directamente un archivo JSON abriendo la ventana de diálogo nativa
+   * en Windows / Escritorio (Tauri) o mediante descarga en entorno web.
    */
-  static downloadJsonFile(filename: string, content: string): boolean {
-    if (typeof document !== "undefined") {
-      try {
-        const blob = new Blob([content], { type: "application/json;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    return false;
+  static async downloadJsonFile(filename: string, content: string): Promise<boolean> {
+    const res = await saveFileWithNativeDialog(filename, content);
+    return res.success;
   }
 
   /**

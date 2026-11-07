@@ -1,7 +1,7 @@
 import type { SqlDriver } from "./driver";
-import { migrateDatabase } from "../database/migrations";
+import { migrateDatabase, ensureBaseSchema } from "../database/migrations";
 
-export { migrateDatabase };
+export { migrateDatabase, ensureBaseSchema };
 
 export function initDatabase(driver: SqlDriver, schemaSql?: string): void {
   migrateDatabase(driver, schemaSql);

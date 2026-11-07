@@ -37,6 +37,8 @@ import {
   LicenseCheckResult,
   LicenseRequestData,
 } from "../services/license-validator.service";
+import { BackupService } from "../services/backup.service";
+import { getAppEnvironment } from "../utils/env";
 
 export interface SettingsScreenProps {
   db?: SqlDriver;
@@ -169,7 +171,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   }, [db, hwid, emailInput]);
 
-  const handleActivateTrial = () => {
+  const handleActivateTrial = async () => {
     setLicMessage(null);
     setLicError(false);
     if (!db) {
@@ -197,10 +199,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     });
     setGeneratedRequest(req);
     const filename = `bisync-license-request-${terminalId}.json`;
-    LicenseValidatorService.downloadJsonFile(filename, JSON.stringify(req, null, 2));
+    await LicenseValidatorService.downloadJsonFile(filename, JSON.stringify(req, null, 2));
     setLicError(false);
     setLicMessage(
-      `¡Periodo de prueba de 15 días activado! Se descargó automáticamente el archivo ${filename}.`,
+      `¡Periodo de prueba de 15 días activado! Se guardó el archivo ${filename}.`,
     );
     refreshLicense();
   };
@@ -227,12 +229,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     });
   };
 
-  const handleDownloadRequest = () => {
+  const handleDownloadRequest = async () => {
     const req = getOrBuildRequest();
     const filename = `bisync-license-request-${terminalId}.json`;
-    LicenseValidatorService.downloadJsonFile(filename, JSON.stringify(req, null, 2));
+    await LicenseValidatorService.downloadJsonFile(filename, JSON.stringify(req, null, 2));
     setLicError(false);
-    setLicMessage(`✓ Archivo ${filename} descargado en la carpeta de Descargas.`);
+    setLicMessage(`✓ Archivo ${filename} guardado correctamente.`);
   };
 
   const handleCopyRequest = async () => {
@@ -419,6 +421,75 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       refreshOperators();
     } catch (err) {
       setOpError((err as Error).message);
+    }
+  };
+
+  // Estado y acciones de Copias de Seguridad y Base de Datos
+  const currentEnv = getAppEnvironment();
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [backupIsError, setBackupIsError] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  const handleCreateBackup = async () => {
+    if (!db) return;
+    try {
+      const backup = BackupService.createBackup(db, {
+        tenantId,
+        terminalId,
+        createdBy: currentOperator?.name ?? "Administrador",
+      });
+      const res = await BackupService.downloadBackupFile(backup);
+      if (res.success) {
+        setBackupMessage(
+          `Copia de seguridad guardada exitosamente (${backup.totalRecords} registros incluidos).`,
+        );
+        setBackupIsError(false);
+      }
+    } catch (err) {
+      setBackupMessage(
+        `Error al crear copia: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      setBackupIsError(true);
+    }
+  };
+
+  const handlePickRestoreFile = () => {
+    if (!db) return;
+    if (typeof document !== "undefined") {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json,application/json";
+      input.onchange = (e: Event) => {
+        const target = e.target as HTMLInputElement;
+        const file = target?.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const text = ev.target?.result as string;
+            if (text) {
+              const res = BackupService.restoreBackup(db, text);
+              setBackupMessage(res.message);
+              setBackupIsError(!res.success);
+              if (res.success) {
+                setOperators(listOperators(db));
+              }
+            }
+          };
+          reader.readAsText(file);
+        }
+      };
+      input.click();
+    }
+  };
+
+  const handleResetDatabase = () => {
+    if (!db) return;
+    const res = BackupService.resetDatabase(db);
+    setBackupMessage(res.message);
+    setBackupIsError(!res.success);
+    setShowResetConfirm(false);
+    if (res.success) {
+      setOperators(listOperators(db));
     }
   };
 
@@ -927,6 +998,90 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             );
           })}
         </View>
+      </View>
+
+      {/* Card 4: Copias de Seguridad y Persistencia */}
+      <View style={styles.card}>
+        <View style={styles.licenseHeader}>
+          <Text style={styles.sectionTitle}>Copias de Seguridad y Persistencia</Text>
+          <View style={styles.envBadge}>
+            <Text style={styles.envBadgeText}>
+              MODO: {currentEnv.toUpperCase()}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionHelp}>
+          Genera copias de respaldo de tus ventas, inventario, tasas y configuración para resguardar la información offline-first de tu negocio ante cambios de equipo o mantenimiento.
+        </Text>
+
+        {backupMessage ? (
+          <Text
+            style={[
+              styles.message,
+              backupIsError ? styles.messageError : styles.messageOk,
+            ]}
+          >
+            {backupMessage}
+          </Text>
+        ) : null}
+
+        <View style={styles.backupActionsRow}>
+          <TouchableOpacity
+            style={styles.backupBtn}
+            onPress={handleCreateBackup}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.backupBtnText}>💾 Crear y Descargar Respaldo</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.backupBtn, styles.backupBtnSecondary]}
+            onPress={handlePickRestoreFile}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.backupBtnText, styles.backupBtnTextSecondary]}>
+              📥 Restaurar desde Copia
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.backupBtn, styles.backupBtnDanger]}
+            onPress={() => setShowResetConfirm(!showResetConfirm)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.backupBtnText, styles.backupBtnTextDanger]}>
+              ⚠️ Restablecer Datos de Fábrica
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {showResetConfirm ? (
+          <View style={[styles.operatorForm, { borderColor: theme.errorText }]}>
+            <Text style={[styles.formSubtitle, { color: theme.errorText }]}>
+              ¿Confirmar restablecimiento total de la base de datos?
+            </Text>
+            <Text style={styles.sectionHelp}>
+              Esta acción eliminará todas las ventas, turnos, inventario y tasas registradas, dejando únicamente el usuario Administrador inicial. Se recomienda crear un respaldo previo antes de continuar.
+            </Text>
+            <View style={styles.formRow}>
+              <TouchableOpacity
+                style={[styles.saveButton, { backgroundColor: theme.errorText }]}
+                onPress={handleResetDatabase}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.saveButtonText}>SÍ, BORRAR Y RESTABLECER</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.pinCancelBtn}
+                onPress={() => setShowResetConfirm(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.pinCancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </View>
     </ScrollView>
   );
@@ -1464,5 +1619,52 @@ const makeStyles = (c: Palette) =>
     removeFileBtnText: {
       fontSize: 11,
       color: c.textMuted,
+    },
+    backupActionsRow: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      flexWrap: "wrap",
+    },
+    backupBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 48,
+      paddingHorizontal: spacing.lg,
+      borderRadius: spacing.radiusMd,
+      backgroundColor: c.primary,
+      gap: spacing.xs,
+    },
+    backupBtnSecondary: {
+      backgroundColor: c.surfaceContainerHigh,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    backupBtnDanger: {
+      backgroundColor: c.errorSoft,
+      borderWidth: 1,
+      borderColor: c.errorText,
+    },
+    backupBtnText: {
+      fontSize: typography.sizes.body,
+      fontWeight: typography.weights.bold,
+      color: c.onPrimary,
+    },
+    backupBtnTextSecondary: {
+      color: c.textPrimary,
+    },
+    backupBtnTextDanger: {
+      color: c.errorText,
+    },
+    envBadge: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderRadius: spacing.radiusSm,
+      backgroundColor: c.surfaceContainerHighest,
+    },
+    envBadgeText: {
+      fontSize: typography.sizes.caption,
+      fontWeight: typography.weights.bold,
+      color: c.textSecondary,
     },
   });
