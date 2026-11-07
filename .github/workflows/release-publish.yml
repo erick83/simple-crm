@@ -1,0 +1,65 @@
+name: "Publish Release & Build Installers"
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master, main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: "Crear Tag, Compilar y Publicar Release"
+    if: github.event.pull_request.merged == true && (github.event.pull_request.head.ref == 'release-candidate' || startsWith(github.event.pull_request.title, 'chore(release):'))
+    runs-on: windows-latest
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Instalar dependencias
+        working-directory: frontend
+        run: npm ci
+
+      - name: Extraer versión actual
+        id: get_version
+        shell: pwsh
+        run: |
+          $ver = (Get-Content frontend/package.json | ConvertFrom-Json).version
+          echo "version=$ver" >> $env:GITHUB_OUTPUT
+          echo "tag=v$ver" >> $env:GITHUB_OUTPUT
+          Write-Host "Versión a publicar: v$ver"
+
+      - name: Crear y subir Git Tag
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a ${{ steps.get_version.outputs.tag }} -m "Release ${{ steps.get_version.outputs.tag }}"
+          git push origin ${{ steps.get_version.outputs.tag }}
+
+      - name: Compilar Instalador de Escritorio (Tauri Windows)
+        working-directory: frontend
+        run: npm run desktop:build
+
+      - name: Publicar GitHub Release con Binarios e Instaladores
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_version.outputs.tag }}
+          name: "Bisync POS ${{ steps.get_version.outputs.tag }}"
+          body: ${{ github.event.pull_request.body }}
+          files: |
+            frontend/src-tauri/target/release/bundle/nsis/*-setup.exe
+            frontend/src-tauri/target/release/bundle/msi/*.msi

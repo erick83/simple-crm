@@ -1,0 +1,40 @@
+name: "PR Release Label Check"
+
+on:
+  pull_request:
+    types: [opened, labeled, unlabeled, synchronize, ready_for_review]
+    branches: [master, main]
+
+jobs:
+  check-label:
+    name: "Validar Etiqueta de Versión"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar etiquetas de versión en el PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) return;
+
+            // Omitir validación en PRs automáticos de release
+            if (pr.head.ref === 'release-candidate' || pr.title.startsWith('chore(release):')) {
+              core.info('PR de release automático: validación omitida.');
+              return;
+            }
+
+            const validLabels = ['release:patch', 'release:minor', 'release:major', 'skip-release'];
+            const prLabels = (pr.labels || []).map(l => l.name);
+            const matched = prLabels.filter(name => validLabels.includes(name));
+
+            if (matched.length === 0) {
+              core.setFailed(
+                '⚠️ Falta etiqueta de versión. Selecciona una en el panel derecho: release:patch, release:minor, release:major, o skip-release. (Nota: Si se mergea sin etiqueta, el sistema aplicará release:patch automáticamente como fallback).'
+              );
+            } else if (matched.length > 1) {
+              core.setFailed(
+                `⚠️ Se encontraron múltiples etiquetas de versión: [${matched.join(', ')}]. Por favor deja solo una etiqueta en el PR.`
+              );
+            } else {
+              core.info(`✅ Etiqueta de versión detectada: ${matched[0]}`);
+            }
